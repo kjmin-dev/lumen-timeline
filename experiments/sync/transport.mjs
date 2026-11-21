@@ -28,7 +28,7 @@ export function scheduleWindow(node, window, audioAtProjectZero, outputRate, sha
 
 // Unit-speed experiment. The video is the clock; Web Audio owns sample delivery.
 export class VideoTransport {
-  constructor(video, context, output, { editor, catalog, resolveBuffer, onError = () => {} }) {
+  constructor(video, context, output, { editor, catalog, resolveBuffer, onError = () => {}, onFrame = () => {} }) {
     if (typeof video.requestVideoFrameCallback !== 'function' ||
         typeof context.getOutputTimestamp !== 'function') {
       throw new Error('This clock probe requires video frame callbacks and audio output timestamps')
@@ -41,6 +41,7 @@ export class VideoTransport {
     this.catalog = catalog
     this.resolveBuffer = resolveBuffer
     this.onError = onError
+    this.onFrame = onFrame
     this.generation = 0
     this.phaseResets = 0
     this.phaseExcursion = null
@@ -72,8 +73,9 @@ export class VideoTransport {
     const generation = this.generation
     this.frame = this.video.requestVideoFrameCallback((now, frame) => {
       this.observe()
-      if (generation !== this.generation || this.video.seeking || this.video.paused ||
-          this.seekInFlight || !this.running) return
+      if (generation !== this.generation || this.video.seeking || this.seekInFlight) return
+      if (this.video.paused || this.running) this.onFrame(frame.mediaTime)
+      if (this.video.paused || !this.running) return
       const stamp = this.context.getOutputTimestamp()
       if (!(stamp.performanceTime > 0)) return
       const audio = stamp.contextTime + (presentationTime(now, frame.expectedDisplayTime) - stamp.performanceTime) / 1000

@@ -1,0 +1,24 @@
+:root { color-scheme: dark; font: 15px/1.45 Inter, system-ui, sans-serif; background: #101619; color: #e7ebe5; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header { display: flex; align-items: center; justify-content: space-between; padding: 17px max(5vw,20px); border-bottom: 1px solid #343d40; background: #171d20; }
+header > span, .title > span, small { font: 12px ui-monospace, monospace; color: #a7b5b5; }
+.brand { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 650; }
+.brand b { color: #9caaa9; font-weight: 400; }
+.brand i { width: 19px; height: 18px; margin-right: 5px; background: repeating-linear-gradient(110deg, #ffc099 0 3px, transparent 3px 6px); transform: skewX(-8deg); }
+main { max-width: 1190px; margin: auto; padding: 18px clamp(16px,4vw,50px) 36px; }
+.title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 13px; }
+h1,h2 { margin: 0; font-weight: 550; letter-spacing: -.035em; }
+h1 { font-size: clamp(30px,4vw,48px); }
+h2 { font-size: 21px; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(230px, 1fr); gap: 14px; }
+.monitor, aside { background: #1b2326; border: 1px solid #3a4548; border-radius: 10px; overflow: hidden; }
+.panel-head { display:flex; justify-content:space-between; align-items:center; padding: 10px 16px; background: #20282b; border-bottom: 1px solid #384347; font-size: 13px; font-weight: 600; }
+video { display: block; width: 100%; aspect-ratio: 2/1; object-fit: contain; background: #121e21; }
+aside h2 { margin: 18px 16px 12px; color:#b3dfce; }
+dl { margin: 0 16px 16px; display:grid; grid-template-columns: auto auto; gap: 0 8px; }
+dt,dd { margin:0; padding: 8px 0; border-bottom:1px solid #364045; font-size:13px; }
+dt { color:#aebbbd; } dd { text-align:right; }
+.timeline-title { margin-top:24px; }
+#status:empty { display:none; }
+@media(max-width:690px){.workspace{grid-template-columns:1fr;} dl{grid-template-columns:auto auto auto auto;} header>span,.title>span{font-size:10px;} }

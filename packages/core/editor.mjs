@@ -36,6 +36,9 @@ export function createEditor({ project, history: limits }) {
   const history = createHistory(limits)
   const subscribers = new Set()
   const historySubscribers = new Set()
+  const selectionSubscribers = new Set()
+  let selection = Object.freeze([])
+  let selectionVersion = 0
   let historyVersion = 0
   const notifications = []
   let notifying = false
@@ -101,11 +104,13 @@ export function createEditor({ project, history: limits }) {
     }
   }
 
-  function notify(result, historyChanged) {
+  function notify(result, historyChanged, selectionChanged = false) {
     const state = historyChanged ? Object.freeze({ undoDepth: history.undoDepth, redoDepth: history.redoDepth,
       estimatedBytes: history.estimatedBytes }) : null
     if (state) historyVersion++
-    notifications.push({ result, document: snapshot, state, version: historyVersion })
+    if (selectionChanged) selectionVersion++
+    notifications.push({ result, document: snapshot, state, version: historyVersion,
+      selection: selectionChanged ? selection : null, selectionVersion })
     if (notifying) return
     notifying = true
     try {
@@ -121,6 +126,13 @@ export function createEditor({ project, history: limits }) {
                 sub.listen(next, event.result, event.document)
               }
             })
+          }
+        }
+        if (event.selection) {
+          for (const sub of [...selectionSubscribers]) {
+            if (!selectionSubscribers.has(sub) || sub.version >= event.selectionVersion) continue
+            sub.version = event.selectionVersion
+            deliver(() => sub.listen(event.selection))
           }
         }
         if (event.state) {
@@ -221,7 +233,9 @@ export function createEditor({ project, history: limits }) {
       }
       snapshot = Object.freeze(next)
       reads.pin(snapshot, byTrack)
-      notify(result, policy !== 'ignore' && history.undoDepth + history.redoDepth > 0)
+      const pruned = geometry && selection.some(id => !byId.has(id))
+      if (pruned) selection = Object.freeze(selection.filter(id => byId.has(id)))
+      notify(result, policy !== 'ignore' && history.undoDepth + history.redoDepth > 0, pruned)
       return result
     } catch (error) {
       if (!(error instanceof EditError)) throw error
@@ -233,6 +247,23 @@ export function createEditor({ project, history: limits }) {
 
   return {
     getSnapshot: () => snapshot,
+    session: {
+      getSelection: () => selection,
+      select(ids) {
+        requireEdit(!disposed, 'disposed', null, 'Editor has been disposed')
+        requireEdit(Array.isArray(ids) && ids.every(id => byId.has(id)), 'invalid-selection', null, 'Expected existing clip IDs')
+        const next = [...new Set(ids)]
+        if (selection.length === next.length && next.every((id, i) => selection[i] === id)) return
+        selection = Object.freeze(next)
+        notify(null, false, true)
+      },
+      subscribeSelection(listen) {
+        requireEdit(!disposed, 'disposed', null, 'Editor has been disposed')
+        const sub = { listen, version: selectionVersion }
+        selectionSubscribers.add(sub)
+        return () => selectionSubscribers.delete(sub)
+      },
+    },
     read: (document = snapshot) => reads.read(document),
     dispatch: (command, options) => execute(command, 'edit', options),
     history: {
@@ -270,6 +301,8 @@ export function createEditor({ project, history: limits }) {
       disposed = true
       subscribers.clear()
       historySubscribers.clear()
+      selectionSubscribers.clear()
+      selection = Object.freeze([])
       history.clear()
     },
   }

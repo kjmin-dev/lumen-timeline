@@ -13,3 +13,4 @@ The core will own editing commands, time and history. A shared browser view will
 - [Headless clip editing](docs/headless-editing.md) shows the workspace API for transactional trim, split, move and undo/redo.
 - [Timeline reads and audio plans](docs/playback-read-api.md) covers revision-pinned placement queries, catalog bindings and source sample ranges.
 - [Incremental playback](docs/incremental-playback.md) covers edit-time voice reconciliation, buffer resolution and continuous-audio regression tests.
+- [Vanilla timeline example](docs/vanilla-timeline.md) runs a two-track guide with Canvas 2D selection, zoom and playback.
