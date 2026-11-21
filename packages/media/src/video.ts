@@ -19,16 +19,31 @@ export function createVideoTransport({
 }: VideoTransportOptions): VideoTransport {
   const listeners = new Set<(state: VideoTransportState) => void>();
   const events = new AbortController();
+  const initial = Math.round(video.currentTime * hz);
   let state: VideoTransportState = Object.freeze({
     playing: !video.paused && !video.ended,
-    presentedTick: Math.round(video.currentTime * hz),
+    presentedTick: initial,
     requestedTick: null,
+    segment: 0,
+    segmentStart: initial,
   });
   let request = 0;
   let playIntent = 0;
+  // A seek the element started itself, from native controls or a loop.
+  let nativeSeek = false;
   function update(delta: Partial<VideoTransportState>): void {
     state = Object.freeze({ ...state, ...delta });
     for (const listener of listeners) listener(state);
+  }
+  // After a seek, presentation continues from the element's position.
+  function landed(): void {
+    const tick = Math.round(video.currentTime * hz);
+    update({
+      presentedTick: tick,
+      requestedTick: null,
+      segment: state.segment + 1,
+      segmentStart: tick,
+    });
   }
   const driver = new VideoDriver(video, context, output, {
     editor,
@@ -43,10 +58,21 @@ export function createVideoTransport({
     });
   }
   video.addEventListener(
+    "seeking",
+    () => {
+      // The transport publishes its own target before it assigns the position.
+      if (state.requestedTick !== null && !nativeSeek) return;
+      nativeSeek = true;
+      update({ requestedTick: Math.round(video.currentTime * hz) });
+    },
+    { signal: events.signal },
+  );
+  video.addEventListener(
     "seeked",
     () => {
-      if (state.requestedTick === null)
-        update({ presentedTick: Math.round(video.currentTime * hz) });
+      if (video.seeking || (!nativeSeek && state.requestedTick !== null)) return;
+      nativeSeek = false;
+      landed();
     },
     { signal: events.signal },
   );
@@ -73,12 +99,12 @@ export function createVideoTransport({
       if (events.signal.aborted) throw new Error("Transport disposed");
       if (!Number.isSafeInteger(tick) || tick < 0) throw new RangeError("Invalid project tick");
       const token = ++request;
+      nativeSeek = false;
       update({ requestedTick: tick });
       try {
         return await driver.seek(tick / hz);
       } finally {
-        if (token === request)
-          update({ presentedTick: Math.round(video.currentTime * hz), requestedTick: null });
+        if (token === request) landed();
       }
     },
     get catalog() {

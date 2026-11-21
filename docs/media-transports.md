@@ -17,7 +17,7 @@ const view = mountTimeline(container, { editor, transport });
 
 The video driver observes presented frames and handles native seeking, buffering and clock reacquisition. A shared voice scheduler consumes its project-tick/context-time anchor. It owns its planning timer, editor subscription, gain and buffer source nodes, and abortable resolution requests. A clip edit preserves unrelated reservations and the active generation. A clock discontinuity invalidates the generation.
 
-The public video factory accepts seeks in integer project ticks. Use `snapshot()`, `subscribe(listener)`, `play()`, `pause()`, `seek(tick)`, `setCatalog(catalog)` and `dispose()`. `diagnostics(clipId)` reports the generation, sample rate and an opaque reservation identity and end sample for that clip. The experiment's seconds-based API remains available to its original probes.
+The public video factory accepts seeks in integer project ticks. Use `snapshot()`, `subscribe(listener)`, `play()`, `pause()`, `seek(tick)`, `setCatalog(catalog)` and `dispose()`. A seek started on the element itself, from native controls or a loop, is reported the same way: its target appears as `requestedTick` at `seeking`, and the landing position at `seeked`. `diagnostics(clipId)` reports the generation, sample rate and an opaque reservation identity and end sample for that clip. The experiment's seconds-based API remains available to its original probes.
 
 The host owns the editor, video element, AudioContext, output and asset cache. Disposing the factory detaches the driver and cancels its work; the host decides when to pause the element or close its context. [Scheduling behavior and probes](incremental-playback.md)
 
@@ -46,8 +46,25 @@ The audio driver supports 1× playback. On play or an active seek, it anchors th
 - **Interruption.** When the context stops running, freeze the playhead, invalidate reservations and retain the latest play intent. Recovery uses a fresh anchor. A user pause while interrupted keeps the transport paused after recovery. If editing shrinks the extent behind playback, clamp to the new end and stop.
 - **Ownership.** Pass a host-owned context, editor, output node and asset resolver. Pause and disposal leave other users of the context running. Disposal cancels pending loads and rejects pending transport operations, clears callbacks and releases this driver's reservations. Samples already in the device output pipeline may still drain.
 
+## Marker crossings
+
+`watchMarkerCrossings(editor, transport, listener)` from `@lumen-timeline/core` reports the markers that playback crosses. A podcast host can use it for its chapter display, and a dubbing host can use it to highlight the line being heard.
+
+```js
+import { watchMarkerCrossings } from "@lumen-timeline/core";
+
+const stop = watchMarkerCrossings(editor, transport, ({ markers, after, through, revision }) => {
+  chapter.textContent = markers.at(-1).label ?? "";
+});
+```
+
+- **Order.** As the presented tick advances, the listener receives the markers with `after < start <= through`, in snapshot order. It reads them from the editor's current revision, so a marker added ahead of the playhead is crossed when playback reaches it, and a removed one is not. A marker reached exactly is crossed once, including one at the sequence end where playback stops.
+- **Segments.** Both transports' snapshots carry `segment` and `segmentStart`. Within one segment, `presentedTick` moves only by playback. Every other move starts a new segment: a paused or playing seek, replay from the end, a native seek on the video element and a sequence shortened behind the playhead. Crossings in a new segment count from `segmentStart`, so a seek skips both the markers it jumps over and the marker at its destination. An audio seek is often first observed a little after its target. Markers between the target and that first observation still count as crossed.
+- **Other players.** Any adapter whose snapshots report `presentedTick`, `segment` and `segmentStart` satisfies `PresentationSource` and can drive the watcher.
+- **Lifetime.** Call the returned function to stop. It returns whether the watch was still active. Stop the watch before disposing its transport. A listener error is reported through `reportError` and does not end the watch.
+
 ### Reproduce the audio-only checks
 
 Run `npm test` for clock races, interruption/recovery, source offsets, shared context isolation, gaps, end/replay and extent changes. `npm run verify:pcm` exercises both drivers using native OfflineAudioContext graphs at 44.1 and 48 kHz. The audio-only fixture checks 2,304 samples across adjoining voice windows, silence, overlapping music and dialogue edited while scheduled. The combined fixture covers 6,144 samples.
 
-Run `npm run verify:audio` for the Chromium audio-only route. With Playwright browsers installed, run `node examples/vanilla/verify-audio.mjs firefox` or `node examples/vanilla/verify-audio.mjs webkit` for the other engines. The trace checks ten seconds of playhead progress at a fixed viewport, zero additional static paints or history entries, 100 rapid seeks, pointer/keyboard edits, music continuity and a fresh editor loaded from JSON. It exercises the normal output timestamp and forces the estimated-clock fallback in a second page.
+Run `npm run verify:audio` for the Chromium audio-only route. With Playwright browsers installed, run `node examples/vanilla/verify-audio.mjs firefox` or `node examples/vanilla/verify-audio.mjs webkit` for the other engines. The trace checks ten seconds of playhead progress at a fixed viewport, zero additional static paints or history entries, 100 rapid seeks, pointer/keyboard edits, music continuity and a fresh editor loaded from JSON. It also plays across both markers, seeks past a stretch without one, and checks that the example's **Last marker** display follows. It exercises the normal output timestamp and forces the estimated-clock fallback in a second page.

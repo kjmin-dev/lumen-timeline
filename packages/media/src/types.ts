@@ -140,6 +140,10 @@ export interface AudioTransportState {
   readonly presentedTick: Tick;
   readonly requestedTick: Tick | null;
   readonly precision: ClockPrecision;
+  /** Changes whenever the presented position moves other than by playback, as after a seek. */
+  readonly segment: number;
+  /** The tick that presentation continues from in this segment. */
+  readonly segmentStart: Tick;
 }
 
 export interface AudioTransport {
@@ -159,6 +163,10 @@ export interface VideoTransportState {
   readonly playing: boolean;
   readonly presentedTick: Tick;
   readonly requestedTick: Tick | null;
+  /** Changes whenever the presented position moves other than by playback, as after a seek. */
+  readonly segment: number;
+  /** The tick that presentation continues from in this segment. */
+  readonly segmentStart: Tick;
 }
 
 export interface VideoTransport {

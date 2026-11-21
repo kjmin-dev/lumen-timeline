@@ -126,6 +126,9 @@ dd {
 .timeline-title {
   margin-top: 24px;
 }
+#marker-cue {
+  color: #b3dfce;
+}
 #status:empty {
   display: none;
 }
