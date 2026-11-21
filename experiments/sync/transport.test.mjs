@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { VideoTransport, presentationTime } from './transport.mjs'
+import { createEditor } from '../../packages/core/index.mjs'
+import { bufferCatalog } from './buffer-fixture.mjs'
 import { TICKS_PER_SECOND as hz } from '../../packages/core/time.mjs'
+
+function makeTransport(player, context, output, clips, takes) {
+  const editor = createEditor({ project: { schemaVersion: 1, tracks: [{ id: 'voice' }],
+    clips: clips.map(c => ({ ...c, id: String(c.id), activeTakeId: c.take, trackId: 'voice', kind: 'audio' })) } })
+  const buffers = Object.fromEntries(Object.entries(takes).map(([id,t]) => [id, {
+    buffer: { sampleRate: context.sampleRate, length: Math.round(t.availableEnd / hz * context.sampleRate) },
+  }]))
+  return new VideoTransport(player, context, output, { editor, catalog: bufferCatalog(buffers),
+    resolveBuffer: s => buffers[s.assetId].buffer })
+}
 
 test('a fake clock cancels scheduled sound across a stall, seek and disposal', async () => {
   class Player extends EventTarget {
@@ -17,11 +29,11 @@ test('a fake clock cancels scheduled sound across a stall, seek and disposal', a
   const context = {
     sampleRate: 48000, currentTime: 4, getOutputTimestamp: () => ({ contextTime: 4, performanceTime: 4000 }),
     createBufferSource: () => ({
-      connect() {}, disconnect() {}, start(...args) { starts.push(args) }, stop(when) { if (when === undefined) stops++ },
+      connect() {}, disconnect() {}, start(...args) { starts.push(args) }, stop(when) { if (when === context.currentTime) stops++ },
     }),
   }
   const clip = { id: 'line', take: 'a', start: 12 * hz, duration: 4 * hz, contentIn: hz }
-  const transport = new VideoTransport(player, context, {}, [clip], {
+  const transport = makeTransport(player, context, {}, [clip], {
     a: { availableStart: 0, availableEnd: 10 * hz, sourceAtContentZero: 0 },
   })
   const frame = mediaTime => player.callback(4000, { expectedDisplayTime: 4000, mediaTime })
@@ -58,7 +70,7 @@ test('disposal settles in-flight and queued seek promises', async () => {
     duration: 20, currentTime: 1, readyState: 4,
     requestVideoFrameCallback() { return 1 }, cancelVideoFrameCallback() {},
   })
-  const transport = new VideoTransport(player, { getOutputTimestamp() {} }, {}, [], {})
+  const transport = makeTransport(player, { getOutputTimestamp() {} }, {}, [], {})
   const inFlight = transport.seek(5)
   const queued = transport.seek(7)
   transport.dispose()
@@ -84,7 +96,7 @@ test('adjacent clips share an absolute output sample despite jitter in frame obs
   }
   const takes = { a: { availableStart: 0, availableEnd: 10 * hz, sourceAtContentZero: 0 } }
   const clips = [0, 1].map(i => ({ id: i, take: 'a', start: i * hz, duration: hz, contentIn: 0 }))
-  const transport = new VideoTransport(player, ctx, {}, clips, takes)
+  const transport = makeTransport(player, ctx, {}, clips, takes)
   try {
     player.dispatchEvent(new Event('playing'))
     player.cb(1000, { expectedDisplayTime: 1000, mediaTime: 0.2 })
@@ -100,7 +112,7 @@ test('a stale native seeked event cannot acknowledge a newer target', async () =
     duration: 20, currentTime: 0, paused: true, readyState: 4,
     requestVideoFrameCallback() { return 1 }, cancelVideoFrameCallback() {},
   })
-  const transport = new VideoTransport(player, { getOutputTimestamp() {} }, {}, [], {})
+  const transport = makeTransport(player, { getOutputTimestamp() {} }, {}, [], {})
   try {
     const pending = transport.seek(12)
     player.currentTime = 3
@@ -133,7 +145,7 @@ test('a 100 ppm clock difference across thirty minutes preserves touching sample
       id: i, take: 'a', start: i * 10 * hz, duration: 10 * hz, contentIn: 0,
     }))
     const takes = { a: { availableStart: 0, availableEnd: 10 * hz, sourceAtContentZero: 0 } }
-    const transport = new VideoTransport(player, ctx, {}, clips, takes)
+    const transport = makeTransport(player, ctx, {}, clips, takes)
     try {
       player.dispatchEvent(new Event('playing'))
       for (let i = 0; i < clips.length; i++) {

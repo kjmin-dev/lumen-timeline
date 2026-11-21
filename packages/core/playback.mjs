@@ -35,9 +35,9 @@ function planClip(clip, track, range, binding) {
   if (!window) return null
   const audible = nativeRange(full.start, full.end, full.sourceStart, binding)
   return Object.freeze({
-    clipId: clip.id, trackId: track.id, takeId: clip.activeTakeId, assetId: binding.assetId,
+    clipId: clip.id, trackId: track.id, chainId: clip.continuityId ?? null, takeId: clip.activeTakeId, assetId: binding.assetId,
     assetVersion: binding.assetVersion, streamId: binding.streamId, sampleRate, gain: track.gain ?? 1,
-    audible, window,
+    sourceOriginTick: origin - clip.start, audible, window,
   })
 }
 

@@ -1,10 +1,12 @@
-import { commands, createEditor, sourceWindow, unitsToTicks } from '../../packages/core/index.mjs'
+import { commands, createEditor, unitsToTicks } from '../../packages/core/index.mjs'
+import { verifyContinuousEdits } from './continuous-edits.mjs'
+import { bufferCatalog } from './buffer-fixture.mjs'
 import { scheduleWindow } from './transport.mjs'
 
 const renderLength = 64
 const sourceSample = (take, index) => (take === 'voice' ? 1 : -1) * (index + 1) / 128
 
-async function render(project, rate) {
+async function render(read, rate) {
   const context = new OfflineAudioContext(1, renderLength, rate)
   const buffers = new Map()
   for (const take of ['voice', 'bed']) {
@@ -13,15 +15,13 @@ async function render(project, rate) {
     for (let i = 0; i < samples.length; i++) samples[i] = sourceSample(take, i)
     buffers.set(take, buffer)
   }
-  const available = unitsToTicks(renderLength, rate)
-  for (const clip of project.clips) {
-    const span = sourceWindow(clip, { availableStart: 0, availableEnd: available, sourceAtContentZero: 0 },
-      0, available)
-    if (!span) continue
+  const catalog = bufferCatalog(Object.fromEntries([...buffers].map(([id,buffer]) => [id, {buffer}])))
+  const plan = read.planAudio({ start: 0, end: unitsToTicks(renderLength, rate) }, catalog)
+  for (const span of plan.spans) {
     const source = context.createBufferSource()
-    source.buffer = buffers.get(clip.activeTakeId)
+    source.buffer = buffers.get(span.assetId)
     source.connect(context.destination)
-    scheduleWindow(source, span, 0, rate)
+    scheduleWindow(source, span.window, 0, rate, undefined, span.window.sourceStart / span.sampleRate)
   }
   return (await context.startRendering()).getChannelData(0)
 }
@@ -51,7 +51,7 @@ export async function verifyEditedPcm() {
       ],
     } })
     async function compare(state, guideStart = 23) {
-      const actual = await render(editor.getSnapshot(), rate)
+      const actual = await render(editor.read(), rate)
       const expected = new Float32Array(renderLength)
       for (const [start, end, offset] of states[state]) {
         for (let i = start; i < end; i++) expected[i] = sourceSample('voice', offset + i - start)
@@ -107,5 +107,8 @@ export async function verifyEditedPcm() {
       await compare(3, 25)
     } finally { editor.dispose() }
   }
-  return { rates, renders, samplesCompared: renders * renderLength, passed: true }
+  let continuousSamples = 0
+  for (const rate of rates) continuousSamples += await verifyContinuousEdits(rate)
+  return { rates, renders: renders + rates.length, continuousSamples,
+    samplesCompared: renders * renderLength + continuousSamples, passed: true }
 }

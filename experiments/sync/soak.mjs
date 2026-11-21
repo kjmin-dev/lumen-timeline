@@ -1,4 +1,6 @@
 import { TICKS_PER_SECOND as hz } from '../../packages/core/time.mjs'
+import { createEditor } from '../../packages/core/index.mjs'
+import { bufferCatalog } from './buffer-fixture.mjs'
 import { VideoTransport } from './transport.mjs'
 import { createTake, frameObserver } from './browser.mjs'
 
@@ -20,9 +22,12 @@ export async function soak(seconds) {
   const frames = frameObserver(video, 300)
   const takes = { guide: createTake(ctx, 1, 0) }
   const clips = Array.from({ length: Math.ceil((seconds + 2) / 10) }, (_, i) => ({
-    id: String(i), start: i * 10 * hz, duration: 10 * hz, contentIn: 0, take: 'guide',
+    id: String(i), start: i * 10 * hz, duration: 10 * hz, contentIn: 0, activeTakeId: 'guide', trackId: 'guide', kind: 'audio',
   }))
-  const transport = new VideoTransport(video, ctx, probe, clips, takes)
+  const editor = createEditor({ project: { schemaVersion: 1, tracks: [{ id: 'guide' }], clips } })
+  const transport = new VideoTransport(video, ctx, probe, {
+    editor, catalog: bufferCatalog(takes), resolveBuffer: span => takes[span.assetId].buffer,
+  })
   const wallStart = performance.now()
   try {
     await video.play()
@@ -52,7 +57,13 @@ export async function soak(seconds) {
     const absolute = samples.map(x => Math.abs(x.offset)).sort((a, b) => a - b)
     const p95 = absolute[Math.ceil(absolute.length * 0.95) - 1] ?? Infinity
     const mean = group => group.length ? group.reduce((sum, p) => sum + p.offset, 0) / group.length : null
-    return { seconds, elapsedSeconds: (performance.now() - wallStart) / 1000, observed: samples.length,
+    const segments = []
+    for (let start = 1; start <= seconds; start += 10) {
+      const group = samples.filter(x => x.second >= start && x.second < start + 10)
+      segments.push({ startSecond: start, pairs: group.length, meanMs: mean(group),
+        maxAbsoluteMs: group.length ? Math.max(...group.map(x => Math.abs(x.offset))) : null })
+    }
+    return { seconds, segments, phaseResets: transport.phaseResets, elapsedSeconds: (performance.now() - wallStart) / 1000, observed: samples.length,
       unpairedPulses: pulses.length - used.size, missingSeconds, observations, sampleRate: ctx.sampleRate,
       firstMinuteMeanMs: mean(samples.filter(x => x.second <= 60)),
       lastMinuteMeanMs: mean(samples.filter(x => x.second > seconds - 60)),
@@ -62,6 +73,7 @@ export async function soak(seconds) {
   } finally {
     frames.stop()
     transport.dispose()
+    editor.dispose()
     probe.disconnect()
     video.pause()
     await ctx.close()
