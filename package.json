@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
     "test": "node --test packages/core/*.test.mjs packages/media/*.test.mjs packages/timeline/*.test.mjs experiments/sync/*.test.mjs",
     "verify:sync": "node experiments/sync/run.mjs",
     "bench:wasm": "node experiments/wasm/run.mjs",
@@ -12,6 +14,7 @@
     "verify:audio": "node examples/vanilla/verify-audio.mjs"
   },
   "devDependencies": {
+    "oxfmt": "0.79.0",
     "playwright": "1.64.1"
   },
   "workspaces": [
