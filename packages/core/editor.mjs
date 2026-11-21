@@ -149,7 +149,7 @@ export function createEditor({ project, history: limits }) {
     }
   }
 
-  function prepareLayout(patches, before, after) {
+  function stageTracks(before, after) {
     const removedIds = new Set(before.map(clip => clip.id))
     const touched = new Set(before.concat(after).map(clip => clip.trackId))
     const layout = new Map(byTrack)
@@ -159,6 +159,11 @@ export function createEditor({ project, history: limits }) {
     for (const clip of after) layout.get(clip.trackId).push(clip)
     for (const id of touched) orderTrack(layout.get(id), rules.tracks.get(id))
 
+    return layout
+  }
+
+  function prepareLayout(patches, before, after) {
+    const layout = stageTracks(before, after)
     const clips = []
     let cursor = 0
     for (const patch of patches) {
@@ -172,12 +177,43 @@ export function createEditor({ project, history: limits }) {
     return { clips: Object.freeze(clips), layout, positions: structural ? positions(clips) : byId }
   }
 
+  function checkRevision(options) {
+    requireEdit(!disposed, 'disposed', null, 'Editor has been disposed')
+    requireEdit(options?.expectedRevision === undefined || options.expectedRevision === snapshot.revision,
+      'stale-revision', null, 'Project changed before the edit')
+  }
+
+  function nextRevision() {
+    const revision = snapshot.revision + 1
+    requireEdit(Number.isSafeInteger(revision), 'revision-overflow', null, 'Project revision exceeds safe integer range')
+    return revision
+  }
+
+  function preview(input, options) {
+    try {
+      checkRevision(options)
+      const draft = new ClipDraft(snapshot.clips, byId)
+      for (const command of Array.isArray(input) ? input : [input]) {
+        requireEdit(command?.type === 'move' || command?.type === 'trim', 'unsupported-preview', null,
+          'Preview supports placement moves and trims')
+        stageClip(command, draft)
+      }
+      const patches = draft.patches()
+      const placements = Object.freeze(patches.flatMap(p => p.after))
+      if (patches.length) {
+        stageTracks(patches.flatMap(p => p.before), placements)
+        nextRevision()
+      }
+      return { ok: true, revision: snapshot.revision, placements }
+    } catch (error) {
+      if (!(error instanceof EditError)) throw error
+      return { ok: false, revision: snapshot.revision, code: error.code, target: error.target, reason: error.message }
+    }
+  }
+
   function execute(input, mode, options) {
     try {
-      requireEdit(!disposed, 'disposed', null, 'Editor has been disposed')
-      requireEdit(options?.expectedRevision === undefined || options.expectedRevision === snapshot.revision,
-        'stale-revision', null, 'Project changed before the edit')
-
+      checkRevision(options)
       let patches, inverses, data, inverseData
       let policy = options?.history === undefined ? 'record' : options.history
       if (mode === 'edit') {
@@ -210,8 +246,7 @@ export function createEditor({ project, history: limits }) {
       const after = patches.flatMap(p => p.after)
       const geometry = patches.length ? prepareLayout(patches, before, after) : null
       const entityData = applyData(snapshot.entityData, data)
-      const revision = snapshot.revision + 1
-      requireEdit(Number.isSafeInteger(revision), 'revision-overflow', null, 'Project revision exceeds safe integer range')
+      const revision = nextRevision()
       const oldIds = new Set(before.map(c => c.id))
       const result = Object.freeze({
         ok: true, revision, history: policy, patches, inversePatches: inverses,
@@ -247,6 +282,7 @@ export function createEditor({ project, history: limits }) {
 
   return {
     getSnapshot: () => snapshot,
+    preview,
     session: {
       getSelection: () => selection,
       select(ids) {

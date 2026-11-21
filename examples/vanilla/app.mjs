@@ -17,7 +17,7 @@ export const project = { schemaVersion: 1, duration: 24 * hz,
 export async function openProject(data) {
   const editor = createEditor({ project: data })
   const transport = await attachPlayer(video, editor, error => { document.querySelector('#status').textContent = error.message })
-  const view = mountTimeline(document.querySelector('#timeline'), { editor, transport,
+  const view = mountTimeline(document.querySelector('#timeline'), { editor, transport, snap: { gridTicks: hz / 10 },
     pixelsPerSecond: Math.max(20, (document.querySelector('#timeline').clientWidth - 160) / 24) })
   function inspector() {
     const snapshot = editor.getSnapshot()
@@ -44,3 +44,28 @@ export async function openProject(data) {
 export let studio
 try { studio = await openProject(project) }
 catch (error) { document.querySelector('#status').textContent = error.message; throw error }
+
+const storageKey = 'lumen-timeline:vanilla:project:v1'
+const save = document.querySelector('#save'), reopen = document.querySelector('#reopen')
+const status = document.querySelector('#status')
+try { reopen.disabled = !localStorage.getItem(storageKey) } catch { reopen.disabled = true }
+save.onclick = () => {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(studio.editor.getSnapshot()))
+    reopen.disabled = false
+    status.textContent = 'Project saved.'
+  } catch (error) { status.textContent = error.message }
+}
+reopen.onclick = async () => {
+  save.disabled = reopen.disabled = true
+  try {
+    const restored = JSON.parse(localStorage.getItem(storageKey))
+    const next = await openProject(restored)
+    const old = studio
+    studio = next
+    await old.dispose()
+    await next.transport.seek(0)
+    status.textContent = 'Saved project reopened.'
+  } catch (error) { status.textContent = error.message }
+  finally { save.disabled = reopen.disabled = false }
+}

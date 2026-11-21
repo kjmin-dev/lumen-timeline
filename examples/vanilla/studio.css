@@ -22,3 +22,7 @@ dt { color:#aebbbd; } dd { text-align:right; }
 .timeline-title { margin-top:24px; }
 #status:empty { display:none; }
 @media(max-width:690px){.workspace{grid-template-columns:1fr;} dl{grid-template-columns:auto auto auto auto;} header>span,.title>span{font-size:10px;} }
+
+.project-actions { display:flex; gap:8px; }
+.project-actions button { color:#e4e9e3; background:#253034; border:1px solid #445257; border-radius:5px; padding:6px 10px; cursor:pointer; }
+.project-actions button:disabled { opacity:.45; cursor:default; }

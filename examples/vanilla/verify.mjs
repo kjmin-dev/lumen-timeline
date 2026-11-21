@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { chromium, firefox, webkit } from 'playwright'
+import { verifyEdits } from './verify-edits.mjs'
 import { serve } from './server.mjs'
 
 const server = await serve()
@@ -107,6 +108,7 @@ try {
     await page.close()
   }
   await verifyUnavailable()
+  await verifyEdits(browser, server.url)
 } finally { await browser.close(); await server.close() }
 
 async function verifyUnavailable() {
