@@ -1,4 +1,5 @@
 import { TICKS_PER_SECOND as hz, sourceWindow, splitClip, ticksToUnits } from '../../packages/core/time.mjs'
+import { bufferCatalog } from './buffer-fixture.mjs'
 import { createEditor, commands } from '../../packages/core/index.mjs'
 import { VideoTransport, scheduleWindow, presentationTime } from './transport.mjs'
 
@@ -93,7 +94,7 @@ export function createTake(context, tag, origin) {
     pcm.fill((code + 128) / 256, second * rate, second * rate + Math.round(rate * 0.008))
     pcm.fill(code / 256, second * rate + Math.round(rate * 0.008), (second + 1) * rate)
   }
-  return { buffer, availableStart: 0, availableEnd: sec(seconds), sourceAtContentZero: sec(origin) }
+  return { buffer, sourceAtContentZero: Math.round(origin * rate) }
 }
 
 async function startMedia(video) {
@@ -147,8 +148,8 @@ export async function run(audioDelaySeconds = 0) {
   }
   const mse = await startMedia(video)
   const observer = frameObserver(video, Infinity, true)
-  const a = { id: 'guide', start: 0, duration: sec(10), contentIn: 0, take: 'guide' }
-  const b = { id: 'line', start: sec(12), duration: sec(6), contentIn: sec(1), take: 'line' }
+  const a = { id: 'guide', start: 0, duration: sec(10), contentIn: 0, activeTakeId: 'guide' }
+  const b = { id: 'line', start: sec(12), duration: sec(6), contentIn: sec(1), activeTakeId: 'line' }
   const takes = { guide: createTake(ctx, 1, 0), line: createTake(ctx, 2, 0), fresh: createTake(ctx, 3, -3) }
   // A known delay inserted after scheduling is a negative control for the observer.
   const delay = ctx.createDelay(1)
@@ -156,7 +157,8 @@ export async function run(audioDelaySeconds = 0) {
   delay.connect(probe)
   const editor = createEditor({ project: { schemaVersion: 1, tracks: [{ id: 'dialogue' }],
     clips: [a, b].map(clip => ({ ...clip, kind: 'audio', trackId: 'dialogue' })) } })
-  const transport = new VideoTransport(video, ctx, delay, editor.getSnapshot().clips, takes)
+  const catalog = bufferCatalog(takes)
+  const transport = new VideoTransport(video, ctx, delay, { editor, catalog, resolveBuffer: span => takes[span.assetId].buffer })
   const points = []
   const positions = []
   const missingFrames = []
@@ -187,7 +189,7 @@ export async function run(audioDelaySeconds = 0) {
     await wait(350)
     check(events.at(-1)?.code === 0, 'Expected silence during native stall: ' +
       JSON.stringify({ last: events.slice(-4), stamp: ctx.getOutputTimestamp?.(), contextState: ctx.state,
-        trace: stateTrace, running: transport.running, nodes: transport.nodes.size, anchor: transport.anchor, frames: observer.flashes.length }))
+        trace: stateTrace, running: transport.running, nodes: transport.voices.size, anchor: transport.anchor, frames: observer.flashes.length }))
     compare(start, [[1, 1, 1], [2, 1, 2], [3, 1, 3]])
     const stalledAt = video.currentTime
     await mse.rest()
@@ -205,15 +207,15 @@ export async function run(audioDelaySeconds = 0) {
     const editStart = performance.now()
     const cut = editor.dispatch(commands.splitClip({ clipId: b.id, at: sec(14), rightId: 'right' }))
     check(cut.ok, 'Split dispatch failed')
-    // The probe auditions a replacement buffer for the newly created clip.
-    transport.replace(editor.getSnapshot().clips.map(clip => clip.id === 'right' ? { ...clip, take: 'fresh' } : clip))
+    // Audition an updated recording bound to the selected take.
+    transport.setCatalog({ version: 2, takes: { ...catalog.takes, line: catalog.takes.fresh } })
     await until(() => video.currentTime > 16.35, 'Take edit failed to play')
     held(editStart, 3, 1)
     compare(editStart, [[16, 3, 2]])
 
     const undoStart = performance.now()
     check(editor.history.undo().ok, 'Undo dispatch failed')
-    transport.replace(editor.getSnapshot().clips)
+    transport.setCatalog(catalog)
     await until(() => video.currentTime > 17.35, 'Undo failed to play')
     held(undoStart, 2, 5)
     compare(undoStart, [[17, 2, 6]])

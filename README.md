@@ -12,3 +12,4 @@ The core will own editing commands, time and history. A shared browser view will
 - [Clock verification](docs/clock-and-wasm.md) explains how to run the headless regressions, browser playback probes and Rust 1.100 waveform benchmarks.
 - [Headless clip editing](docs/headless-editing.md) shows the workspace API for transactional trim, split, move and undo/redo.
 - [Timeline reads and audio plans](docs/playback-read-api.md) covers revision-pinned placement queries, catalog bindings and source sample ranges.
+- [Incremental playback](docs/incremental-playback.md) covers edit-time voice reconciliation, buffer resolution and continuous-audio regression tests.
