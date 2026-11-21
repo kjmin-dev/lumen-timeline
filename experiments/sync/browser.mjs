@@ -55,7 +55,7 @@ async function offlineBoundaries() {
             cut,
             expected,
             index,
-            samples: [...pcm.slice(expected - 5, expected + 5)],
+            samples: Array.from(pcm.slice(expected - 5, expected + 5)),
             count: pcm.filter((x) => x !== 0).length,
           }),
       );

@@ -197,6 +197,7 @@ export function createEditor({ project, history: limits }) {
     try {
       for (const event of notifications) {
         if (event.result) {
+          // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may subscribe or unsubscribe during delivery, so iterate a snapshot.
           for (const sub of [...subscribers]) {
             if (!subscribers.has(sub) || sub.revision >= event.document.revision) continue;
             sub.revision = event.document.revision;
@@ -210,6 +211,7 @@ export function createEditor({ project, history: limits }) {
           }
         }
         if (event.selection) {
+          // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may subscribe or unsubscribe during delivery, so iterate a snapshot.
           for (const sub of [...selectionSubscribers]) {
             if (!selectionSubscribers.has(sub) || sub.version >= event.selectionVersion) continue;
             sub.version = event.selectionVersion;
@@ -217,6 +219,7 @@ export function createEditor({ project, history: limits }) {
           }
         }
         if (event.state) {
+          // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may subscribe or unsubscribe during delivery, so iterate a snapshot.
           for (const sub of [...historySubscribers]) {
             if (!historySubscribers.has(sub) || sub.version >= event.version) continue;
             sub.version = event.version;
