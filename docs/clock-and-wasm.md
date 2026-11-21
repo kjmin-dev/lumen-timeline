@@ -31,11 +31,11 @@ The longer test plays one continuous muxed video at 1×. It reuses a ten-second 
 
 Short run on Apple M1, macOS 26.5.2, with FFmpeg 9.0.2. Each engine rendered four offline split fixtures with zero sample error, superseded 99 of 100 simultaneous seek requests, acknowledged 100 individual seeks, and passed the take switch, undo, backward seek and real stall checks. Each p95 below uses nine matched audio/video pairs. With nine samples, nearest-rank p95 equals the largest absolute offset.
 
-| Engine | Pairs | Absolute p95 | Video timing |
-| --- | ---: | ---: | --- |
-| Google Chrome 157.0.8103.79 | 9/9 | 0.22 ms | Frame presentation timestamp |
-| Playwright WebKit 27.2 | 9/9 | 0.67 ms | Callback-arrival estimate |
-| Playwright Firefox 157.0 | 9/9 | 13.18 ms | Frame presentation timestamp |
+| Engine                      | Pairs | Absolute p95 | Video timing                 |
+| --------------------------- | ----: | -----------: | ---------------------------- |
+| Google Chrome 157.0.8103.79 |   9/9 |      0.22 ms | Frame presentation timestamp |
+| Playwright WebKit 27.2      |   9/9 |      0.67 ms | Callback-arrival estimate    |
+| Playwright Firefox 157.0    |   9/9 |     13.18 ms | Frame presentation timestamp |
 
 The 100 ms negative control produced a p95 of 105.38 ms and correctly failed the one-frame sync criterion. Pixel/PTS disagreements, the offset of each pair, inferred start frames and timing fallback counts are recorded in the [raw results](measurements/clock-and-wasm.json). The Firefox canvas occasionally returned the neighboring decoded frame. A missing flash stays visible as a failed short-run measurement.
 
@@ -43,22 +43,22 @@ The 100 ms negative control produced a p95 of 105.38 ms and correctly failed the
 
 Google Chrome 157.0.8103.79, 30 fps, 48 kHz, Apple M1. Both runs used real wall-clock playback in separate headless browser instances.
 
-| Implementation | Matched pairs | Unpaired audio pulses | Absolute p95 | Absolute max | Mean signed offset, first / last minute |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Independent clock projections at seams | 1,791/1,800 | 135 | 5.63 ms | 43.34 ms | +0.83 / -0.22 ms |
-| Shared sample with phase correction | 1,800/1,800 | 0 | 6.29 ms | 33.46 ms | -0.12 / +0.35 ms |
+| Implementation                         | Matched pairs | Unpaired audio pulses | Absolute p95 | Absolute max | Mean signed offset, first / last minute |
+| -------------------------------------- | ------------: | --------------------: | -----------: | -----------: | --------------------------------------: |
+| Independent clock projections at seams |   1,791/1,800 |                   135 |      5.63 ms |     43.34 ms |                        +0.83 / -0.22 ms |
+| Shared sample with phase correction    |   1,800/1,800 |                     0 |      6.29 ms |     33.46 ms |                        -0.12 / +0.35 ms |
 
 The first implementation failed signal integrity even though its paired p95 was below one frame. The final run matched all 1,800 signals and passed the 33.33 ms p95 target. Its worst event reached 33.46 ms, just above one frame. The signed mean changed by 0.47 ms between the first and last minute. The final detector also filters short resampling transients. The 90-second regression above isolates the seam fix with the original detector. These measurements support the browser clock experiment. The wired display/speaker release gate remains open. [Full run records](measurements/clock-and-wasm.json)
 
 ## Where WASM helps
 
-| Work | Decision | Reason |
-| --- | --- | --- |
-| Transport, native seek completion and buffering | JavaScript | Video frame observation, Web Audio node scheduling and invalidation run against browser APIs. Correcting two clock and sample-boundary errors directly changed the output. |
-| Placement, clip edits, take choice and history | JavaScript | Small operations work with IDs and project objects. A call across the WASM boundary per position adds overhead in the scalar fixture. History and the full command stack were outside the benchmark. |
-| Time conversion | JavaScript with exact integer fallback | Common rates fit the integer fast path. Large microsecond PTS can benefit from native integer arithmetic. Consider a bulk import kernel if an application trace spends significant time converting timestamp arrays. |
-| Large PCM waveform tiles | Optional Rust 1.100 SIMD worker kernel | One call processes a contiguous batch. The benchmark checks all min/max pairs and measures buffer transfer, input/output copies and worker dispatch separately. Preserve the JS implementation for small tiles and as a fallback. |
-| GPU drawing and audio DSP | Keep their existing boundaries | The benchmark covers peak reduction. It does not measure shaders, decoding or real-time DSP on the audio worklet thread. |
+| Work                                            | Decision                               | Reason                                                                                                                                                                                                                            |
+| ----------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport, native seek completion and buffering | JavaScript                             | Video frame observation, Web Audio node scheduling and invalidation run against browser APIs. Correcting two clock and sample-boundary errors directly changed the output.                                                        |
+| Placement, clip edits, take choice and history  | JavaScript                             | Small operations work with IDs and project objects. A call across the WASM boundary per position adds overhead in the scalar fixture. History and the full command stack were outside the benchmark.                              |
+| Time conversion                                 | JavaScript with exact integer fallback | Common rates fit the integer fast path. Large microsecond PTS can benefit from native integer arithmetic. Consider a bulk import kernel if an application trace spends significant time converting timestamp arrays.              |
+| Large PCM waveform tiles                        | Optional Rust 1.100 SIMD worker kernel | One call processes a contiguous batch. The benchmark checks all min/max pairs and measures buffer transfer, input/output copies and worker dispatch separately. Preserve the JS implementation for small tiles and as a fallback. |
+| GPU drawing and audio DSP                       | Keep their existing boundaries         | The benchmark covers peak reduction. It does not measure shaders, decoding or real-time DSP on the audio worklet thread.                                                                                                          |
 
 Compile the experiment with Rust 1.100.0, target `wasm32-unknown-unknown`, optimization level 3 and an explicit 128-bit SIMD peak kernel. The JS binding supplies finite Float32 PCM and valid integer positions inside the project range. It verifies 100,000 timestamp conversions per fixture and every peak value against the JS implementation. The exported numeric probes are experimental, and the shipping core has no WASM dependency. [Rust WASM target](https://doc.rust-lang.org/rustc/platform-support/wasm32-unknown-unknown.html) · [WebAssembly design goals](https://webassembly.org/docs/high-level-goals/)
 
@@ -70,14 +70,14 @@ For each kernel, warm eight rounds, rotate case order and record 31 rounds of ei
 
 Apple M1, macOS 26.5.2, Node 26.13.1, Rust 1.100.0 and Playwright 1.64.1. Values below are warm median milliseconds per workload. Tests ran locally alongside real-time playback probes. The machine-readable record includes p95, worker startup time, build size, browser versions and Node results. [Recorded measurements](measurements/clock-and-wasm.json)
 
-| Operation | Chrome 157 | WebKit 27.2 | Firefox 157 |
-| --- | ---: | ---: | ---: |
-| 100,000 scalar source positions (JS / WASM) | 0.588 / 0.988 | 0.125 / 0.625 | 0.625 / 0.875 |
-| 100,000 mixed native time conversions (JS / WASM) | 1.162 / 3.362 | 2.875 / 2.625 | 2.750 / 3.375 |
-| 100,000 late microsecond PTS conversions (JS / WASM) | 7.650 / 3.400 | 8.375 / 2.625 | 4.625 / 3.000 |
+| Operation                                                            |    Chrome 157 |   WebKit 27.2 |   Firefox 157 |
+| -------------------------------------------------------------------- | ------------: | ------------: | ------------: |
+| 100,000 scalar source positions (JS / WASM)                          | 0.588 / 0.988 | 0.125 / 0.625 | 0.625 / 0.875 |
+| 100,000 mixed native time conversions (JS / WASM)                    | 1.162 / 3.362 | 2.875 / 2.625 | 2.750 / 3.375 |
+| 100,000 late microsecond PTS conversions (JS / WASM)                 | 7.650 / 3.400 | 8.375 / 2.625 | 4.625 / 3.000 |
 | 1,048,576 PCM samples, SIMD with input and output copies (JS / WASM) | 1.287 / 0.400 | 1.625 / 0.375 | 2.250 / 0.375 |
-| 4,096 samples, full worker round trip (JS / WASM SIMD) | 0.034 / 0.031 | 0.062 / 0.062 | 0.031 / 0.031 |
-| 1,048,576 samples, full worker round trip (JS / WASM SIMD) | 1.412 / 0.588 | 1.625 / 0.500 | 2.000 / 0.375 |
+| 4,096 samples, full worker round trip (JS / WASM SIMD)               | 0.034 / 0.031 | 0.062 / 0.062 | 0.031 / 0.031 |
+| 1,048,576 samples, full worker round trip (JS / WASM SIMD)           | 1.412 / 0.588 | 1.625 / 0.500 | 2.000 / 0.375 |
 
 For the 4 MiB buffer, worker round-trip medians improved by 2.4× in Chrome, 3.25× in WebKit and 5.33× in Firefox. For 4,096 samples the medians were within 0.004 ms. This favors a lazy, optional worker module for large batches. The scalar Rust peak kernel alone took 1.35 ms in Chrome versus 1.29 ms for JS. Explicit SIMD accounted for the Chrome speedup. The stripped benchmark module was 2,900 bytes.
 

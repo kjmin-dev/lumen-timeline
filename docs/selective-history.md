@@ -5,36 +5,42 @@ Use one transaction for one user intention. For example, preview a drag in sessi
 ## Public contract
 
 ```js
-import { commands, createEditor } from '@lumen-timeline/core'
+import { commands, createEditor } from "@lumen-timeline/core";
 
-const editor = createEditor({ project, history: { maxEntries: 200, maxBytes: 16 * 1024 * 1024 } })
-const move = commands.moveClips({ clipIds: ['line'], delta: 282240000 })
-editor.dispatch(move)
-editor.history.undo()
+const editor = createEditor({ project, history: { maxEntries: 200, maxBytes: 16 * 1024 * 1024 } });
+const move = commands.moveClips({ clipIds: ["line"], delta: 282240000 });
+editor.dispatch(move);
+editor.history.undo();
 
 // One field update, one document revision. The user's move is still redoable.
-const ignore = { history: 'ignore' }
-editor.dispatch(commands.setEntityData({
-  scope: 'take', id: 'take-b', key: 'status', value: 'ready',
-}), ignore)
+const ignore = { history: "ignore" };
+editor.dispatch(
+  commands.setEntityData({
+    scope: "take",
+    id: "take-b",
+    key: "status",
+    value: "ready",
+  }),
+  ignore,
+);
 
 // All writes succeed together and produce a single notification.
 const results = [
-  commands.setEntityData({ scope: 'take', id: 'take-b', key: 'assetId', value: 'audio-42' }),
-  commands.setEntityData({ scope: 'asset', id: 'audio-42', key: 'sampleRate', value: 48000 }),
-]
-editor.dispatch(results, { ...ignore, expectedRevision: editor.getSnapshot().revision })
-editor.history.redo()
+  commands.setEntityData({ scope: "take", id: "take-b", key: "assetId", value: "audio-42" }),
+  commands.setEntityData({ scope: "asset", id: "audio-42", key: "sampleRate", value: 48000 }),
+];
+editor.dispatch(results, { ...ignore, expectedRevision: editor.getSnapshot().revision });
+editor.history.redo();
 ```
 
-| Operation | Document | Undo stack | Redo stack |
-| --- | --- | --- | --- |
-| `dispatch(command)` or `dispatch(commands, { history: 'record' })` | One new revision | Append one transaction | Clear |
-| `dispatch(commandOrArray, { history: 'ignore' })` | One new revision | Preserve | Preserve |
-| Undo | One new revision on success | Pop latest entry | Push the same entry |
-| Redo | One new revision on success | Push the same entry | Pop latest entry |
-| Rejected, empty or net-zero transaction | Keep the current snapshot | Preserve | Preserve |
-| `history.discard('undo' or 'redo')`, `history.clear()` | Keep the current snapshot | Explicitly forget selected history | Explicitly forget selected history |
+| Operation                                                          | Document                    | Undo stack                         | Redo stack                         |
+| ------------------------------------------------------------------ | --------------------------- | ---------------------------------- | ---------------------------------- |
+| `dispatch(command)` or `dispatch(commands, { history: 'record' })` | One new revision            | Append one transaction             | Clear                              |
+| `dispatch(commandOrArray, { history: 'ignore' })`                  | One new revision            | Preserve                           | Preserve                           |
+| Undo                                                               | One new revision on success | Pop latest entry                   | Push the same entry                |
+| Redo                                                               | One new revision on success | Push the same entry                | Pop latest entry                   |
+| Rejected, empty or net-zero transaction                            | Keep the current snapshot   | Preserve                           | Preserve                           |
+| `history.discard('undo' or 'redo')`, `history.clear()`             | Keep the current snapshot   | Explicitly forget selected history | Explicitly forget selected history |
 
 Policy applies to the entire call. Arrays run synchronously in order against a private draft, so a later command can reference an explicit split child ID from an earlier command. Validate command arguments, locks, source bounds and minimum duration while staging. Check exclusive-track overlaps on the final layout, which permits atomic swaps. Repeated writes to one field collapse to its initial and final values. Check the optional expected revision before staging. An error commits zero writes and publishes zero notifications.
 

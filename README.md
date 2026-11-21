@@ -15,3 +15,7 @@ The core will own editing commands, time and history. A shared browser view will
 - [Incremental playback](docs/incremental-playback.md) covers edit-time voice reconciliation, buffer resolution and continuous-audio regression tests.
 - [Vanilla timeline example](docs/vanilla-timeline.md) runs a two-track guide with Canvas 2D selection, zoom and playback.
 - [Media transports](docs/media-transports.md) describes the video and audio-only clocks, their shared Web Audio scheduler and both runnable workflows.
+
+## Development
+
+[oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) formats the repository with its default configuration. Run `npm run fmt` before committing. `npm install` sets up a [lefthook](https://lefthook.dev) pre-commit hook that checks staged files, and CI runs `npm run fmt:check`. To skip formatting-only commits in local blame, run `git config blame.ignoreRevsFile .git-blame-ignore-revs`. The [TypeScript and quality-gate plan](docs/plans/typescript-core.md) lists the checks still to come.

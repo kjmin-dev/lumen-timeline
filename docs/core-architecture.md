@@ -22,26 +22,26 @@ flowchart TB
   Peaks -. optional .-> Wasm["Rust 1.100.0 SIMD"]
 ```
 
-| Owner | Responsibilities and lifetime |
-| --- | --- |
-| Core, on the editor's owning JS thread | Time conversion, immutable project revisions, commands, history, track interval indexes, session state, transport state and pure playback planning. One instance per editing session. |
-| Media, on the browser main thread | Observe the chosen clock, resolve media, execute a playback plan, create and cancel Web Audio nodes and route the mix. One driver per editor. The host retains ownership of a supplied media element. |
-| Media asset worker | Build and cache waveform tiles. Accept transferable typed arrays and cancellation. The media package exposes the resulting tiles through a provider the view can consume. |
-| Timeline, on the browser main thread | Mount into a supplied element. Compute visible layout and hit regions, then render through WebGL2, opt-in WebGPU or Canvas 2D. Each mount owns its DOM, subscriptions and drawing resources. |
-| Framework wrappers | Mount the same timeline after client mount, forward options and bridge field selectors. Each wrapper has its own framework peer. |
-| Host and domain plugins | Own files, credentials, persistence, jobs and domain semantics such as script text, speaker and review state. Plugins contribute validated document operations and UI slots. |
+| Owner                                  | Responsibilities and lifetime                                                                                                                                                                         |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Core, on the editor's owning JS thread | Time conversion, immutable project revisions, commands, history, track interval indexes, session state, transport state and pure playback planning. One instance per editing session.                 |
+| Media, on the browser main thread      | Observe the chosen clock, resolve media, execute a playback plan, create and cancel Web Audio nodes and route the mix. One driver per editor. The host retains ownership of a supplied media element. |
+| Media asset worker                     | Build and cache waveform tiles. Accept transferable typed arrays and cancellation. The media package exposes the resulting tiles through a provider the view can consume.                             |
+| Timeline, on the browser main thread   | Mount into a supplied element. Compute visible layout and hit regions, then render through WebGL2, opt-in WebGPU or Canvas 2D. Each mount owns its DOM, subscriptions and drawing resources.          |
+| Framework wrappers                     | Mount the same timeline after client mount, forward options and bridge field selectors. Each wrapper has its own framework peer.                                                                      |
+| Host and domain plugins                | Own files, credentials, persistence, jobs and domain semantics such as script text, speaker and review state. Plugins contribute validated document operations and UI slots.                          |
 
 The dependency test imports the core in Node with no DOM, audio device, GPU, worker or WASM loader. An application can mount a timeline and a minimap over the same editor. Disposing either view releases its resources. Disposing the editor rejects pending transport requests, cancels its work, detaches the driver and ends all editor subscriptions.
 
 ### Headless module interfaces
 
-| Module | Input | Output or effect |
-| --- | --- | --- |
-| Time | Safe integer, rational rate and explicit source or project unit | Tick, sample index or frame boundary. A range error identifies an invalid rate or unrepresentable result. |
-| Document and history | Versioned JSON on load, or a validated command on a document revision | Immutable snapshot, forward/inverse patches and changed IDs. History owns its cursor. A public snapshot is safe to retain across later edits. |
-| Queries and planner | Snapshot and track/time range | Ordered overlapping clips or audible spans for one revision. Queries share the document's interval index with the view and planner. |
-| Transport | Playback intent and timestamped player observations | State snapshot, monotonically increasing generation, requested/presented ticks and frame subscriptions. An injected driver performs device I/O. |
-| Editor | Project, optional media driver and registered plugins | Owns the module instances. Exposes dispatch, history, session, selectors, transport and disposal to the host. |
+| Module               | Input                                                                 | Output or effect                                                                                                                                |
+| -------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Time                 | Safe integer, rational rate and explicit source or project unit       | Tick, sample index or frame boundary. A range error identifies an invalid rate or unrepresentable result.                                       |
+| Document and history | Versioned JSON on load, or a validated command on a document revision | Immutable snapshot, forward/inverse patches and changed IDs. History owns its cursor. A public snapshot is safe to retain across later edits.   |
+| Queries and planner  | Snapshot and track/time range                                         | Ordered overlapping clips or audible spans for one revision. Queries share the document's interval index with the view and planner.             |
+| Transport            | Playback intent and timestamped player observations                   | State snapshot, monotonically increasing generation, requested/presented ticks and frame subscriptions. An injected driver performs device I/O. |
+| Editor               | Project, optional media driver and registered plugins                 | Owns the module instances. Exposes dispatch, history, session, selectors, transport and disposal to the host.                                   |
 
 On a successful `dispatch(command)`, observers receive the committed revision, affected IDs and track intervals in project ticks. Store the inverse patch in history. A rejected dispatch returns a typed reason and leaves the revision untouched. A playback span carries source units and their rate up to the scheduling boundary. A worker receives PCM and tile keys. These contracts let the planner run under a fake clock and the GPU view run from a saved snapshot.
 
@@ -49,11 +49,11 @@ On a successful `dispatch(command)`, observers receive the committed revision, a
 
 The project document is the sole durable source of editing data. A clip stores its placement, content offset and active take ID. A take refers to an immutable asset version, a stream and a source range. A shared take set holds candidates. Session selection and the transport's currently audible clip IDs are independent. Playing through an unselected line must leave the inspector's selection and text focus intact.
 
-| Change | Write path | Subscribers |
-| --- | --- | --- |
-| Edit, undo or redo | Synchronous document transaction | Project selectors, affected interval indexes, playback planner and persistence |
-| Select, zoom or preview a drag | Ephemeral session update | Selectors for that selection, viewport or preview |
-| A frame arrives or playback stalls | Transport observation | Playhead and time display through the frame channel, state controls on state transitions |
+| Change                             | Write path                       | Subscribers                                                                              |
+| ---------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------- |
+| Edit, undo or redo                 | Synchronous document transaction | Project selectors, affected interval indexes, playback planner and persistence           |
+| Select, zoom or preview a drag     | Ephemeral session update         | Selectors for that selection, viewport or preview                                        |
+| A frame arrives or playback stalls | Transport observation            | Playhead and time display through the frame channel, state controls on state transitions |
 
 A command follows one commit protocol.
 
@@ -76,11 +76,11 @@ For example, a clip at **12 s**, with **1 s** of content offset and a take whose
 
 The planner and driver use three identifiers to decide whether a result still applies.
 
-| Identifier | Changes on | What it invalidates |
-| --- | --- | --- |
-| Document revision | Each accepted edit, undo, redo or document replacement | Selectors and affected render or playback spans. A clip move invalidates its old and new intervals. An unrelated text edit can preserve the current audio schedule. |
-| Transport generation | A discontinuity such as seek, loop wrap, stall recovery, clock replacement or output-rate change | Frame callbacks, pending starts and shared output boundaries derived from the old clock anchor. |
-| Asset ID and content version | Source replacement | PCM and peak tiles for the replaced source. An old worker reply can never populate the cache for the new version. |
+| Identifier                   | Changes on                                                                                       | What it invalidates                                                                                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Document revision            | Each accepted edit, undo, redo or document replacement                                           | Selectors and affected render or playback spans. A clip move invalidates its old and new intervals. An unrelated text edit can preserve the current audio schedule. |
+| Transport generation         | A discontinuity such as seek, loop wrap, stall recovery, clock replacement or output-rate change | Frame callbacks, pending starts and shared output boundaries derived from the old clock anchor.                                                                     |
+| Asset ID and content version | Source replacement                                                                               | PCM and peak tiles for the replaced source. An old worker reply can never populate the cache for the new version.                                                   |
 
 Each scheduled voice also has an identity in the current plan. On a local edit, cancel old work for changed voices and compare that identity before attaching an asynchronously resolved buffer. A global revision check alone would unnecessarily interrupt unaffected tracks.
 
@@ -90,13 +90,13 @@ Only one device determines project time at a time. In reference-video mode it is
 
 The transport keeps playback intent, requested tick and observed presentation tick separately. A scrub can move the requested cursor immediately. An observed frame confirms what the preview has reached. The driver consumes device observations directly. A mounted view can subscribe to frame notifications or unsubscribe while audio scheduling continues.
 
-| Event | Transition and effect |
-| --- | --- |
-| Play or pause | Enter starting until the device is ready. On refusal, expose the reason. On pause, freeze observed position and stop reserved voices. |
-| Seek | Invalidate the old schedule. Keep one native seek in flight and the newest waiting target. Coalesced callers receive a superseded result. A native completion has no request ID. Check the element's seeking state and reached position before accepting it. Timeouts and disposal settle waiting callers. |
-| Waiting or interrupted output | Freeze the cursor and silence scheduled audio. On recovery, observe the reference again and schedule from the source offset at the recovered position. |
-| Rate change or loop boundary | Acquire a fresh clock anchor and schedule the new generation. At the end of a range stop, or seek to the loop start. |
-| Local edit while playing | Replan affected voices, including any voice spanning the playhead. Reapply from its mapped source offset. Unaffected voices retain their nodes. |
+| Event                         | Transition and effect                                                                                                                                                                                                                                                                                      |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Play or pause                 | Enter starting until the device is ready. On refusal, expose the reason. On pause, freeze observed position and stop reserved voices.                                                                                                                                                                      |
+| Seek                          | Invalidate the old schedule. Keep one native seek in flight and the newest waiting target. Coalesced callers receive a superseded result. A native completion has no request ID. Check the element's seeking state and reached position before accepting it. Timeouts and disposal settle waiting callers. |
+| Waiting or interrupted output | Freeze the cursor and silence scheduled audio. On recovery, observe the reference again and schedule from the source offset at the recovered position.                                                                                                                                                     |
+| Rate change or loop boundary  | Acquire a fresh clock anchor and schedule the new generation. At the end of a range stop, or seek to the loop start.                                                                                                                                                                                       |
+| Local edit while playing      | Replan affected voices, including any voice spanning the playhead. Reapply from its mapped source offset. Unaffected voices retain their nodes.                                                                                                                                                            |
 
 For reference video, pair the frame PTS with its expected display time. Convert display time to the audio clock with the output timestamp's performance-time/context-time pair. Compare time origins before subtraction. If the frame timestamp is unusable, fall back to callback arrival and report estimated precision. If the adapter lacks usable observations, expose its degraded capability. Output diagnostics include clock source, precision, generation, dropped observations and scheduled range.
 
@@ -125,11 +125,11 @@ React, Svelte, SolidJS and Vue each mount this same view and expose the same com
 
 The measurements below were taken on an Apple M1, macOS 26.5.2. The clock probe compared a pixel-coded flash with a pulse detected in the browser's audio graph. WebKit used callback arrival when its frame display timestamp had a different time origin. The browser probe measures up to the output graph and estimated frame presentation. The wired display/speaker gate remains open. [Recorded measurements](measurements/clock-and-wasm.json)
 
-| Observation | Architectural consequence |
-| --- | --- |
-| Chrome, 30 minutes at 30 fps and 48 kHz. Independent seam projections gave 1,791/1,800 pairs and 135 unpaired pulses despite a paired p95 of 5.63 ms. The corrected run gave 1,800/1,800 pairs, zero unpaired pulses, p95 6.29 ms and maximum 33.46 ms. | Gate on signal integrity and p95. The maximum slightly exceeded one 33.33 ms frame. Preserve counts of missing and duplicate observations. |
-| At 44.1 and 48 kHz the four offline split fixtures in each of three browsers had zero sample error. Injecting 100 ms downstream delay in Chrome produced a p95 of 105.38 ms. | Keep an exact-sample test and an independent negative control alongside realtime tests. |
-| With 1,048,576 samples, full worker round-trip medians for JS / Rust SIMD were 1.41 / 0.59 ms in Chrome, 1.63 / 0.50 ms in WebKit and 2.00 / 0.38 ms in Firefox. For 4,096 samples the medians differed by less than 0.004 ms. | Load WASM for large waveform batches. Keep scalar clip queries in JS. Rust also accelerated batches of late microsecond PTS, which can be reconsidered if a representative import profile warrants it. |
+| Observation                                                                                                                                                                                                                                             | Architectural consequence                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Chrome, 30 minutes at 30 fps and 48 kHz. Independent seam projections gave 1,791/1,800 pairs and 135 unpaired pulses despite a paired p95 of 5.63 ms. The corrected run gave 1,800/1,800 pairs, zero unpaired pulses, p95 6.29 ms and maximum 33.46 ms. | Gate on signal integrity and p95. The maximum slightly exceeded one 33.33 ms frame. Preserve counts of missing and duplicate observations.                                                             |
+| At 44.1 and 48 kHz the four offline split fixtures in each of three browsers had zero sample error. Injecting 100 ms downstream delay in Chrome produced a p95 of 105.38 ms.                                                                            | Keep an exact-sample test and an independent negative control alongside realtime tests.                                                                                                                |
+| With 1,048,576 samples, full worker round-trip medians for JS / Rust SIMD were 1.41 / 0.59 ms in Chrome, 1.63 / 0.50 ms in WebKit and 2.00 / 0.38 ms in Firefox. For 4,096 samples the medians differed by less than 0.004 ms.                          | Load WASM for large waveform batches. Keep scalar clip queries in JS. Rust also accelerated batches of late microsecond PTS, which can be reconsidered if a representative import profile warrants it. |
 
 Implement in dependency order. Each step has an observable exit condition.
 

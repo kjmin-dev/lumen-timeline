@@ -9,10 +9,10 @@
 Ship a revision-bound read handle, a track interval query and a pure audio planner in `@lumen-timeline/core`. The following is the proposed API.
 
 ```js
-const read = editor.read()
-const range = { start: unitsToTicks(142, 10), end: unitsToTicks(143, 10) }
-const clips = read.clipsIn(range, { trackIds: ['dialogue', 'music'] })
-const { revision, catalogVersion, spans, issues } = read.planAudio(range, catalog)
+const read = editor.read();
+const range = { start: unitsToTicks(142, 10), end: unitsToTicks(143, 10) };
+const clips = read.clipsIn(range, { trackIds: ["dialogue", "music"] });
+const { revision, catalogVersion, spans, issues } = read.planAudio(range, catalog);
 ```
 
 - **Snapshot identity.** Capture the document and its track-index roots together at commit. Holding a read handle across edit, undo or redo must reproduce its original results. Calls on a pinned handle perform synchronous reads and create no history entries or notifications. Queued subscribers must be able to obtain a handle for the exact snapshot delivered to them, including during reentrant dispatch. Support `editor.read(snapshot)` for snapshots emitted by that editor and reject foreign snapshots. Use weak snapshot keys so retaining the current editor does not keep every historical index alive.
@@ -28,24 +28,24 @@ const { revision, catalogVersion, spans, issues } = read.planAudio(range, catalo
 
 Use PR A from the existing browser probe before exposing a production media package. The driver queries the scheduler lookahead and reconciles the voices already running or reserved. A local document edit preserves the clock generation.
 
-| Input | Driver behavior |
-| --- | --- |
-| Move, trim, split, undo or redo | Inspect changed IDs and both old and new intervals at the current playhead and lookahead. Stop obsolete reservations. Start a clip now covering the playhead at its mapped source sample. |
-| Background update with `history: 'ignore'` | A metadata-only update with no audio binding change leaves the nodes and clock anchor intact. A batch also changing placement follows its reported geometry. |
-| A selected take's asset or stream changes | Compare binding versions and replan dependent voices. A late buffer may attach only if its voice still has the same requested binding, source mapping and transport generation. |
-| Seek, loop wrap or recovery from a stall | Invalidate the transport generation, cancel stale work and rebuild from the new anchor using the tested shared-sample boundary rules. |
+| Input                                      | Driver behavior                                                                                                                                                                           |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Move, trim, split, undo or redo            | Inspect changed IDs and both old and new intervals at the current playhead and lookahead. Stop obsolete reservations. Start a clip now covering the playhead at its mapped source sample. |
+| Background update with `history: 'ignore'` | A metadata-only update with no audio binding change leaves the nodes and clock anchor intact. A batch also changing placement follows its reported geometry.                              |
+| A selected take's asset or stream changes  | Compare binding versions and replan dependent voices. A late buffer may attach only if its voice still has the same requested binding, source mapping and transport generation.           |
+| Seek, loop wrap or recovery from a stall   | Invalidate the transport generation, cancel stale work and rebuild from the new anchor using the tested shared-sample boundary rules.                                                     |
 
 Compare each running voice's clip, take, asset version, source-to-project mapping, audible end and route. Query-window endpoints and global document revisions must not cause voice replacement by themselves. A preserved voice keeps its node and end reservation. Remove a cached seam when its producing reservation changes. Keep seam records scoped to the continuity chain and generation so an unrelated overlapping track cannot supply the shared output sample.
 
 ## Merge gates
 
-| Gate | Evidence required |
-| --- | --- |
-| PR A: correct query | Compare with a brute-force oracle over seeded placements and random ranges. Cover exact edges, empty tracks, equal starts, a long enclosing clip and overlapping clips. Query old and new handles after an edit and after a reentrant commit. |
-| PR A: correct plan | Verify the worked fixture at 44.1 and 48 kHz, short takes, negative origins, missing bindings, mute/solo and overlapping tracks. Exactly partition adjacent source windows at a fractional-frame cut. Planning must leave project revisions and history depths unchanged. |
-| PR A: bounded query work | Use the roadmap's 40-track, 20,000-clip fixture. Record visited entries, matches and query p95 for sparse and dense windows. A sparse query on one named track must skip the other 39 and prune irrelevant intervals within the requested track. |
+| Gate                         | Evidence required                                                                                                                                                                                                                                                                  |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR A: correct query          | Compare with a brute-force oracle over seeded placements and random ranges. Cover exact edges, empty tracks, equal starts, a long enclosing clip and overlapping clips. Query old and new handles after an edit and after a reentrant commit.                                      |
+| PR A: correct plan           | Verify the worked fixture at 44.1 and 48 kHz, short takes, negative origins, missing bindings, mute/solo and overlapping tracks. Exactly partition adjacent source windows at a fractional-frame cut. Planning must leave project revisions and history depths unchanged.          |
+| PR A: bounded query work     | Use the roadmap's 40-track, 20,000-clip fixture. Record visited entries, matches and query p95 for sparse and dense windows. A sparse query on one named track must skip the other 39 and prune irrelevant intervals within the requested track.                                   |
 | PR B: uninterrupted playback | In a two-track fake-driver test, record node identities and start/stop calls through dialogue move, undo, redo and background job completion. Require zero music restarts and zero cancelled music reservations. Exercise delayed source resolution and stale-result cancellation. |
-| PR B: actual audio | Render the edited mix at 44.1 and 48 kHz against independent sample expectations. Run the short live sync probe and its injected-delay control. Preserve the existing seek, real-stall and shared-boundary regressions. |
-| Handoff to the view | Use `clipsIn` for the first vanilla Canvas 2D viewport. The first visible workflow is select a clip, seek, trim or move it, then undo while the playhead follows the same driver. |
+| PR B: actual audio           | Render the edited mix at 44.1 and 48 kHz against independent sample expectations. Run the short live sync probe and its injected-delay control. Preserve the existing seek, real-stall and shared-boundary regressions.                                                            |
+| Handoff to the view          | Use `clipsIn` for the first vanilla Canvas 2D viewport. The first visible workflow is select a clip, seek, trim or move it, then undo while the playhead follows the same driver.                                                                                                  |
 
 PR A can merge after the headless query and plan gates pass. PR B closes the two-track playback outcome. The Canvas 2D view follows those contracts. [Milestone 2](../../ROADMAP.md#milestones) · [Core architecture](../core-architecture.md) · [Selective history](../selective-history.md)

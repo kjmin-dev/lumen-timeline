@@ -3,18 +3,23 @@
 `editor.read()` pins the current immutable document and its track layouts. Pass a snapshot from a selector callback to `editor.read(snapshot)` to query that exact revision, even if another subscriber has already committed an edit. Retained handles stay readable across move, undo and redo.
 
 ```js
-const read = editor.read()
-const range = { start: unitsToTicks(142, 10), end: unitsToTicks(143, 10) }
-const visible = read.clipsIn(range, { trackIds: ['dialogue', 'music'] })
+const read = editor.read();
+const range = { start: unitsToTicks(142, 10), end: unitsToTicks(143, 10) };
+const visible = read.clipsIn(range, { trackIds: ["dialogue", "music"] });
 const plan = read.planAudio(range, {
   version: 1,
   takes: {
-    'take-a': {
-      assetId: 'recording', assetVersion: 3, streamId: 'audio-0', sampleRate: 48000,
-      sourceAtContentZero: 0, availableStart: 0, availableEnd: 960000,
+    "take-a": {
+      assetId: "recording",
+      assetVersion: 3,
+      streamId: "audio-0",
+      sampleRate: 48000,
+      sourceAtContentZero: 0,
+      availableStart: 0,
+      availableEnd: 960000,
     },
   },
-})
+});
 ```
 
 Ranges are half-open safe integer project ticks. Empty ranges contain no clips. Track order follows the document and ties within a track are ordered by start and then clip ID. An explicit track selection accepts existing track IDs and ignores duplicates. Results contain the document's immutable clip references, including muted placements and empty take slots.

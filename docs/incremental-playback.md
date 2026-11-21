@@ -10,11 +10,12 @@ The experimental `VideoTransport` constructor takes a video element, an AudioCon
 const driver = new VideoTransport(video, audio, master, {
   editor,
   catalog,
-  resolveBuffer: (span, signal) => assets.loadStream(span.assetId, span.assetVersion, span.streamId, signal),
+  resolveBuffer: (span, signal) =>
+    assets.loadStream(span.assetId, span.assetVersion, span.streamId, signal),
   onError: (error, span) => host.reportAudioError(span.clipId, error),
-})
+});
 // When the host replaces the immutable catalog:
-driver.setCatalog(nextCatalog)
+driver.setCatalog(nextCatalog);
 ```
 
 The resolver may return a decoded AudioBuffer or a promise. This probe expects a buffer beginning at native sample zero, covering the planned source end at the declared rate. The catalog describes identity and availability. Buffers belong to the media resolver. A new catalog version can update one asset while leaving other stream bindings intact.

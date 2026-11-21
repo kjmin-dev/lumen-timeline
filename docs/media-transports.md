@@ -3,9 +3,16 @@
 The `@lumen-timeline/media` workspace executes core audio plans on Web Audio and exposes a project-tick interface to the timeline. Importing the package acquires no browser resources.
 
 ```js
-const transport = createVideoTransport({ video, context, output: context.destination,
-  editor, catalog, resolveBuffer, onError })
-const view = mountTimeline(container, { editor, transport })
+const transport = createVideoTransport({
+  video,
+  context,
+  output: context.destination,
+  editor,
+  catalog,
+  resolveBuffer,
+  onError,
+});
+const view = mountTimeline(container, { editor, transport });
 ```
 
 The video driver observes presented frames and handles native seeking, buffering and clock reacquisition. A shared voice scheduler consumes its project-tick/context-time anchor. It owns its planning timer, editor subscription, gain and buffer source nodes, and abortable resolution requests. A clip edit preserves unrelated reservations and the active generation. A clock discontinuity invalidates the generation.
@@ -19,10 +26,16 @@ The host owns the editor, video element, AudioContext, output and asset cache. D
 Run `npm run example:vanilla` and follow **Audio workspace**. The route uses the same timeline mount, selection, clip inspector, edit commands and JSON save/reopen controls. It has its own storage key and loads no video. Its playhead clock display identifies the timing source in use.
 
 ```js
-import { createAudioTransport } from '@lumen-timeline/media'
+import { createAudioTransport } from "@lumen-timeline/media";
 
-const transport = createAudioTransport({ editor, context, output: context.destination, catalog, resolveBuffer })
-const view = mountTimeline(element, { editor, transport })
+const transport = createAudioTransport({
+  editor,
+  context,
+  output: context.destination,
+  catalog,
+  resolveBuffer,
+});
+const view = mountTimeline(element, { editor, transport });
 ```
 
 The audio driver supports 1× playback. On play or an active seek, it anchors the project tick to an absolute output sample one nominal 128-frame quantum ahead of the rendering clock. The shared scheduler fills from the target tick, including sources already in progress. It also advances the transport through silence and stops at the exclusive sequence end. A fixed project duration sets the end. With an implicit duration, the ruler and transport both use the last clip end, including after undo and redo.
