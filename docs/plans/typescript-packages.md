@@ -2,20 +2,20 @@
 
 **Outcome.** `@lumen-timeline/media` and `@lumen-timeline/timeline` are strict TypeScript built by tsrs, like the core. The vanilla example, the experiments and both browser workflows load the build. Playback and editing behave exactly as before. The following marker work is then written against typed packages. [Core recipe](typescript-core.md) · [Media guide](../media-transports.md) · [Timeline guide](../vanilla-timeline.md)
 
-**Starting point.** At `288a9bc`, the core is TypeScript with conditional exports, a tsrs build, type-aware Oxlint rules, compiler parity and an API snapshot. Media (five modules, 915 lines) and timeline (three modules, 825 lines) are still JavaScript ES modules. Their 15 tests import the packages by name, except that `experiments/sync/transport.mjs` reaches into two media modules.
+**Starting point.** At `288a9bc`, the core is TypeScript with conditional exports, a tsrs build, type-aware Oxlint rules, a ban on type and non-null assertions (#16), compiler parity and an API snapshot. Media (five modules, 915 lines) and timeline (three modules, 825 lines) are still JavaScript ES modules. Their 15 tests import the packages by name, except that `experiments/sync/transport.mjs` reaches into two media modules.
 
 ## Shared rules
 
 - **Same recipe as the core.** Per package:
-  - commit 1 moves `*.mjs` to `src/*.ts` with `git mv` and changes only import specifiers;
-  - later commits add types;
+  - `git mv` moves `*.mjs` to `src/*.ts` in the same commit that adds types. The pre-commit type check rejects untyped TypeScript, and Git still records each move as a rename;
   - tests stay `.mjs` until the sources are typed, so the existing suite remains an unchanged oracle;
   - a final commit moves the tests to `test/*.test.ts` and type-checks them.
 - **Browser libraries.** Package sources compile with `lib: ["es2024", "dom", "dom.iterable"]` and `types: []`. Only the core stays DOM-free.
-- **Host types are the DOM types.** Public options take `AudioContext`, `AudioNode`, `HTMLVideoElement` and `HTMLElement`. Test fakes cast once at the boundary instead of widening the public API.
+- **Host types are structural.** Public options take `AudioContextLike`, `AudioNodeLike`, `VideoElementLike` and `AudioBufferLike`. Each lists only the members the transports use. A compile-only test assigns real `AudioContext`, `HTMLVideoElement`, destination and `AudioBuffer` objects to them. Test doubles implement them directly, so tests need no casts. The timeline takes an `HTMLElement` container.
+- **No assertions.** As in the core since #16, sources and tests use no `as` (except `as const`), no `!`, no definite assignment and no non-optional `declare` fields. Fields created lazily, such as the video driver's pending seek, stay optional `declare` fields, so object shapes do not change.
 - **Unstable entries.** `./internal` exports `VideoTransport`, `presentationTime` and `scheduleWindow` for the seconds-based probes. Timeline exports `./style.css` unchanged.
 - **The timeline owns its transport contract.** It declares the transport shape it needs: `snapshot()` with `playing`, `presentedTick` and `requestedTick`, plus `subscribe`, `play`, `pause` and `seek`. Media transports satisfy it structurally, so neither view package imports the other.
-- **Display names.** Display names are part of the core model. The timeline renders `track.name` and `clip.name`, so both become optional `string` fields in the core types, with an intended API snapshot update.
+- **Display names.** The timeline renders `track.name` and `clip.name`. #16 typed both as optional strings and validates them on load.
 - **Gates.** The gates match PR I:
   - tsrs and tsc agree on every project, and emitting projects produce identical files;
   - every reachable declaration file is snapshotted per package;
@@ -26,7 +26,7 @@
 ## PR K — Media
 
 - Type the voice scheduler's voice records, video driver state and transport snapshots. Public types:
-  - `AudioTransport` and `VideoTransport` handles;
+  - `AudioTransport` and `VideoTransport` handles and the structural host interfaces;
   - `AudioTransportState` (`status`, `precision`) and `VideoTransportState`;
   - `ResolveBuffer` and `TransportDiagnostics`.
 - Fields assigned after construction use `declare`, so the emit keeps the original property creation order.
