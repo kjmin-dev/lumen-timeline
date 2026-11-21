@@ -10,6 +10,19 @@ The ruler and static clips are cached separately from selection and the moving p
 
 Run `npm test` and `npm run verify:timeline` for geometry, session and real-browser checks. Install the test browser with `npx playwright install chromium`. The ten-second playback trace asserts zero extra layout or static paint operations at a fixed viewport.
 
+## Markers
+
+The ruler draws saved markers as flags with their labels, with a thin line across the clips. With the ruler or the clip surface focused:
+
+- `]` seeks to the next marker and `[` to the previous one;
+- `M` adds a marker at the playhead.
+
+The marker navigator lists markers in time order and seeks to the chosen one. **Rename marker** and **Remove marker** act on the navigator's marker, and the history controls undo either.
+
+Drags snap to markers. Ties prefer the playhead, then a marker, then a neighboring clip edge, then the grid. Pass `snap: { markers: false }` to opt out.
+
+Both example projects start with two markers. Save project and Reopen saved keep them. `npm run verify:timeline` steps through markers from the keyboard, adds, renames, removes and undoes one, checks that a marker added during playback leaves the music reservation alone, and reopens the saved project.
+
 ## Edit clips
 
 Drag a clip body to move the selection. Drag a visible endpoint to trim it. Shift-click adds or removes a clip from the selection. A clipped edge of the viewport still picks the body when the true trim handle is offscreen. The music track in the example is locked. The dialogue track rejects overlapping placements.
