@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
-import { pack, rectangle, hit, zoomAt, tickAt, pixelAt } from "./geometry.mjs";
+import { pack, rectangle, hit, zoomAt, tickAt, pixelAt } from "@lumen-timeline/timeline/internal";
 
 test("CSS-pixel projection round trips and preserves pointer time across zoom", () => {
   const v = { startTick: 12 * hz, pixelsPerSecond: 100 };

@@ -11,6 +11,7 @@ const projects = [
   { path: "packages/core/test", emit: false },
   { path: "packages/media", emit: true },
   { path: "packages/media/test", emit: false },
+  { path: "packages/timeline", emit: true },
 ];
 const compilers = ["tsrs", "tsc"];
 const windows = process.platform === "win32";

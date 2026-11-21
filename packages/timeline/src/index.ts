@@ -1,5 +1,18 @@
-import { bindEditing, snapConfig } from "./gestures.mjs";
+import { bindEditing, snapConfig } from "./gestures.ts";
+import type { PointerInfo } from "./gestures.ts";
 import { TICKS_PER_SECOND as hz, sequenceDuration } from "@lumen-timeline/core";
+import type { Clip, EditCommit, ProjectSnapshot, Tick, Track } from "@lumen-timeline/core";
+import { element } from "./dom.ts";
+import type { Listen } from "./dom.ts";
+import type { Box, Packed, Viewport } from "./geometry.ts";
+import type {
+  TimelineDiagnostics,
+  TimelineOptions,
+  TimelineView,
+  TransportState,
+} from "./types.ts";
+export type * from "./types.ts";
+export type { Viewport } from "./geometry.ts";
 import {
   formatTime,
   hit,
@@ -11,23 +24,42 @@ import {
   tickAt,
   viewport,
   zoomAt,
-} from "./geometry.mjs";
+} from "./geometry.ts";
 
 const maxTick = 7 * 86400 * hz;
 const colors = [
   ["#2b5555", "#87d6cb"],
   ["#604332", "#ffb184"],
   ["#464360", "#c8bbff"],
-];
-const clampTick = (tick, end) => Math.max(0, Math.min(end, tick));
+] as const;
+const palette = (index: number): readonly [string, string] =>
+  colors[index % colors.length] ?? colors[0];
+const clampTick = (tick: Tick, end: Tick): Tick => Math.max(0, Math.min(end, tick));
+
+interface Row extends Packed {
+  readonly track: Track;
+  readonly index: number;
+  readonly top: number;
+}
+
+/** The view keeps its own counters, read through `getDiagnostics`. */
+type Counters = { -readonly [K in keyof TimelineDiagnostics]: TimelineDiagnostics[K] };
+
+function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D is unavailable");
+  return ctx;
+}
 
 export function mountTimeline(
-  container,
-  { editor, transport, pixelsPerSecond = 48, startTick = 0, snap },
-) {
+  container: HTMLElement,
+  { editor, transport, pixelsPerSecond = 48, startTick = 0, snap }: TimelineOptions,
+): TimelineView {
   const config = snapConfig(snap);
   const doc = container.ownerDocument;
-  const win = doc.defaultView;
+  const windowProxy = doc.defaultView;
+  if (!windowProxy) throw new Error("Mount the timeline in a document with a window");
+  const win = windowProxy;
   const root = doc.createElement("section");
   root.className = "lt";
   root.setAttribute("aria-label", "Timeline");
@@ -48,20 +80,24 @@ export function mountTimeline(
     <label class="lt-pan">Scroll <input type="range" aria-label="Timeline scroll" min="0" value="0"></label>
     <div class="lt-message" role="status"></div>`;
   container.append(root);
-  const get = (selector) => root.querySelector(selector);
-  const ruler = get(".lt-ruler"),
-    surface = get(".lt-surface"),
-    scroll = get(".lt-scroll");
-  const body = get(".lt-clips"),
-    overlay = get(".lt-selection"),
-    head = get(".lt-head");
-  const navigator = get("select"),
-    pan = get(".lt-pan input"),
-    message = get(".lt-message");
-  const play = get("[data-play]"),
-    time = get(".lt-time");
+  const ruler = element(root, ".lt-ruler", "canvas"),
+    surface = element(root, ".lt-surface", "div"),
+    scroll = element(root, ".lt-scroll", "div");
+  const body = element(root, ".lt-clips", "canvas"),
+    overlay = element(root, ".lt-selection", "canvas"),
+    head = element(root, ".lt-head", "div");
+  const navigator = element(root, "select", "select"),
+    pan = element(root, ".lt-pan input", "input"),
+    message = element(root, ".lt-message", "div");
+  const play = element(root, "[data-play]", "button"),
+    time = element(root, ".lt-time", "output");
+  const space = element(root, ".lt-space", "div"),
+    pin = element(root, ".lt-pin", "div"),
+    headerList = element(root, ".lt-headers", "div");
+  const zoomIn = element(root, "[data-in]", "button"),
+    zoomOut = element(root, "[data-out]", "button");
   const events = new win.AbortController();
-  const listen = (target, type, fn, options = {}) =>
+  const listen: Listen = (target, type, fn, options = {}) =>
     target.addEventListener(type, fn, { ...options, signal: events.signal });
   let snapshot = editor.getSnapshot();
   let read = editor.read(snapshot);
@@ -71,48 +107,53 @@ export function mountTimeline(
     height = 0,
     dpr = 0,
     totalHeight = 0;
-  let rows = [],
-    visible = [],
-    boxes = [],
-    ghosts = [];
-  const packed = new Map();
-  const diagnostics = { layoutBuilds: 0, staticPaints: 0, overlayPaints: 0 };
+  let rows: Row[] = [],
+    visible: Row[] = [],
+    boxes: Box<Clip>[] = [],
+    ghosts: readonly Clip[] = [];
+  const packed = new Map<string, Packed>();
+  const diagnostics: Omit<Counters, "previewClipCount"> = {
+    layoutBuilds: 0,
+    staticPaints: 0,
+    overlayPaints: 0,
+  };
   let disposed = false;
 
-  function rebuildRows(dirty) {
+  function rebuildRows(dirty?: ReadonlySet<string>): void {
     totalHeight = 0;
     rows = snapshot.tracks.map((track, index) => {
-      if (!packed.has(track.id) || dirty?.has(track.id)) {
+      let p = packed.get(track.id);
+      if (!p || dirty?.has(track.id)) {
         const clips = read.clipsIn({ start: 0, end: maxTick }, { trackIds: [track.id] });
-        const p = pack(clips);
+        p = pack(clips);
         packed.set(track.id, p);
       }
-      const p = packed.get(track.id);
-      const row = { track, index, top: totalHeight, ...p };
+      const row: Row = { track, index, top: totalHeight, ...p };
       totalHeight += p.height;
       return row;
     });
     duration = sequenceDuration(snapshot);
   }
 
-  function setup(canvas, w, h) {
+  function setup(canvas: HTMLCanvasElement, w: number, h: number): CanvasRenderingContext2D {
     const bw = Math.max(1, Math.round(w * dpr)),
       bh = Math.max(1, Math.round(h * dpr));
     if (canvas.width !== bw || canvas.height !== bh) {
       canvas.width = bw;
       canvas.height = bh;
     }
-    const ctx = canvas.getContext("2d");
+    const ctx = context2d(canvas);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return ctx;
   }
 
-  function spacing() {
+  function spacing(): number {
     const ideal = 72 / view.pixelsPerSecond;
     const unit = 10 ** Math.floor(Math.log10(ideal));
-    return [1, 2, 5, 10].find((m) => m * unit >= ideal) * unit;
+    // unit <= ideal < 10 * unit, so the last multiple always qualifies.
+    return ([1, 2, 5, 10].find((m) => m * unit >= ideal) ?? 10) * unit;
   }
-  function gridLines(callback) {
+  function gridLines(callback: (x: number, seconds: number) => void): void {
     const step = spacing();
     const first = Math.ceil(view.startTick / hz / step);
     for (let n = first; ; n++) {
@@ -121,7 +162,7 @@ export function mountTimeline(
       callback(x, n * step);
     }
   }
-  function paintRuler() {
+  function paintRuler(): void {
     ruler.style.width = width + "px";
     const h = ruler.clientHeight;
     const ctx = setup(ruler, width, h);
@@ -134,7 +175,7 @@ export function mountTimeline(
     });
     ruler.setAttribute("aria-valuemax", String(duration / hz));
   }
-  function paintOverlay() {
+  function paintOverlay(): void {
     const ctx = setup(overlay, width, height);
     ctx.clearRect(0, 0, width, height);
     const selected = new Set(editor.session.getSelection());
@@ -170,7 +211,7 @@ export function mountTimeline(
     ctx.restore();
     diagnostics.overlayPaints++;
   }
-  function frame(state = transport.snapshot()) {
+  function frame(state: TransportState = transport.snapshot()): void {
     const t = state.requestedTick ?? state.presentedTick;
     const x = pixelAt(t, view);
     head.hidden = x < 0 || x >= width;
@@ -182,7 +223,7 @@ export function mountTimeline(
     ruler.setAttribute("aria-valuenow", String(t / hz));
     ruler.setAttribute("aria-valuetext", formatTime(t));
   }
-  function paint(dirty) {
+  function paint(dirty?: ReadonlySet<string>): void {
     const ctx = setup(body, width, height);
     const range = { start: view.startTick, end: Math.min(maxTick, tickAt(width, view) + 1) };
     if (!dirty) {
@@ -198,9 +239,10 @@ export function mountTimeline(
       ctx.fillRect(0, top, width, row.height - 1);
       ctx.fillStyle = "#2b3136";
       gridLines((x) => ctx.fillRect(Math.round(x), top, 1, row.height));
-      const [fill, stripe] = colors[row.index % colors.length];
+      const [fill, stripe] = palette(row.index);
       for (const clip of read.clipsIn(range, { trackIds: [row.track.id] })) {
-        const b = rectangle(clip, row.lanes.get(clip.id), top, view, width);
+        // pack() assigned a lane to every clip on this track.
+        const b = rectangle(clip, row.lanes.get(clip.id) ?? 0, top, view, width);
         if (b.endX <= b.x) continue;
         boxes.push(b);
         ctx.fillStyle = fill;
@@ -225,14 +267,14 @@ export function mountTimeline(
     paintOverlay();
     frame();
   }
-  function refresh() {
+  function refresh(): void {
     if (disposed) return;
     width = surface.clientWidth;
     height = scroll.clientHeight;
     dpr = win.devicePixelRatio || 1;
     view = viewport(view.startTick, view.pixelsPerSecond, width, duration);
-    get(".lt-space").style.height = Math.max(totalHeight, height) + "px";
-    get(".lt-pin").style.height = height + "px";
+    space.style.height = Math.max(totalHeight, height) + "px";
+    pin.style.height = height + "px";
     visible = rows.filter(
       (row) => row.top < scroll.scrollTop + height && row.top + row.height > scroll.scrollTop,
     );
@@ -241,36 +283,39 @@ export function mountTimeline(
       label.className = "lt-label";
       label.style.top = row.top - scroll.scrollTop + "px";
       label.style.height = row.height + "px";
-      label.style.setProperty("--track-color", colors[row.index % colors.length][1]);
+      label.style.setProperty("--track-color", palette(row.index)[1]);
       label.textContent = row.track.name ?? row.track.id;
       return label;
     });
-    get(".lt-headers").replaceChildren(...headers);
+    headerList.replaceChildren(...headers);
     pan.max = String(Math.max(0, duration - Math.ceil((width * hz) / view.pixelsPerSecond)));
     pan.step = "1";
     pan.value = String(view.startTick);
     paintRuler();
     paint();
   }
-  function setViewport({ startTick = view.startTick, pixelsPerSecond = view.pixelsPerSecond }) {
+  function setViewport({
+    startTick = view.startTick,
+    pixelsPerSecond = view.pixelsPerSecond,
+  }: Partial<Viewport>): void {
     view = viewport(startTick, pixelsPerSecond, width, duration);
     refresh();
   }
-  function zoom(x, factor) {
+  function zoom(x: number, factor: number): void {
     setViewport(zoomAt(view, x, factor, width, duration));
   }
-  function updateNavigator() {
+  function updateNavigator(): void {
     const options = doc.createDocumentFragment();
     options.append(new win.Option("Select clip", ""));
     for (const c of snapshot.clips) options.append(new win.Option(c.name ?? c.id, c.id));
     navigator.replaceChildren(options);
     navigator.value = editor.session.getSelection().at(-1) ?? "";
   }
-  function selected(ids) {
+  function selected(ids: readonly string[]): void {
     navigator.value = ids.at(-1) ?? "";
     paintOverlay();
   }
-  function point(event) {
+  function point(event: PointerEvent | WheelEvent): PointerInfo {
     const rect = surface.getBoundingClientRect();
     const x = event.clientX - rect.left,
       y = event.clientY - rect.top;
@@ -278,12 +323,13 @@ export function mountTimeline(
     const row = visible.find((r) => y >= 0 && y < height && r.top <= top && top < r.top + r.height);
     return { x, width, tick: tickAt(x, view), box: hit(boxes, x, y), trackId: row?.track.id };
   }
-  function seek(tick) {
-    Promise.resolve(transport.seek(clampTick(tick, duration))).catch((error) => {
-      if (!disposed) message.textContent = error.message;
+  function seek(tick: Tick): void {
+    Promise.resolve(transport.seek(clampTick(tick, duration))).catch((error: unknown) => {
+      if (!disposed) message.textContent = errorMessage(error);
     });
   }
-  const scrub = (e) => seek(tickAt(e.clientX - ruler.getBoundingClientRect().left, view));
+  const scrub = (e: PointerEvent): void =>
+    seek(tickAt(e.clientX - ruler.getBoundingClientRect().left, view));
   listen(ruler, "pointerdown", (e) => {
     if (e.button === 0) {
       ruler.setPointerCapture(e.pointerId);
@@ -296,10 +342,16 @@ export function mountTimeline(
   listen(ruler, "keydown", (e) => {
     const t = transport.snapshot().requestedTick ?? transport.snapshot().presentedTick;
     const step = config.gridTicks || 1;
-    const targets = { Home: 0, End: duration, ArrowLeft: t - step, ArrowRight: t + step };
-    if (Object.hasOwn(targets, e.key)) {
+    const targets = new Map([
+      ["Home", 0],
+      ["End", duration],
+      ["ArrowLeft", t - step],
+      ["ArrowRight", t + step],
+    ]);
+    const target = targets.get(e.key);
+    if (target !== undefined) {
       e.preventDefault();
-      seek(targets[e.key]);
+      seek(target);
     }
   });
   const stopEditing = bindEditing({
@@ -310,7 +362,7 @@ export function mountTimeline(
     listen,
     point,
     getView: () => view,
-    setGhost: (next) => {
+    setGhost: (next: readonly Clip[]) => {
       ghosts = next;
       paintOverlay();
     },
@@ -322,21 +374,22 @@ export function mountTimeline(
     editor.session.select(clip ? [clip.id] : []);
     if (!clip) return;
     const row = rows.find((r) => r.track.id === clip.trackId);
-    const y = row.top + rowInset + laneHeight * row.lanes.get(clip.id);
+    if (!row) return;
+    const y = row.top + rowInset + laneHeight * (row.lanes.get(clip.id) ?? 0);
     if (y < scroll.scrollTop || y + laneHeight > scroll.scrollTop + height) scroll.scrollTop = y;
     if (clip.start < view.startTick || clip.start >= tickAt(width, view))
       setViewport({ startTick: clip.start });
   });
-  listen(get("[data-play]"), "click", async () => {
+  listen(play, "click", async () => {
     try {
       if (transport.snapshot().playing) transport.pause();
       else await transport.play();
     } catch (error) {
-      message.textContent = error.message;
+      message.textContent = errorMessage(error);
     }
   });
-  listen(get("[data-in]"), "click", () => zoom(width / 2, 1.5));
-  listen(get("[data-out]"), "click", () => zoom(width / 2, 1 / 1.5));
+  listen(zoomIn, "click", () => zoom(width / 2, 1.5));
+  listen(zoomOut, "click", () => zoom(width / 2, 1 / 1.5));
   listen(pan, "input", () => setViewport({ startTick: Number(pan.value) }));
   listen(scroll, "scroll", refresh);
   listen(
@@ -356,8 +409,8 @@ export function mountTimeline(
   );
 
   const offDoc = editor.subscribe(
-    (s) => s,
-    (next, change) => {
+    (s: ProjectSnapshot) => s,
+    (next: ProjectSnapshot, change: EditCommit) => {
       snapshot = next;
       read = editor.read(next);
       if (!change.patches.length) return;
@@ -368,9 +421,9 @@ export function mountTimeline(
         oldDuration = duration;
       rebuildRows(dirty);
       if (change.patches.some((p) => p.before.length !== p.after.length)) updateNavigator();
-      if (duration !== oldDuration || rows.some((r, i) => r.height !== oldRows[i].height))
+      if (duration !== oldDuration || rows.some((r, i) => r.height !== oldRows[i]?.height))
         return refresh();
-      visible = visible.map((r) => rows[r.index]);
+      visible = visible.flatMap((r) => rows[r.index] ?? []);
       const end = tickAt(width, view);
       const intersects = [...change.affected.before, ...change.affected.after].some(
         (r) => r.start < end && r.end > view.startTick,
@@ -383,7 +436,7 @@ export function mountTimeline(
             dirty.has(r.track.id) &&
             r.lanes.size &&
             (r.height > laneHeight + 2 * rowInset ||
-              oldRows[r.index].height > laneHeight + 2 * rowInset),
+              (oldRows[r.index]?.height ?? 0) > laneHeight + 2 * rowInset),
         )
       )
         paint(dirty);
@@ -394,8 +447,8 @@ export function mountTimeline(
   const resize = new win.ResizeObserver(refresh);
   resize.observe(surface);
   resize.observe(scroll);
-  let resolution;
-  function onResolution() {
+  let resolution: MediaQueryList | undefined;
+  function onResolution(): void {
     resolution?.removeEventListener("change", onResolution);
     resolution = win.matchMedia("(resolution: " + win.devicePixelRatio + "dppx)");
     resolution.addEventListener("change", onResolution, { once: true, signal: events.signal });
@@ -420,4 +473,12 @@ export function mountTimeline(
       root.remove();
     },
   };
+}
+
+// Shows a rejection's message. Like setting textContent to a missing message,
+// anything without a string message clears the status line.
+function errorMessage(error: unknown): string {
+  const text: unknown =
+    typeof error === "object" && error !== null ? Reflect.get(error, "message") : undefined;
+  return typeof text === "string" ? text : "";
 }

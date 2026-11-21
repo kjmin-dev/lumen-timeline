@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
-import { handleAt, snapDelta } from "./gestures.mjs";
+import { handleAt, snapDelta } from "@lumen-timeline/timeline/internal";
 
 test("viewport clipping does not invent a trim handle", () => {
   assert.equal(handleAt({ left: -5, right: 30 }, 1, 100), "move");
