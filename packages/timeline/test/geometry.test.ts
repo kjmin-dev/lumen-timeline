@@ -17,10 +17,15 @@ test("overlaps have stable lanes, adjacent edges and clipped bounds hit correctl
   ];
   const { lanes } = pack(items);
   assert.deepEqual([...lanes.values()], [0, 1, 1]);
+  const lane = (id: string): number => {
+    const index = lanes.get(id);
+    assert.ok(index !== undefined);
+    return index;
+  };
   const boxes = items.map((c) =>
-    rectangle(c, lanes.get(c.id), 0, { startTick: 5, pixelsPerSecond: hz }, 10),
+    rectangle(c, lane(c.id), 0, { startTick: 5, pixelsPerSecond: hz }, 10),
   );
   assert.equal(boxes[0].left, -5);
   assert.equal(boxes[0].x, 0);
-  assert.equal(hit(boxes, 1, boxes[1].y + 1).clip.id, "c");
+  assert.equal(hit(boxes, 1, boxes[1].y + 1)?.clip.id, "c");
 });
