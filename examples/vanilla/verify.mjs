@@ -8,7 +8,7 @@ const browser = await ({ chromium, firefox, webkit }[engine]).launch()
 const hz = 282240000
 try {
   for (const dpr of [1, 2]) {
-    const page = await browser.newPage({ viewport: { width: 1120, height: 820 }, deviceScaleFactor: dpr })
+    const page = await browser.newPage({ viewport: { width: 1000, height: 840 }, deviceScaleFactor: dpr })
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(server.url)
@@ -45,8 +45,16 @@ try {
     const selected = await api('state')
     assert.deepEqual(selected.ids,['line'])
     assert.equal(selected.presentedTick,0)
+    const requests = await page.evaluateHandle(async () => {
+      const { studio } = await import('./app.mjs')
+      const ticks = []
+      const off = studio.transport.subscribe(state => { if (state.requestedTick !== null) ticks.push(state.requestedTick) })
+      return { ticks, off }
+    })
     await ruler.click({position:{x:220,y:12}})
-    await page.waitForFunction(() => Math.abs(document.querySelector('video').currentTime - 14.2) < 0.001)
+    assert.equal(await requests.evaluate(r => { r.off(); return r.ticks.at(-1) }), 14.2 * hz)
+    await requests.dispose()
+    await page.waitForFunction(() => Math.abs(document.querySelector('video').currentTime - 14.2) < 0.05)
     assert.deepEqual((await api('state')).ids,['line'])
     const race=await api('race')
     assert.equal(race.results.at(-1),'arrived')
@@ -98,4 +106,16 @@ try {
     console.log(engine + ' DPR ' + dpr + ': selection, seek, zoom and mount checks passed')
     await page.close()
   }
+  await verifyUnavailable()
 } finally { await browser.close(); await server.close() }
+
+async function verifyUnavailable() {
+  const page = await browser.newPage()
+  try {
+    await page.route('**/media/*', route => route.abort())
+    await page.goto(server.url)
+    await page.getByLabel('Clip navigator').selectOption('line')
+    assert.equal(await page.locator('#clip-name').textContent(), 'Tidal contours')
+    console.log(engine + ': selection remains available without media')
+  } finally { await page.close() }
+}

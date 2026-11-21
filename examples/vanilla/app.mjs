@@ -16,7 +16,7 @@ export const project = { schemaVersion: 1, duration: 24 * hz,
 }
 export async function openProject(data) {
   const editor = createEditor({ project: data })
-  const transport = await attachPlayer(video, editor)
+  const transport = await attachPlayer(video, editor, error => { document.querySelector('#status').textContent = error.message })
   const view = mountTimeline(document.querySelector('#timeline'), { editor, transport,
     pixelsPerSecond: Math.max(20, (document.querySelector('#timeline').clientWidth - 160) / 24) })
   function inspector() {
@@ -28,9 +28,15 @@ export async function openProject(data) {
     document.querySelector('#offset').textContent = c ? (c.contentIn / hz).toFixed(3) + ' s' : '—'
     document.querySelector('#take').textContent = c?.activeTakeId ?? '—'
   }
-  const off = editor.subscribe(s => s.clips, inspector)
-  const deselect = editor.session.subscribeSelection(inspector)
-  inspector()
+  let off = () => {}
+  function bindInspector() {
+    off()
+    const id = editor.session.getSelection().at(-1)
+    off = editor.subscribe(s => s.clips.find(c => c.id === id), inspector)
+    inspector()
+  }
+  const deselect = editor.session.subscribeSelection(bindInspector)
+  bindInspector()
   return { editor, view, transport, async dispose() {
     off(); deselect(); view.dispose(); await transport.dispose(); editor.dispose()
   } }

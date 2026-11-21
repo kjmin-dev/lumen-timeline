@@ -186,9 +186,10 @@ export function mountTimeline(container, { editor, transport, pixelsPerSecond = 
   }
   function zoom(x, factor) { setViewport(zoomAt(view, x, factor, width, duration)) }
   function updateNavigator() {
-    const options = [new win.Option('Select clip', '')]
-    for (const c of snapshot.clips) options.push(new win.Option(c.name ?? c.id, c.id))
-    navigator.replaceChildren(...options)
+    const options = doc.createDocumentFragment()
+    options.append(new win.Option('Select clip', ''))
+    for (const c of snapshot.clips) options.append(new win.Option(c.name ?? c.id, c.id))
+    navigator.replaceChildren(options)
     navigator.value = editor.session.getSelection().at(-1) ?? ''
   }
   function selected(ids) {

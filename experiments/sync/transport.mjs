@@ -73,9 +73,9 @@ export class VideoTransport {
     const generation = this.generation
     this.frame = this.video.requestVideoFrameCallback((now, frame) => {
       this.observe()
-      if (generation !== this.generation || this.video.seeking || this.video.paused ||
-          this.seekInFlight || !this.running) return
-      this.onFrame(frame.mediaTime)
+      if (generation !== this.generation || this.video.seeking || this.seekInFlight) return
+      if (this.video.paused || this.running) this.onFrame(frame.mediaTime)
+      if (this.video.paused || !this.running) return
       const stamp = this.context.getOutputTimestamp()
       if (!(stamp.performanceTime > 0)) return
       const audio = stamp.contextTime + (presentationTime(now, frame.expectedDisplayTime) - stamp.performanceTime) / 1000
