@@ -55,6 +55,27 @@ Use a command array for an atomic batch. Pass `{ history: 'ignore' }` to apply s
 - Each patch describes an array splice with `index`, `before` and `after` clip lists. All indices in one patch list refer to the same pre-transaction snapshot. A rejected command returns `{ ok: false, revision, code, target, reason }` and preserves both history branches. One undo reverses the complete selection move. Redo restores the exact split ID. A successful recorded edit after undo discards the previous redo branch. An ignored transaction preserves it.
 - `subscribe(selector, listener)` captures the current selector result and returns an unsubscribe function. The listener receives `(value, change, snapshot)` on subsequent changes to that value, compared with `Object.is`. Choose a primitive or a retained field reference. Notifications are delivered in revision order, including edits initiated by a listener. `dispose()` releases subscriptions and history.
 
+## Markers
+
+`project.markers` holds point markers: `{ id, start, label?, color?, extensions? }`, with `start` in project ticks. A marker may sit at an explicit sequence end. Snapshots keep markers sorted by start and then ID, and omit the field when there are none. An implicit sequence ends at the later of its last clip end and its last marker.
+
+```js
+editor.dispatch(commands.addMarker({ id: "chorus", start: seconds(30), label: "Chorus" }));
+editor.dispatch(commands.moveMarker({ markerId: "chorus", delta: seconds(2) }));
+editor.dispatch(commands.updateMarker({ markerId: "chorus", label: "Chorus 1" }));
+editor.dispatch(commands.removeMarker({ markerId: "chorus" }));
+```
+
+- **Combining.** Marker commands combine with clip and entity-data commands in one transaction.
+- **Adding.** Omitting `id` generates one.
+- **Rejections.**
+  - `invalid-marker`: a taken or empty ID, or a non-string label or color.
+  - `invalid-range`: a position outside the sequence.
+  - `invalid-delta`: a non-integer delta.
+  - `missing-marker`: an unknown marker.
+- **Commit results.** A commit reports `markerPatches` and `inverseMarkerPatches` as `{ id, before, after }` records, where `undefined` means absent. `changedIds` and `affected` cover clips only.
+- **Undo and redo.** Replay keeps marker fields changed since an edit unless the edit owns them. Removing a marker requires the whole recorded marker to match.
+
 ## Regression checks
 
 Run `npm test` for validation, immutable snapshots, source handles, atomic selection moves, stale revisions and a 1,000-edit undo/redo trace. For the offline browser fixture, run `npx playwright install chromium` followed by `npm run verify:pcm`. It checks every rendered sample at 44.1 and 48 kHz after dispatching all four edits, each undo and each redo. The expected PCM is derived from independently specified source indices and includes silence and a second overlapping track. The real-time Chrome probe also splits and undoes through the editor. [Playback probe instructions](clock-and-wasm.md#reproduce)

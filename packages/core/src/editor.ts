@@ -3,11 +3,13 @@ import type { TrackLayout } from "./document.ts";
 import { ClipDraft, inverse, rebase } from "./clip-patches.ts";
 import { DataDraft, applyData, invertData } from "./entity-data.ts";
 import { defined } from "./invariant.ts";
+import { MarkerDraft, applyMarkers, invertMarkers, rebaseMarkers } from "./markers.ts";
 import { createHistory } from "./history.ts";
 import { readRegistry } from "./read.ts";
 import { splitClip } from "./time.ts";
 import { EditError, isArray, requireEdit, validId } from "./validation.ts";
 import type {
+  AddMarkerCommand,
   AffectedInterval,
   Clip,
   ClipCommand,
@@ -21,15 +23,19 @@ import type {
   EditorOptions,
   EditResult,
   HistoryState,
+  MarkerPatch,
+  MoveMarkerCommand,
   MoveCommand,
   PreviewCommand,
   PreviewResult,
   ProjectSnapshot,
   RemoveDataCommand,
+  RemoveMarkerCommand,
   RevisionOptions,
   SetDataCommand,
   SplitCommand,
   TrimCommand,
+  UpdateMarkerCommand,
 } from "./types.ts";
 
 // Optional host capabilities. The core compiles without DOM or Node
@@ -62,6 +68,10 @@ function reportListenerError(error: unknown): void {
 type Arguments<C> = Omit<C, "type">;
 
 export interface Commands {
+  addMarker(args: Arguments<AddMarkerCommand>): AddMarkerCommand;
+  moveMarker(args: Arguments<MoveMarkerCommand>): MoveMarkerCommand;
+  updateMarker(args: Arguments<UpdateMarkerCommand>): UpdateMarkerCommand;
+  removeMarker(args: Arguments<RemoveMarkerCommand>): RemoveMarkerCommand;
   moveClips(args: Arguments<MoveCommand>): MoveCommand;
   trimClip(args: Arguments<TrimCommand>): TrimCommand;
   splitClip(args: Arguments<SplitCommand>): SplitCommand;
@@ -75,6 +85,10 @@ export const commands: Readonly<Commands> = Object.freeze({
   splitClip: (args) => ({ ...args, type: "split" }),
   setEntityData: (args) => ({ ...args, type: "set-data" }),
   removeEntityData: (args) => ({ ...args, type: "remove-data" }),
+  addMarker: (args) => ({ ...args, type: "add-marker" }),
+  moveMarker: (args) => ({ ...args, type: "move-marker" }),
+  updateMarker: (args) => ({ ...args, type: "update-marker" }),
+  removeMarker: (args) => ({ ...args, type: "remove-marker" }),
 } satisfies Commands);
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
@@ -137,6 +151,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
   let notifying = false;
   let disposed = false;
   let fallbackId = 0;
+  let markerFallbackId = 0;
 
   function newClipId(draft: ClipDraft): string {
     const random = hostRandomId();
@@ -146,6 +161,16 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
     do {
       id = "clip-" + ++fallbackId;
     } while (draft.get(id));
+    return id;
+  }
+
+  function newMarkerId(taken: (id: string) => boolean): string {
+    const random = hostRandomId();
+    if (random !== undefined) return random;
+    let id;
+    do {
+      id = "marker-" + ++markerFallbackId;
+    } while (taken(id));
     return id;
   }
 
@@ -413,6 +438,8 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       let inverses: readonly ClipPatch[];
       let data: readonly DataPatch[];
       let inverseData: readonly DataPatch[];
+      let markerPatches: readonly MarkerPatch[];
+      let inverseMarkerPatches: readonly MarkerPatch[];
       let policy: CommitHistory = options?.history === undefined ? "record" : options.history;
       if (mode === "edit") {
         requireEdit(
@@ -423,17 +450,27 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         );
         const clips = new ClipDraft(snapshot.clips, byId);
         const fields = new DataDraft(snapshot.entityData);
+        const markers = new MarkerDraft(snapshot.markers);
         for (const command of isArray(input) ? input : [input]) {
           if (command?.type === "set-data" || command?.type === "remove-data")
             fields.stage(command);
+          else if (
+            command?.type === "add-marker" ||
+            command?.type === "move-marker" ||
+            command?.type === "update-marker" ||
+            command?.type === "remove-marker"
+          )
+            markers.stage(command, rules, newMarkerId);
           else stageClip(command, clips);
         }
         patches = clips.patches();
         data = fields.patches();
-        if (!patches.length && !data.length)
+        markerPatches = markers.patches();
+        if (!patches.length && !data.length && !markerPatches.length)
           return { ok: true, revision: snapshot.revision, unchanged: true };
         inverses = inverse(patches);
         inverseData = invertData(data);
+        inverseMarkerPatches = invertMarkers(markerPatches);
       } else {
         const entry = history.peek(mode);
         requireEdit(entry, "empty-history", null, "No history entry available");
@@ -443,6 +480,12 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         inverses = patches === stored ? (undo ? entry.forward : entry.inverse) : inverse(patches);
         data = undo ? entry.inverseData : entry.data;
         inverseData = undo ? entry.data : entry.inverseData;
+        const recorded = (undo ? entry.inverseMarkers : entry.markers) ?? [];
+        markerPatches = rebaseMarkers(recorded, snapshot.markers, rules);
+        inverseMarkerPatches =
+          markerPatches === recorded
+            ? ((undo ? entry.markers : entry.inverseMarkers) ?? [])
+            : invertMarkers(markerPatches);
         policy = mode;
       }
 
@@ -450,6 +493,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       const after = patches.flatMap((p) => p.after);
       const geometry = patches.length ? prepareLayout(patches, before, after) : null;
       const entityData = applyData(snapshot.entityData, data);
+      const markerList = applyMarkers(snapshot.markers, markerPatches);
       const revision = nextRevision();
       const oldIds = new Set(before.map((c) => c.id));
       const result: EditCommit = Object.freeze({
@@ -463,6 +507,8 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         changedIds: Object.freeze([...new Set([...oldIds, ...after.map((c) => c.id)])]),
         createdIds: Object.freeze(after.filter((c) => !oldIds.has(c.id)).map((c) => c.id)),
         affected: Object.freeze({ before: intervals(before), after: intervals(after) }),
+        markerPatches,
+        inverseMarkerPatches,
       });
       const next: Mutable<ProjectSnapshot> = {
         ...snapshot,
@@ -471,11 +517,22 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       };
       if (entityData === undefined) delete next.entityData;
       else next.entityData = entityData;
+      if (markerList === undefined) delete next.markers;
+      else next.markers = markerList;
 
       // Validation, conflict checks and staging finish before any observable write.
       if (mode !== "edit") history.advance(mode);
       else if (policy === "record")
-        history.record({ forward: patches, inverse: inverses, data, inverseData });
+        history.record({
+          forward: patches,
+          inverse: inverses,
+          data,
+          inverseData,
+          // Marker-free entries keep their former shape and logical size.
+          ...(markerPatches.length
+            ? { markers: markerPatches, inverseMarkers: inverseMarkerPatches }
+            : {}),
+        });
       if (geometry) {
         byId = geometry.positions;
         byTrack = geometry.layout;

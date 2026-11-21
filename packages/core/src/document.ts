@@ -1,6 +1,15 @@
 import { normalizeEntityData } from "./entity-data.ts";
+import { compareMarkers, parseMarker } from "./markers.ts";
 import { TICKS_PER_SECOND } from "./time.ts";
-import type { Clip, ContentBounds, JsonValue, ProjectSnapshot, Tick, Track } from "./types.ts";
+import type {
+  Clip,
+  ContentBounds,
+  JsonValue,
+  Marker,
+  ProjectSnapshot,
+  Tick,
+  Track,
+} from "./types.ts";
 import { freezeJson, isArray, isRecord, requireEdit, safeInteger, validId } from "./validation.ts";
 
 const MAX_TICK: number = 7 * 86400 * TICKS_PER_SECOND;
@@ -239,8 +248,26 @@ export function openProject(input: unknown): OpenedProject {
     lane.push(clip);
   }
   for (const [id, clips] of byTrack) orderTrack(clips, rules, id);
+  const rawMarkers = project["markers"];
+  requireEdit(
+    rawMarkers === undefined || isArray(rawMarkers),
+    "invalid-project",
+    null,
+    "Expected a markers array",
+  );
+  const markerIds = new Set<string>();
+  const markerList: Marker[] = [];
+  for (const value of rawMarkers ?? []) {
+    const marker = parseMarker(value, markerIds, duration);
+    markerIds.add(marker.id);
+    markerList.push(marker);
+  }
+  markerList.sort(compareMarkers);
   // Normalized entity data follows the revision, as when the editor normalized it.
-  const { entityData: rawData, ...rest } = project;
+  // An empty markers list is omitted; otherwise markers keep their field position.
+  const { entityData: rawData, ...withMarkers } = project;
+  const { markers: _emptyMarkers, ...withoutMarkers } = withMarkers;
+  const rest = markerList.length ? withMarkers : withoutMarkers;
   const entityData = Object.hasOwn(project, "entityData")
     ? normalizeEntityData(rawData)
     : undefined;
@@ -252,6 +279,7 @@ export function openProject(input: unknown): OpenedProject {
     clips: Object.freeze(clipList),
     ...(rawDuration === undefined ? {} : { duration }),
     ...(rawMinimum === undefined ? {} : { minClipDuration: minimum }),
+    ...(markerList.length ? { markers: Object.freeze(markerList) } : {}),
     revision,
     ...(entityData === undefined ? {} : { entityData }),
   });

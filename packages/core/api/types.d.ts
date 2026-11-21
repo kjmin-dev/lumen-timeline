@@ -50,6 +50,19 @@ export interface Clip {
     readonly extensions?: JsonObject;
     readonly [field: string]: unknown;
 }
+/**
+ * A point marker. `start` may equal an explicit sequence duration. The editor
+ * preserves additional JSON fields without interpreting them.
+ */
+export interface Marker {
+    readonly id: string;
+    readonly start: Tick;
+    readonly label?: string;
+    /** A CSS color for views. */
+    readonly color?: string;
+    readonly extensions?: JsonObject;
+    readonly [field: string]: unknown;
+}
 /** Sparse entity metadata: scope, then entity ID, then field key. */
 export type EntityFields = {
     readonly [key: string]: JsonValue;
@@ -69,6 +82,8 @@ export interface Project {
     readonly minClipDuration?: Tick;
     readonly tracks: readonly Track[];
     readonly clips: readonly Clip[];
+    /** Sorted by start, then ID, in a snapshot. Omitted when there are none. */
+    readonly markers?: readonly Marker[];
     readonly entityData?: EntityData;
     readonly [field: string]: unknown;
 }
@@ -109,12 +124,37 @@ export interface RemoveDataCommand {
     readonly id: string;
     readonly key: string;
 }
+export interface AddMarkerCommand {
+    readonly type: "add-marker";
+    /** Omitted or `undefined` generates an ID. */
+    readonly id?: string | undefined;
+    readonly start: Tick;
+    readonly label?: string | undefined;
+    readonly color?: string | undefined;
+}
+export interface MoveMarkerCommand {
+    readonly type: "move-marker";
+    readonly markerId: string;
+    readonly delta: Tick;
+}
+/** Changes only the fields given. */
+export interface UpdateMarkerCommand {
+    readonly type: "update-marker";
+    readonly markerId: string;
+    readonly label?: string | undefined;
+    readonly color?: string | undefined;
+}
+export interface RemoveMarkerCommand {
+    readonly type: "remove-marker";
+    readonly markerId: string;
+}
 export type ClipCommand = MoveCommand | TrimCommand | SplitCommand;
 export type DataCommand = SetDataCommand | RemoveDataCommand;
-export type EditCommand = ClipCommand | DataCommand;
+export type MarkerCommand = AddMarkerCommand | MoveMarkerCommand | UpdateMarkerCommand | RemoveMarkerCommand;
+export type EditCommand = ClipCommand | DataCommand | MarkerCommand;
 export type PreviewCommand = MoveCommand | TrimCommand;
 /** Every code an `EditError` or a rejected edit can carry. */
-export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "invalid-edge" | "invalid-range" | "split-policy-required" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot";
+export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "invalid-edge" | "invalid-range" | "split-policy-required" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker";
 export type HistoryPolicy = "record" | "ignore";
 export type CommitHistory = HistoryPolicy | "undo" | "redo";
 export interface RevisionOptions {
@@ -139,6 +179,12 @@ export interface DataPatch {
     readonly before: JsonValue | undefined;
     readonly after: JsonValue | undefined;
 }
+/** One marker change. `undefined` represents an absent marker. */
+export interface MarkerPatch {
+    readonly id: string;
+    readonly before: Marker | undefined;
+    readonly after: Marker | undefined;
+}
 /** A clip's half-open placement interval in project ticks. */
 export interface AffectedInterval {
     readonly clipId: string;
@@ -161,6 +207,9 @@ export interface EditCommit {
         readonly before: readonly AffectedInterval[];
         readonly after: readonly AffectedInterval[];
     };
+    /** Marker changes. `changedIds`, `createdIds` and `affected` describe clips only. */
+    readonly markerPatches: readonly MarkerPatch[];
+    readonly inverseMarkerPatches: readonly MarkerPatch[];
 }
 export interface EditUnchanged {
     readonly ok: true;
@@ -267,6 +316,12 @@ export interface ReadHandle {
     readonly revision: number;
     clipsIn(range: TickRange, options?: ClipQueryOptions): readonly Clip[];
     planAudio(range: TickRange, catalog: TakeCatalog): AudioPlan;
+    /** Markers with `range.start <= start < range.end`, in snapshot order. */
+    markersIn(range: TickRange): readonly Marker[];
+    /** The first marker after `tick`. */
+    nextMarker(tick: Tick): Marker | undefined;
+    /** The last marker before `tick`. */
+    previousMarker(tick: Tick): Marker | undefined;
 }
 /** Removes a subscription. Returns whether it was still active. */
 export type Unsubscribe = () => boolean;
