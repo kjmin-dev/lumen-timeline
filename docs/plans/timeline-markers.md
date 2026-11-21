@@ -1,5 +1,7 @@
 # Saved timeline markers
 
+**Status.** Delivered: PR M in [#19](https://github.com/kjmin-dev/lumen-timeline/pull/19) and PR N in [#20](https://github.com/kjmin-dev/lumen-timeline/pull/20).
+
 **User outcome.** In the vanilla editor, add a marker at the playhead, jump between markers from the keyboard, rename or remove one, undo any of it, then save and reopen with the same markers. An audio-only project plays through silence to a marker after its last clip. The same commands run headlessly. [Design](../design.md#time-and-project-format) · [Milestone 2](../../ROADMAP.md#milestones)
 
 **Starting point.** After #18, every package is strict TypeScript without type assertions. The design reserves point markers and regions for the document: "Stable ID, point or interval, label, color and optional extension data". It also says an audio-only extent can end at a marker and that markers are snap candidates. Neither the document, the read API nor the view knows about markers yet.

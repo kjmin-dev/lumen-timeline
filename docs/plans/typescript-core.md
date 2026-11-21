@@ -1,5 +1,7 @@
 # Core in TypeScript, built with tsrs and gated by Oxc
 
+**Status.** Delivered: PR G in [#11](https://github.com/kjmin-dev/lumen-timeline/pull/11), with its blame-ignore entry in [#12](https://github.com/kjmin-dev/lumen-timeline/pull/12); PR H in [#13](https://github.com/kjmin-dev/lumen-timeline/pull/13); PR I in [#14](https://github.com/kjmin-dev/lumen-timeline/pull/14); PR J in [#15](https://github.com/kjmin-dev/lumen-timeline/pull/15).
+
 **Outcome.** `@lumen-timeline/core` is written in strict TypeScript, type-checked and emitted by tsrs, and ships JavaScript plus declarations with unchanged runtime behavior. Formatting, lint, types, module boundaries and the public API surface are checked by tools on every commit and pull request, so a reviewer, human or LLM, no longer has to verify them by reading.
 
 **Starting point.** At `f418d7f`, the core is eleven ES modules (935 lines) with 66 `node:test` tests across the workspace. There is no build, formatter or linter. CI runs the unit suite and three Playwright verifications on Node 22. Browser pages load `/packages/core/*.mjs` through import maps, and several experiments import `time.mjs` and `interval-index.mjs` directly. The design currently promises "pure JavaScript ES modules" with optional declarations. This plan replaces that contract. [Design](../design.md#packages-and-ownership) · [Core architecture](../core-architecture.md) · [CI](../../.github/workflows/test.yml)

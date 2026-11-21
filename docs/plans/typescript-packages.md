@@ -1,5 +1,7 @@
 # Media and timeline in TypeScript
 
+**Status.** Delivered: the assertion ban in [#16](https://github.com/kjmin-dev/lumen-timeline/pull/16), PR K in [#17](https://github.com/kjmin-dev/lumen-timeline/pull/17) and PR L in [#18](https://github.com/kjmin-dev/lumen-timeline/pull/18).
+
 **Outcome.** `@lumen-timeline/media` and `@lumen-timeline/timeline` are strict TypeScript built by tsrs, like the core. The vanilla example, the experiments and both browser workflows load the build. Playback and editing behave exactly as before. The following marker work is then written against typed packages. [Core recipe](typescript-core.md) · [Media guide](../media-transports.md) · [Timeline guide](../vanilla-timeline.md)
 
 **Starting point.** At `288a9bc`, the core is TypeScript with conditional exports, a tsrs build, type-aware Oxlint rules, a ban on type and non-null assertions (#16), compiler parity and an API snapshot. Media (five modules, 915 lines) and timeline (three modules, 825 lines) are still JavaScript ES modules. Their 15 tests import the packages by name, except that `experiments/sync/transport.mjs` reaches into two media modules.

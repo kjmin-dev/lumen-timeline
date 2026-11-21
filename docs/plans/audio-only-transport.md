@@ -1,5 +1,7 @@
 # Audio-only playback for the vanilla timeline
 
+**Status.** Delivered: PR E in [#9](https://github.com/kjmin-dev/lumen-timeline/pull/9) and PR F in [#10](https://github.com/kjmin-dev/lumen-timeline/pull/10).
+
 **User outcome.** Open a two-track audio project, seek into overlapping dialogue and music, move or trim the dialogue, and undo while the music continues. The existing Canvas timeline, inspector and history controls should work without a video element.
 
 At `9bc5fed`, the timeline already consumes a small tick-based transport interface. The vanilla player translates that interface to a video-driven experiment. Voice scheduling, asynchronous buffer handling and seam correction currently live in the same class as video frame observation and native seeking. The next two PRs separate those responsibilities and exercise the second clock. [Timeline input contract](../vanilla-timeline.md) · [Current video bridge](../../examples/vanilla/player.mjs) · [Scheduling implementation](../../experiments/sync/transport.mjs)

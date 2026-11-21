@@ -22,6 +22,7 @@ jobs:
       - run: npm run test:dist
       - run: npm run parity
       - run: npm run api:check
+      - run: npm run docs:check
 
   core:
     runs-on: ubuntu-latest

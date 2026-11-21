@@ -18,6 +18,10 @@ pre-commit:
       glob: "*.{ts,mts,cts,json}"
       run: npx tsrs -b
       fail_text: Fix the type errors reported by tsrs.
+    - name: links
+      glob: "*.md"
+      run: node scripts/docs-links.mjs
+      fail_text: Fix the broken Markdown links reported above.
     - name: unit
       glob: "*.{js,mjs,cjs,ts,mts,cts,json}"
       run: npm test --silent
