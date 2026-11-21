@@ -5,7 +5,13 @@
   "scripts": {
     "test": "node --test packages/core/*.test.mjs experiments/sync/*.test.mjs",
     "verify:sync": "node experiments/sync/run.mjs",
-    "bench:wasm": "node experiments/wasm/run.mjs"
+    "bench:wasm": "node experiments/wasm/run.mjs",
+    "verify:pcm": "node experiments/sync/run.mjs chromium --pcm"
   },
-  "devDependencies": { "playwright": "1.64.1" }
+  "devDependencies": {
+    "playwright": "1.64.1"
+  },
+  "workspaces": [
+    "packages/core"
+  ]
 }

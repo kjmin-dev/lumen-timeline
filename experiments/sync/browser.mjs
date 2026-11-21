@@ -1,4 +1,5 @@
 import { TICKS_PER_SECOND as hz, sourceWindow, splitClip, ticksToUnits } from '../../packages/core/time.mjs'
+import { createEditor, commands } from '../../packages/core/index.mjs'
 import { VideoTransport, scheduleWindow, presentationTime } from './transport.mjs'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -153,7 +154,9 @@ export async function run(audioDelaySeconds = 0) {
   const delay = ctx.createDelay(1)
   delay.delayTime.value = audioDelaySeconds
   delay.connect(probe)
-  const transport = new VideoTransport(video, ctx, delay, [a, b], takes)
+  const editor = createEditor({ project: { schemaVersion: 1, tracks: [{ id: 'dialogue' }],
+    clips: [a, b].map(clip => ({ ...clip, kind: 'audio', trackId: 'dialogue' })) } })
+  const transport = new VideoTransport(video, ctx, delay, editor.getSnapshot().clips, takes)
   const points = []
   const positions = []
   const missingFrames = []
@@ -200,14 +203,17 @@ export async function run(audioDelaySeconds = 0) {
     compare(seekStart, [[15, 2, 4]])
 
     const editStart = performance.now()
-    const [left, right] = splitClip(b, sec(14), 'right')
-    transport.replace([a, left, { ...right, take: 'fresh' }])
+    const cut = editor.dispatch(commands.splitClip({ clipId: b.id, at: sec(14), rightId: 'right' }))
+    check(cut.ok, 'Split dispatch failed')
+    // The probe auditions a replacement buffer for the newly created clip.
+    transport.replace(editor.getSnapshot().clips.map(clip => clip.id === 'right' ? { ...clip, take: 'fresh' } : clip))
     await until(() => video.currentTime > 16.35, 'Take edit failed to play')
     held(editStart, 3, 1)
     compare(editStart, [[16, 3, 2]])
 
     const undoStart = performance.now()
-    transport.replace([a, b])
+    check(editor.history.undo().ok, 'Undo dispatch failed')
+    transport.replace(editor.getSnapshot().clips)
     await until(() => video.currentTime > 17.35, 'Undo failed to play')
     held(undoStart, 2, 5)
     compare(undoStart, [[17, 2, 6]])
@@ -234,6 +240,7 @@ export async function run(audioDelaySeconds = 0) {
   } finally {
     observer.stop()
     transport.dispose()
+    editor.dispose()
     video.pause()
     delay.disconnect()
     probe.disconnect()
