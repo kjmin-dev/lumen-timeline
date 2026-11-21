@@ -1,7 +1,20 @@
 # Git hooks run by lefthook. `npm install` installs them; CI repeats every check.
+output:
+  - summary
+  - failure
+
 pre-commit:
+  parallel: true
   jobs:
     - name: format
       glob: "*"
       run: npx oxfmt --check --no-error-on-unmatched-pattern {staged_files}
       fail_text: Run `npm run fmt`, then stage the result.
+    - name: lint
+      glob: "*.{js,mjs,cjs,ts,mts,cts}"
+      run: npx oxlint --deny-warnings --report-unused-disable-directives-severity=error --no-error-on-unmatched-pattern {staged_files}
+      fail_text: Fix the reported problems. `npm run fix` applies the safe fixes.
+    - name: unit
+      glob: "*.{js,mjs,cjs,ts,mts,cts,json}"
+      run: npm test --silent
+      fail_text: Unit tests failed.
