@@ -8,7 +8,7 @@ import type {
   Project,
   ProjectSnapshot,
 } from "@lumen-timeline/core";
-import { codeOf, commit, pass } from "./support.ts";
+import { codeOf, commit, pass, readPath } from "./support.ts";
 import type { Draft } from "./support.ts";
 
 type Review = { review: { version: number; data: { notes: string[] } } };
@@ -63,9 +63,11 @@ test("snapshots retain independent immutable JSON and reopen with their revision
   input.clips[0].start = 50;
   input.extensions.review.data.notes.push("later");
   assert.equal(first.clips[0].start, 10);
-  assert.deepEqual((first.extensions as Review).review.data.notes, ["keep"]);
+  assert.deepEqual(readPath(first, "extensions", "review", "data", "notes"), ["keep"]);
   assert.throws(() => {
-    (first.extensions as Review).review.data.notes.push("no");
+    const notes = readPath(first, "extensions", "review", "data", "notes");
+    assert.ok(Array.isArray(notes));
+    notes.push("no");
   }, TypeError);
   pass(e.dispatch(trim("a", "left", 2)));
   const current = e.getSnapshot();
@@ -238,6 +240,72 @@ test("validates loaded projects and preserves opaque extension data", () => {
     const p = project();
     modify(p);
     assert.throws(() => createEditor({ project: p }), EditError);
+  }
+  // Typed fields are checked on load, so a snapshot's types describe its contents.
+  for (const [modify, code] of [
+    [
+      (p) => {
+        // @ts-expect-error -- A track name must be a string.
+        p.tracks[0].name = 7;
+      },
+      "invalid-track",
+    ],
+    [
+      (p) => {
+        // @ts-expect-error -- Mute is a boolean.
+        p.tracks[1].mute = "yes";
+      },
+      "invalid-track",
+    ],
+    [
+      (p) => {
+        // @ts-expect-error -- Solo is a boolean.
+        p.tracks[1].solo = 1;
+      },
+      "invalid-track",
+    ],
+    [
+      (p) => {
+        // @ts-expect-error -- Gain is a number.
+        p.tracks[1].gain = "loud";
+      },
+      "invalid-track",
+    ],
+    [
+      (p) => {
+        // @ts-expect-error -- A take ID is a string or null.
+        p.clips[0].activeTakeId = 7;
+      },
+      "invalid-clip",
+    ],
+    [
+      (p) => {
+        // @ts-expect-error -- A continuity ID is a string or null.
+        p.clips[0].continuityId = false;
+      },
+      "invalid-clip",
+    ],
+    [
+      (p) => {
+        // @ts-expect-error -- Extensions are a map, not a list.
+        p.clips[0].extensions = [];
+      },
+      "invalid-clip",
+    ],
+    [
+      (p) => {
+        // @ts-expect-error -- A clip name must be a string.
+        p.clips[0].name = null;
+      },
+      "invalid-clip",
+    ],
+  ] satisfies [(p: Fixture) => void, string][]) {
+    const p = project();
+    modify(p);
+    assert.throws(
+      () => createEditor({ project: p }),
+      (error) => error instanceof EditError && error.code === code,
+    );
   }
   const data = project();
   data.clips[0].extensions = { words: { version: 7, data: [1, 2] } };

@@ -30,7 +30,9 @@ test("seek into a clip, split its source, switch the right take and restore", ()
   const clip = { id: "line", start: 12 * hz, duration: 4 * hz, contentIn: hz, take: "A" };
   const a = { sourceAtContentZero: 0, availableStart: 0, availableEnd: 8 * hz };
   const b = { ...a, sourceAtContentZero: -1.5 * hz, availableEnd: 2 * hz };
-  assert.equal(sourceWindow(clip, a, 14 * hz, 16 * hz)!.sourceStart, 3 * hz);
+  const window = sourceWindow(clip, a, 14 * hz, 16 * hz);
+  assert.ok(window);
+  assert.equal(window.sourceStart, 3 * hz);
   const [left, right] = splitClip(clip, 14 * hz, "right");
   assert.equal(sourceWindow(left, a, 14 * hz, 16 * hz), null);
   assert.deepEqual(sourceWindow(right, b, 0, 16 * hz), {

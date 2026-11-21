@@ -15,6 +15,8 @@ export type OverlapPolicy = "mix" | "exclusive";
  */
 export interface Track {
     readonly id: string;
+    /** Display name. Views fall back to the ID. */
+    readonly name?: string;
     readonly overlap?: OverlapPolicy;
     readonly locked?: boolean;
     readonly accepts?: readonly string[];
@@ -35,6 +37,8 @@ export type ContentBounds = {
 export interface Clip {
     readonly id: string;
     readonly trackId: string;
+    /** Display name. Views fall back to the ID. */
+    readonly name?: string;
     readonly kind: string;
     readonly start: Tick;
     readonly duration: Tick;

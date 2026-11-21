@@ -1,44 +1,9 @@
+import { normalizeEntityData } from "./entity-data.ts";
 import { TICKS_PER_SECOND } from "./time.ts";
-import type {
-  Clip,
-  EditErrorCode,
-  JsonPrimitive,
-  JsonValue,
-  ProjectSnapshot,
-  Tick,
-  Track,
-} from "./types.ts";
+import type { Clip, ContentBounds, JsonValue, ProjectSnapshot, Tick, Track } from "./types.ts";
+import { freezeJson, isArray, isRecord, requireEdit, safeInteger, validId } from "./validation.ts";
 
 const MAX_TICK: number = 7 * 86400 * TICKS_PER_SECOND;
-
-export class EditError extends Error {
-  declare readonly code: EditErrorCode;
-  /** The rejected ID or value as supplied, which may be invalid input. */
-  declare readonly target: unknown;
-
-  constructor(code: EditErrorCode, target: unknown, message: string) {
-    super(message);
-    this.name = "EditError";
-    this.code = code;
-    this.target = target;
-  }
-}
-
-export function requireEdit(
-  condition: unknown,
-  code: EditErrorCode,
-  target: unknown,
-  reason: string,
-): asserts condition {
-  if (!condition) throw new EditError(code, target, reason);
-}
-
-/** `Array.isArray`, typed so that a successful check does not introduce `any`. */
-export const isArray: (value: unknown) => value is readonly unknown[] = Array.isArray;
-
-export function validId(id: unknown): id is string {
-  return typeof id === "string" && id.length > 0;
-}
 
 /** Validation rules shared by project loading and every staged clip. */
 export interface Rules {
@@ -56,99 +21,194 @@ export interface OpenedProject {
   readonly byTrack: TrackLayout;
 }
 
-// Validation reads fields of arbitrary JSON. As in plain JavaScript, an
-// optional read on a primitive or an array yields undefined for these keys.
-interface UncheckedProject {
-  readonly schemaVersion?: unknown;
-  readonly timebase?: unknown;
-  readonly revision?: unknown;
-  readonly duration?: unknown;
-  readonly minClipDuration?: unknown;
-  readonly tracks?: unknown;
-  readonly clips?: unknown;
+/** Placement fields before validation, from JSON or from a staged edit. */
+export interface PlacementInput {
+  readonly id: string;
+  readonly trackId: unknown;
+  readonly kind: unknown;
+  readonly start: unknown;
+  readonly duration: unknown;
+  readonly contentIn: unknown;
+  readonly contentBounds?: unknown;
 }
 
-interface UncheckedTrack {
-  readonly id?: unknown;
-  readonly overlap?: unknown;
-  readonly locked?: unknown;
-  readonly accepts?: unknown;
+/** Validated placement fields. `contentBounds` is undefined when absent. */
+export interface Placement {
+  readonly trackId: string;
+  readonly kind: string;
+  readonly start: Tick;
+  readonly duration: Tick;
+  readonly contentIn: Tick;
+  readonly contentBounds: ContentBounds | undefined;
 }
 
-type Unchecked<T> = T | null | undefined;
+function parseTrack(value: JsonValue, tracks: ReadonlyMap<string, Track>): Track {
+  const track = isRecord(value) ? value : undefined;
+  const id = track?.["id"];
+  requireEdit(
+    track !== undefined && validId(id) && !tracks.has(id),
+    "invalid-track",
+    id,
+    "Track IDs must be unique",
+  );
+  const overlap = track["overlap"];
+  requireEdit(
+    overlap === undefined || overlap === "mix" || overlap === "exclusive",
+    "invalid-track",
+    id,
+    "Unknown overlap policy",
+  );
+  const locked = track["locked"];
+  requireEdit(
+    locked === undefined || typeof locked === "boolean",
+    "invalid-track",
+    id,
+    "Expected a boolean lock",
+  );
+  const accepts = track["accepts"];
+  requireEdit(
+    accepts === undefined || (isArray(accepts) && accepts.every(validId)),
+    "invalid-track",
+    id,
+    "Expected a list of clip kinds",
+  );
+  const name = track["name"];
+  requireEdit(
+    name === undefined || typeof name === "string",
+    "invalid-track",
+    id,
+    "Expected a string name",
+  );
+  const mute = track["mute"];
+  const solo = track["solo"];
+  requireEdit(
+    (mute === undefined || typeof mute === "boolean") &&
+      (solo === undefined || typeof solo === "boolean"),
+    "invalid-track",
+    id,
+    "Expected boolean mute and solo flags",
+  );
+  const gain = track["gain"];
+  requireEdit(
+    gain === undefined || typeof gain === "number",
+    "invalid-track",
+    id,
+    "Expected a numeric gain",
+  );
+  // Every typed field is re-attached from its checked value. Other JSON fields stay.
+  return Object.freeze({
+    ...track,
+    id,
+    ...(overlap === undefined ? {} : { overlap }),
+    ...(locked === undefined ? {} : { locked }),
+    ...(accepts === undefined ? {} : { accepts }),
+    ...(name === undefined ? {} : { name }),
+    ...(mute === undefined ? {} : { mute }),
+    ...(solo === undefined ? {} : { solo }),
+    ...(gain === undefined ? {} : { gain }),
+  });
+}
 
-// Document payloads are JSON data. Cloning before freezing preserves host ownership.
-export function freezeJson(value: unknown, ancestors: Set<unknown> = new Set()): JsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    Number.isFinite(value)
-  )
-    return value as JsonPrimitive;
+function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Clip {
+  const clip = isRecord(value) ? value : undefined;
+  const id = clip?.["id"];
   requireEdit(
-    value && typeof value === "object",
-    "invalid-project",
-    null,
-    "Expected JSON project data",
+    clip !== undefined && validId(id) && !ids.has(id),
+    "invalid-clip",
+    id,
+    "Clip IDs must be unique",
   );
-  const prototype: unknown = Object.getPrototypeOf(value);
+  const { trackId, kind, start, duration, contentIn, contentBounds } = checkPlacement(
+    {
+      id,
+      trackId: clip["trackId"],
+      kind: clip["kind"],
+      start: clip["start"],
+      duration: clip["duration"],
+      contentIn: clip["contentIn"],
+      contentBounds: clip["contentBounds"],
+    },
+    rules,
+  );
+  const activeTakeId = clip["activeTakeId"];
+  const continuityId = clip["continuityId"];
   requireEdit(
-    Array.isArray(value) || prototype === null || Object.getPrototypeOf(prototype) === null,
-    "invalid-project",
-    null,
-    "Expected a plain project object",
+    (activeTakeId === undefined || activeTakeId === null || typeof activeTakeId === "string") &&
+      (continuityId === undefined || continuityId === null || typeof continuityId === "string"),
+    "invalid-clip",
+    id,
+    "Expected string take and continuity IDs",
   );
-  requireEdit(!ancestors.has(value), "invalid-project", null, "Project data contains a cycle");
-  ancestors.add(value);
-  const copy: JsonValue = Array.isArray(value)
-    ? Array.from(value as readonly unknown[], (item) => freezeJson(item, ancestors))
-    : Object.fromEntries(
-        Object.entries(value).map(([key, item]: [string, unknown]) => [
-          key,
-          freezeJson(item, ancestors),
-        ]),
-      );
-  ancestors.delete(value);
-  return Object.freeze(copy);
+  const extensions = clip["extensions"];
+  requireEdit(
+    extensions === undefined || isRecord(extensions),
+    "invalid-clip",
+    id,
+    "Expected an extensions map",
+  );
+  const name = clip["name"];
+  requireEdit(
+    name === undefined || typeof name === "string",
+    "invalid-clip",
+    id,
+    "Expected a string name",
+  );
+  return Object.freeze({
+    ...clip,
+    id,
+    trackId,
+    kind,
+    start,
+    duration,
+    contentIn,
+    ...(contentBounds === undefined ? {} : { contentBounds }),
+    ...(activeTakeId === undefined ? {} : { activeTakeId }),
+    ...(continuityId === undefined ? {} : { continuityId }),
+    ...(extensions === undefined ? {} : { extensions }),
+    ...(name === undefined ? {} : { name }),
+  });
 }
 
 export function openProject(input: unknown): OpenedProject {
-  const project = freezeJson(input, new Set()) as Unchecked<UncheckedProject>;
+  const project = freezeJson(input, new Set());
   requireEdit(
-    project?.schemaVersion === 1,
+    isRecord(project) && project["schemaVersion"] === 1,
     "unsupported-schema",
     null,
     "Editing requires project schema version 1",
   );
+  const timebase = project["timebase"];
   requireEdit(
-    project.timebase === undefined || project.timebase === TICKS_PER_SECOND,
+    timebase === undefined || timebase === TICKS_PER_SECOND,
     "invalid-timebase",
     null,
     "Project times must use the timeline tick rate",
   );
+  const rawTracks = project["tracks"];
+  const rawClips = project["clips"];
   requireEdit(
-    Array.isArray(project.tracks) && Array.isArray(project.clips),
+    isArray(rawTracks) && isArray(rawClips),
     "invalid-project",
     null,
     "The project requires tracks and clips arrays",
   );
-  const revision = project.revision === undefined ? 0 : project.revision;
+  const rawRevision = project["revision"];
+  const revision = rawRevision === undefined ? 0 : rawRevision;
   requireEdit(
-    Number.isSafeInteger(revision) && typeof revision === "number" && revision >= 0,
+    safeInteger(revision) && revision >= 0,
     "invalid-project",
     null,
     "Invalid project revision",
   );
-  const duration = project.duration === undefined ? MAX_TICK : project.duration;
-  const minimum = project.minClipDuration === undefined ? 1 : project.minClipDuration;
+  const rawDuration = project["duration"];
+  const rawMinimum = project["minClipDuration"];
+  const duration = rawDuration === undefined ? MAX_TICK : rawDuration;
+  const minimum = rawMinimum === undefined ? 1 : rawMinimum;
   requireEdit(
-    Number.isSafeInteger(duration) &&
-      typeof duration === "number" &&
+    safeInteger(duration) &&
       duration >= 0 &&
       duration <= MAX_TICK &&
-      Number.isSafeInteger(minimum) &&
-      typeof minimum === "number" &&
+      safeInteger(minimum) &&
       minimum > 0 &&
       minimum <= MAX_TICK,
     "invalid-project",
@@ -157,58 +217,53 @@ export function openProject(input: unknown): OpenedProject {
   );
 
   const tracks = new Map<string, Track>();
-  for (const track of project.tracks as readonly Unchecked<UncheckedTrack>[]) {
-    requireEdit(
-      validId(track?.id) && !tracks.has(track.id),
-      "invalid-track",
-      track?.id,
-      "Track IDs must be unique",
-    );
-    requireEdit(
-      track.overlap === undefined || ["mix", "exclusive"].includes(track.overlap as string),
-      "invalid-track",
-      track.id,
-      "Unknown overlap policy",
-    );
-    requireEdit(
-      track.locked === undefined || typeof track.locked === "boolean",
-      "invalid-track",
-      track.id,
-      "Expected a boolean lock",
-    );
-    requireEdit(
-      track.accepts === undefined || (Array.isArray(track.accepts) && track.accepts.every(validId)),
-      "invalid-track",
-      track.id,
-      "Expected a list of clip kinds",
-    );
-    // Every track field the editor reads is validated above.
-    tracks.set(track.id, track as Track);
+  const trackList: Track[] = [];
+  for (const value of rawTracks) {
+    const track = parseTrack(value, tracks);
+    tracks.set(track.id, track);
+    trackList.push(track);
   }
   const rules: Rules = { tracks, duration, minimum };
   const ids = new Set<string>();
+  const clipList: Clip[] = [];
   const byTrack: TrackLayout = new Map();
-  // validateClip checks every placement field before a clip is used.
-  for (const clip of project.clips as readonly Unchecked<Clip>[]) {
-    requireEdit(
-      validId(clip?.id) && !ids.has(clip.id),
-      "invalid-clip",
-      clip?.id,
-      "Clip IDs must be unique",
-    );
+  for (const value of rawClips) {
+    const clip = parseClip(value, ids, rules);
     ids.add(clip.id);
-    validateClip(clip, rules);
-    if (!byTrack.has(clip.trackId)) byTrack.set(clip.trackId, []);
-    byTrack.get(clip.trackId)!.push(clip);
+    clipList.push(clip);
+    let lane = byTrack.get(clip.trackId);
+    if (!lane) {
+      lane = [];
+      byTrack.set(clip.trackId, lane);
+    }
+    lane.push(clip);
   }
-  for (const [id, clips] of byTrack) orderTrack(clips, tracks.get(id)!);
-  // Tracks, clips and sequence bounds are validated above.
-  return { snapshot: Object.freeze({ ...project, revision }) as ProjectSnapshot, rules, byTrack };
+  for (const [id, clips] of byTrack) orderTrack(clips, rules, id);
+  // Normalized entity data follows the revision, as when the editor normalized it.
+  const { entityData: rawData, ...rest } = project;
+  const entityData = Object.hasOwn(project, "entityData")
+    ? normalizeEntityData(rawData)
+    : undefined;
+  const snapshot: ProjectSnapshot = Object.freeze({
+    ...rest,
+    schemaVersion: 1,
+    ...(timebase === undefined ? {} : { timebase }),
+    tracks: Object.freeze(trackList),
+    clips: Object.freeze(clipList),
+    ...(rawDuration === undefined ? {} : { duration }),
+    ...(rawMinimum === undefined ? {} : { minClipDuration: minimum }),
+    revision,
+    ...(entityData === undefined ? {} : { entityData }),
+  });
+  return { snapshot, rules, byTrack };
 }
 
-export function validateClip(clip: Clip, { tracks, duration, minimum }: Rules): void {
-  const { id, trackId, kind, start, duration: length, contentIn, contentBounds } = clip;
-  const track = tracks.get(trackId);
+/** Checks placement fields against the rules shared by loading and every edit. */
+export function checkPlacement(
+  { id, trackId, kind, start, duration: length, contentIn, contentBounds }: PlacementInput,
+  { tracks, duration, minimum }: Rules,
+): Placement {
+  const track = typeof trackId === "string" ? tracks.get(trackId) : undefined;
   requireEdit(track, "missing-track", trackId, "Track does not exist");
   requireEdit(
     validId(kind) && (!track.accepts || track.accepts.includes(kind)),
@@ -217,8 +272,8 @@ export function validateClip(clip: Clip, { tracks, duration, minimum }: Rules): 
     "The target track does not accept this clip kind",
   );
   requireEdit(
-    Number.isSafeInteger(start) &&
-      Number.isSafeInteger(length) &&
+    safeInteger(start) &&
+      safeInteger(length) &&
       start >= 0 &&
       length >= minimum &&
       start + length <= duration,
@@ -227,34 +282,50 @@ export function validateClip(clip: Clip, { tracks, duration, minimum }: Rules): 
     "Clip exceeds the sequence or minimum duration",
   );
   requireEdit(
-    Number.isSafeInteger(contentIn) && Number.isSafeInteger(contentIn + length),
+    safeInteger(contentIn) && Number.isSafeInteger(contentIn + length),
     "invalid-range",
     id,
     "Invalid content time",
   );
+  let bounds: ContentBounds | undefined;
   if (contentBounds !== undefined) {
+    // Reads on a primitive, an array or null yield undefined, as optional chaining did.
+    const record: object =
+      typeof contentBounds === "object" && contentBounds !== null ? contentBounds : {};
+    const boundStart: unknown = Reflect.get(record, "start");
+    const boundEnd: unknown = Reflect.get(record, "end");
     requireEdit(
-      Number.isSafeInteger(contentBounds?.start) &&
-        Number.isSafeInteger(contentBounds?.end) &&
-        contentIn >= contentBounds.start &&
-        contentIn + length <= contentBounds.end,
+      safeInteger(boundStart) &&
+        safeInteger(boundEnd) &&
+        contentIn >= boundStart &&
+        contentIn + length <= boundEnd,
       "source-bounds",
       id,
       "Clip exceeds its available content handles",
     );
+    bounds = Object.freeze({ ...record, start: boundStart, end: boundEnd });
   }
+  return { trackId: track.id, kind, start, duration: length, contentIn, contentBounds: bounds };
 }
 
-export function orderTrack(clips: Clip[], track: Track): void {
+/** Validates a staged clip. Its ID was checked when it entered the document. */
+export function validateClip(clip: Clip, rules: Rules): void {
+  checkPlacement(clip, rules);
+}
+
+export function orderTrack(clips: Clip[], rules: Rules, trackId: string): void {
   clips.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  if (track.overlap !== "exclusive") return;
-  for (let i = 1; i < clips.length; i++) {
-    const previous = clips[i - 1]!;
-    requireEdit(
-      previous.start + previous.duration <= clips[i]!.start,
-      "overlap",
-      track.id,
-      "Clips overlap on an exclusive track",
-    );
+  const track = rules.tracks.get(trackId);
+  if (track?.overlap !== "exclusive") return;
+  let previous: Clip | undefined;
+  for (const clip of clips) {
+    if (previous)
+      requireEdit(
+        previous.start + previous.duration <= clip.start,
+        "overlap",
+        track.id,
+        "Clips overlap on an exclusive track",
+      );
+    previous = clip;
   }
 }

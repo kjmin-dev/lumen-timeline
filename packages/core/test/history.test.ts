@@ -7,12 +7,12 @@ import type {
   EditCommand,
   EditCommit,
   EditErrorCode,
-  EditFailure,
   EditResult,
+  EditUnchanged,
   JsonValue,
   Project,
 } from "@lumen-timeline/core";
-import { codeOf, commit } from "./support.ts";
+import { codeOf, commit, dataOf, readPath } from "./support.ts";
 
 const clip = (id: string, start: number): Clip => ({
   id,
@@ -37,9 +37,9 @@ const move = (id: string, delta: number, trackId?: string) =>
 const trim = (id: string, delta: number) => commands.trimClip({ clipId: id, edge: "right", delta });
 const split = (clipId: string, at: number, rightId?: string) =>
   commands.splitClip({ clipId, at, rightId });
-const pass = (result: EditResult): Exclude<EditResult, EditFailure> => {
-  assert.equal(result.ok, true, JSON.stringify(result));
-  return result as Exclude<EditResult, EditFailure>;
+const pass = (result: EditResult): EditCommit | EditUnchanged => {
+  if (!result.ok) assert.fail(JSON.stringify(result));
+  return result;
 };
 
 test("one or many ignored writes persist and notify once without disturbing either history branch", () => {
@@ -82,7 +82,8 @@ test("one or many ignored writes persist and notify once without disturbing eith
   pass(e.history.redo());
   pass(e.history.undo());
   assert.equal(e.getSnapshot().entityData, durable);
-  assert.deepEqual(durable!.take.B, {
+  assert.ok(durable);
+  assert.deepEqual(durable.take.B, {
     status: "ready",
     asset: { url: "asset-version-2", samples: [1, 2] },
   });
@@ -164,7 +165,8 @@ test("stable-ID replay survives an ignored earlier split and keeps other fields 
   pass(e.dispatch(move("c", 4)));
   pass(e.dispatch([split("a", 4, "aa"), split("aa", 6, "aaa"), trim("c", -2)], ignore));
   const undo = commit(e.history.undo());
-  const c = e.getSnapshot().clips.at(-1)!;
+  const c = e.getSnapshot().clips.at(-1);
+  assert.ok(c);
   assert.deepEqual([c.id, c.start, c.duration, undo.patches[0].index], ["c", 24, 6, 4]);
   pass(e.history.redo());
   assert.deepEqual(
@@ -190,10 +192,10 @@ test("metadata survives undo of the owning split and becomes visible for its res
   );
   pass(e.history.undo());
   assert.ok(!e.getSnapshot().clips.some((c) => c.id === "right"));
-  assert.equal(e.getSnapshot().entityData!.clip.right.job, "complete");
+  assert.equal(dataOf(e.getSnapshot()).clip.right.job, "complete");
   pass(e.history.redo());
   assert.equal(e.getSnapshot().clips[1].id, "right");
-  assert.equal(e.getSnapshot().entityData!.clip.right.job, "complete");
+  assert.equal(dataOf(e.getSnapshot()).clip.right.job, "complete");
 });
 
 test("a same-field or structural collision rejects replay without partial changes or implicit loss of redo", () => {
@@ -239,16 +241,10 @@ test("entity metadata uses sparse JSON maps and safe literal keys", () => {
   const rev = e.getSnapshot().revision;
   assert.equal(pass(e.dispatch(field({ b: [2], a: 1 }), ignore)).unchanged, true);
   assert.equal(e.getSnapshot().revision, rev);
-  // TypeScript resolves `constructor` to the Object member, so read these literal keys
-  // through the shape this test stores.
-  type Stored = { __proto__: { constructor: { __proto__: unknown } } };
-  assert.deepEqual(
-    (e.getSnapshot().entityData as unknown as Stored).__proto__.constructor.__proto__,
-    {
-      a: 1,
-      b: [2],
-    },
-  );
+  assert.deepEqual(readPath(e.getSnapshot().entityData, "__proto__", "constructor", "__proto__"), {
+    a: 1,
+    b: [2],
+  });
   pass(e.dispatch(field(null), ignore));
   pass(e.history.undo());
   assert.ok(!Object.hasOwn(e.getSnapshot(), "entityData"));
@@ -278,7 +274,7 @@ test("entry and logical byte limits keep whole transactions and a single oversiz
   pass(bounded.dispatch(set("x", "v", "large".repeat(1000))));
   assert.equal(bounded.history.undoDepth, 1);
   pass(bounded.history.undo());
-  assert.equal(bounded.getSnapshot().entityData!.take.x.v, "small");
+  assert.equal(dataOf(bounded.getSnapshot()).take.x.v, "small");
   const disabled = createEditor({ project, history: { maxEntries: 0 } });
   pass(disabled.dispatch(move("a", 1)));
   assert.deepEqual([disabled.history.undoDepth, disabled.history.estimatedBytes], [0, 0]);
@@ -291,10 +287,10 @@ test("a disjoint recorded or ignored data field is never replaced by another fie
   pass(e.history.undo());
   pass(e.dispatch([set("A", "tag", "fresh"), set("B", "length", 12)], ignore));
   pass(e.history.redo());
-  assert.deepEqual(e.getSnapshot().entityData!.take.A, { content: "new", tag: "fresh" });
+  assert.deepEqual(dataOf(e.getSnapshot()).take.A, { content: "new", tag: "fresh" });
   pass(e.history.undo());
-  assert.deepEqual(e.getSnapshot().entityData!.take.A, { content: "old", tag: "fresh" });
-  assert.equal(e.getSnapshot().entityData!.take.B.length, 12);
+  assert.deepEqual(dataOf(e.getSnapshot()).take.A, { content: "old", tag: "fresh" });
+  assert.equal(dataOf(e.getSnapshot()).take.B.length, 12);
   const before = e.getSnapshot();
   assert.equal(codeOf(e.history.undo()), "history-conflict");
   assert.equal(e.getSnapshot(), before);
@@ -325,7 +321,7 @@ test("default budget is 200 transactions across undo/redo, and evicted history i
   assert.equal(e.history.undoDepth, 200);
   for (let n = 0; n < 200; n++) pass(e.history.undo());
   assert.deepEqual(
-    [e.getSnapshot().entityData!.take.A.count, e.history.undoDepth, e.history.redoDepth],
+    [dataOf(e.getSnapshot()).take.A.count, e.history.undoDepth, e.history.redoDepth],
     [14, 0, 200],
   );
   pass(e.dispatch(set("A", "extra", true), ignore));

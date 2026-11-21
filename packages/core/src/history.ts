@@ -1,4 +1,5 @@
-import { requireEdit } from "./document.ts";
+import { defined } from "./invariant.ts";
+import { requireEdit } from "./validation.ts";
 import type { ClipPatch, DataPatch, HistoryLimits } from "./types.ts";
 
 export interface HistoryEntry {
@@ -34,8 +35,7 @@ function estimator(): (value: unknown) => number {
     const cached = sizes.get(value);
     if (cached !== undefined) return cached;
     let size = 32;
-    for (const key of Object.keys(value))
-      size += 8 + key.length * 2 + bytes((value as { readonly [key: string]: unknown })[key]);
+    for (const [key, item] of Object.entries(value)) size += 8 + key.length * 2 + bytes(item);
     sizes.set(value, size);
     return size;
   }
@@ -76,8 +76,8 @@ export function createHistory(options: HistoryLimits = {}): History {
     },
     peek: (mode) => (mode === "undo" ? past : future).at(-1),
     advance(mode) {
-      if (mode === "undo") future.push(past.pop()!);
-      else past.push(future.pop()!);
+      if (mode === "undo") future.push(defined(past.pop(), "undo entry"));
+      else past.push(defined(future.pop(), "redo entry"));
     },
     record(entry) {
       const bytes = maxEntries && maxBytes ? weigh(entry) : 0;
@@ -88,7 +88,7 @@ export function createHistory(options: HistoryLimits = {}): History {
       estimatedBytes += bytes;
       // One atomic edit may exceed the byte budget. Keep the newest edit intact.
       while (past.length > 1 && (past.length > maxEntries || estimatedBytes > maxBytes)) {
-        estimatedBytes -= past.shift()!.bytes;
+        estimatedBytes -= defined(past.shift(), "oldest entry").bytes;
       }
     },
     discard(direction) {

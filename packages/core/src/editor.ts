@@ -1,18 +1,12 @@
-import {
-  EditError,
-  isArray,
-  openProject,
-  orderTrack,
-  requireEdit,
-  validId,
-  validateClip,
-} from "./document.ts";
+import { openProject, orderTrack, validateClip } from "./document.ts";
 import type { TrackLayout } from "./document.ts";
 import { ClipDraft, inverse, rebase } from "./clip-patches.ts";
-import { DataDraft, applyData, invertData, normalizeEntityData } from "./entity-data.ts";
+import { DataDraft, applyData, invertData } from "./entity-data.ts";
+import { defined } from "./invariant.ts";
 import { createHistory } from "./history.ts";
 import { readRegistry } from "./read.ts";
 import { splitClip } from "./time.ts";
+import { EditError, isArray, requireEdit, validId } from "./validation.ts";
 import type {
   AffectedInterval,
   Clip,
@@ -38,15 +32,32 @@ import type {
   TrimCommand,
 } from "./types.ts";
 
-// A bare global, read exactly as in plain JavaScript. The core compiles
-// without DOM or Node declarations, so it declares only what it uses.
-declare function queueMicrotask(callback: () => void): void;
+// Optional host capabilities. The core compiles without DOM or Node
+// declarations, so it reads them from the global object and checks each one.
+function hostRandomId(): string | undefined {
+  const crypto: unknown = Reflect.get(globalThis, "crypto");
+  if (typeof crypto !== "object" || crypto === null) return undefined;
+  const randomUUID: unknown = Reflect.get(crypto, "randomUUID");
+  if (typeof randomUUID !== "function") return undefined;
+  const id: unknown = Reflect.apply(randomUUID, crypto, []);
+  return typeof id === "string" ? id : undefined;
+}
 
-// Optional host capabilities, read as properties of the global object.
-const host = globalThis as typeof globalThis & {
-  readonly crypto?: { readonly randomUUID?: () => string };
-  readonly reportError?: (error: unknown) => void;
-};
+// Report a listener failure without interrupting delivery to other listeners.
+function reportListenerError(error: unknown): void {
+  const report: unknown = Reflect.get(globalThis, "reportError");
+  if (typeof report === "function") {
+    Reflect.apply(report, globalThis, [error]);
+    return;
+  }
+  const queue: unknown = Reflect.get(globalThis, "queueMicrotask");
+  if (typeof queue !== "function") throw error;
+  Reflect.apply(queue, undefined, [
+    () => {
+      throw error;
+    },
+  ]);
+}
 
 type Arguments<C> = Omit<C, "type">;
 
@@ -113,11 +124,6 @@ function intervals(clips: readonly Clip[]): readonly AffectedInterval[] {
 export function createEditor({ project, history: limits }: EditorOptions): Editor {
   let { snapshot, rules, byTrack } = openProject(project);
   let byId = positions(snapshot.clips);
-  if (Object.hasOwn(snapshot, "entityData")) {
-    const { entityData, ...rest } = snapshot;
-    const normalized = normalizeEntityData(entityData);
-    snapshot = Object.freeze(normalized ? { ...rest, entityData: normalized } : rest);
-  }
   const reads = readRegistry(snapshot.tracks);
   reads.pin(snapshot, byTrack);
   const history = createHistory(limits);
@@ -133,7 +139,8 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
   let fallbackId = 0;
 
   function newClipId(draft: ClipDraft): string {
-    if (typeof host.crypto?.randomUUID === "function") return host.crypto.randomUUID();
+    const random = hostRandomId();
+    if (random !== undefined) return random;
     // Embedded HTTP editors may lack randomUUID. Hosts can also supply a durable ID.
     let id;
     do {
@@ -142,10 +149,10 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
     return id;
   }
 
-  function stageClip(command: ClipCommand, draft: ClipDraft): void {
+  function stageClip(command: ClipCommand | null, draft: ClipDraft): void {
     const type = command?.type;
     requireEdit(
-      ["move", "trim", "split"].includes(type),
+      command !== null && (type === "move" || type === "trim" || type === "split"),
       "unknown-command",
       null,
       "Unknown clip command",
@@ -170,8 +177,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       const clip = draft.get(id);
       requireEdit(clip, "missing-clip", id, "Clip does not exist");
       requireEdit(
-        // Every staged clip passed validateClip, so its track exists.
-        !rules.tracks.get(clip.trackId)!.locked,
+        !defined(rules.tracks.get(clip.trackId), "source track").locked,
         "locked-track",
         clip.trackId,
         "Source track is locked",
@@ -237,11 +243,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
     try {
       fn();
     } catch (error) {
-      if (typeof host.reportError === "function") host.reportError(error);
-      else
-        queueMicrotask(() => {
-          throw error;
-        });
+      reportListenerError(error);
     }
   }
 
@@ -270,31 +272,30 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
     if (notifying) return;
     notifying = true;
     try {
-      // Each loop below runs only when its event field is set, so the
-      // non-null assertions inside the delivered callbacks hold.
       for (const event of notifications) {
-        if (event.result) {
+        const { result, selection: changed, state } = event;
+        if (result) {
           // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may subscribe or unsubscribe during delivery, so iterate a snapshot.
           for (const sub of [...subscribers]) {
             if (!subscribers.has(sub) || sub.revision >= event.document.revision) continue;
             sub.revision = event.document.revision;
-            deliver(() => sub.update(event.document, event.result!));
+            deliver(() => sub.update(event.document, result));
           }
         }
-        if (event.selection) {
+        if (changed) {
           // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may subscribe or unsubscribe during delivery, so iterate a snapshot.
           for (const sub of [...selectionSubscribers]) {
             if (!selectionSubscribers.has(sub) || sub.version >= event.selectionVersion) continue;
             sub.version = event.selectionVersion;
-            deliver(() => sub.listen(event.selection!));
+            deliver(() => sub.listen(changed));
           }
         }
-        if (event.state) {
+        if (state) {
           // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may subscribe or unsubscribe during delivery, so iterate a snapshot.
           for (const sub of [...historySubscribers]) {
             if (!historySubscribers.has(sub) || sub.version >= event.version) continue;
             sub.version = event.version;
-            deliver(() => sub.listen(event.state!));
+            deliver(() => sub.listen(state));
           }
         }
       }
@@ -309,14 +310,14 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
     const removedIds = new Set(before.map((clip) => clip.id));
     const touched = new Set(before.concat(after).map((clip) => clip.trackId));
     const layout = new Map(byTrack);
+    const staged = new Map<string, Clip[]>();
     for (const trackId of touched) {
-      layout.set(
-        trackId,
-        (byTrack.get(trackId) ?? []).filter((clip) => !removedIds.has(clip.id)),
-      );
+      const lane = (byTrack.get(trackId) ?? []).filter((clip) => !removedIds.has(clip.id));
+      staged.set(trackId, lane);
+      layout.set(trackId, lane);
     }
-    for (const clip of after) layout.get(clip.trackId)!.push(clip);
-    for (const id of touched) orderTrack(layout.get(id)!, rules.tracks.get(id)!);
+    for (const clip of after) defined(staged.get(clip.trackId), "staged lane").push(clip);
+    for (const [id, lane] of staged) orderTrack(lane, rules, id);
 
     return layout;
   }
@@ -331,11 +332,12 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
     let cursor = 0;
     // Patch indices are sorted and lie within the current clip array.
     for (const patch of patches) {
-      while (cursor < patch.index) clips.push(snapshot.clips[cursor++]!);
+      for (const clip of snapshot.clips.slice(cursor, patch.index)) clips.push(clip);
+      cursor = Math.max(cursor, patch.index);
       for (const clip of patch.after) clips.push(clip);
       cursor += patch.before.length;
     }
-    while (cursor < snapshot.clips.length) clips.push(snapshot.clips[cursor++]!);
+    for (const clip of snapshot.clips.slice(cursor)) clips.push(clip);
     // Placement-only changes keep every ID at its existing array position.
     const structural = patches.some((p) => p.before.length !== p.after.length);
     return { clips: Object.freeze(clips), layout, positions: structural ? positions(clips) : byId };
@@ -369,7 +371,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
     try {
       checkRevision(options);
       const draft = new ClipDraft(snapshot.clips, byId);
-      for (const command of (Array.isArray(input) ? input : [input]) as readonly PreviewCommand[]) {
+      for (const command of isArray(input) ? input : [input]) {
         requireEdit(
           command?.type === "move" || command?.type === "trim",
           "unsupported-preview",
@@ -421,7 +423,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         );
         const clips = new ClipDraft(snapshot.clips, byId);
         const fields = new DataDraft(snapshot.entityData);
-        for (const command of (Array.isArray(input) ? input : [input]) as readonly EditCommand[]) {
+        for (const command of isArray(input) ? input : [input]) {
           if (command?.type === "set-data" || command?.type === "remove-data")
             fields.stage(command);
           else stageClip(command, clips);
