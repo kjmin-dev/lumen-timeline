@@ -50,13 +50,13 @@ export async function verifyEditedPcm() {
           contentIn: tick(2), activeTakeId: 'bed' },
       ],
     } })
-    async function compare(state) {
+    async function compare(state, guideStart = 23) {
       const actual = await render(editor.getSnapshot(), rate)
       const expected = new Float32Array(renderLength)
       for (const [start, end, offset] of states[state]) {
         for (let i = start; i < end; i++) expected[i] = sourceSample('voice', offset + i - start)
       }
-      for (let i = 23; i < 29; i++) expected[i] += sourceSample('bed', 2 + i - 23)
+      for (let i = 0; i < 6; i++) expected[guideStart + i] += sourceSample('bed', 2 + i)
       for (let i = 0; i < actual.length; i++) {
         if (actual[i] !== expected[i]) throw new Error(
           'PCM mismatch at rate ' + rate + ', revision ' + editor.getSnapshot().revision +
@@ -87,6 +87,24 @@ export async function verifyEditedPcm() {
         if (!result.ok) throw new Error(result.reason)
         await compare(i + 1)
       }
+      // A background alignment update moves a different voice while the user's
+      // last edit is in the redo branch. Both the alignment and the take survive.
+      const undo = editor.history.undo()
+      if (!undo.ok) throw new Error(undo.reason)
+      const synced = editor.dispatch([
+        commands.moveClips({ clipIds: ['guide'], delta: tick(2) }),
+        commands.setEntityData({ scope: 'take', id: 'bed', key: 'status', value: 'ready' }),
+      ], { history: 'ignore', expectedRevision: undo.revision })
+      if (!synced.ok) throw new Error(synced.reason)
+      await compare(3, 25)
+      const redo = editor.history.redo()
+      if (!redo.ok) throw new Error(redo.reason)
+      await compare(4, 25)
+      const back = editor.history.undo()
+      if (!back.ok || editor.getSnapshot().entityData.take.bed.status !== 'ready') {
+        throw new Error('User history lost an independent take update')
+      }
+      await compare(3, 25)
     } finally { editor.dispose() }
   }
   return { rates, renders, samplesCompared: renders * renderLength, passed: true }

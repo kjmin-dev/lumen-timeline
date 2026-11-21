@@ -59,8 +59,8 @@ A command follows one commit protocol.
 
 1. Read the current document and resolve stable IDs. Validate bounds, track locks and overlap policy. Run deterministic plugin validation and split rules on the same candidate change.
 2. Produce forward and inverse patches, created IDs and the **old and new** track/time intervals. A rejected edit returns its target and reason and publishes no changes.
-3. Commit the candidate document and its affected indexes together. Increment the revision once, record the history entry and publish the change. Subscribers see a coherent revision. A drag uses this same validation for preview and commits once on release.
-4. Undo applies the recorded inverse in a new revision. Redo reuses the recorded IDs and patches. A new edit after undo clears the redo branch. A restore or migration validates a copy before replacing the live document.
+3. Commit the candidate document and its affected indexes together. Increment the revision once, record the entry when the transaction selects recording, and publish the change. Subscribers see a coherent revision. A drag uses this same validation for preview and commits once on release.
+4. Undo applies the recorded inverse in a new revision. Redo reuses the recorded IDs and patches. A recorded edit after undo clears the redo branch. Ignored transactions preserve both stacks. Replay maps stable IDs and checks owned fields against the current document. A restore or migration validates a copy before replacing the live document. [Selective history contract](selective-history.md)
 
 An inspector subscribes to a stable snapshot of the fields it displays, such as selected clip ID and active take ID. Unchanged selections reuse snapshot identity. A transport frame has no document revision and never causes a history entry. Plugin network work runs outside this transaction. A returned take carries the target clip ID, line revision and content offset. Validate them again before adding the result. Preserve unknown plugin payloads on save and disable a split when the missing plugin owns its split semantics.
 

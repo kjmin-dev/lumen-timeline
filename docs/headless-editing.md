@@ -38,9 +38,11 @@ In the example, the right clip initially starts at 14 s and reads the source at 
 
 ## Results and history
 
+Use a command array for an atomic batch. Pass `{ history: 'ignore' }` to apply single or batched writes outside the undo stacks. Defaults, conflict recovery, durable metadata and retention limits are defined in [selective history](selective-history.md).
+
 - `getSnapshot()` returns the immutable project with its revision. Retained snapshots remain valid after edits. Save the project as JSON and pass it to `createEditor` to reopen at the saved revision. History is local to an editor session.
 - Pass `{ expectedRevision }` as a second argument to `dispatch`, or as an argument to `history.undo` or `history.redo`, to reject stale writes. A change increments the revision once and returns `ok`, `revision`, `changedIds`, `createdIds`, forward and inverse patches, and `affected.before` and `affected.after` intervals. These intervals include the vacated track on a cross-track move. A zero-delta edit with no placement change returns `unchanged: true` at the current revision.
-- Each patch describes an array splice with `index`, `before` and `after` clip lists. All indices in one patch list refer to the same pre-transaction snapshot. A rejected command returns `{ ok: false, revision, code, target, reason }` and preserves both history branches. One undo reverses the complete selection move. Redo restores the exact split ID. A successful new edit after undo discards the previous redo branch.
+- Each patch describes an array splice with `index`, `before` and `after` clip lists. All indices in one patch list refer to the same pre-transaction snapshot. A rejected command returns `{ ok: false, revision, code, target, reason }` and preserves both history branches. One undo reverses the complete selection move. Redo restores the exact split ID. A successful recorded edit after undo discards the previous redo branch. An ignored transaction preserves it.
 - `subscribe(selector, listener)` captures the current selector result and returns an unsubscribe function. The listener receives `(value, change, snapshot)` on subsequent changes to that value, compared with `Object.is`. Choose a primitive or a retained field reference. Notifications are delivered in revision order, including edits initiated by a listener. `dispose()` releases subscriptions and history.
 
 ## Regression checks

@@ -174,7 +174,7 @@ test('selector subscriptions deliver coherent revisions, including nested commit
 test('1,000 committed edits rewind and replay the same source windows and IDs', () => {
   const initial = { schemaVersion: 1, duration: 10000, tracks: [{ id: 'one' }, { id: 'two', overlap: 'exclusive' }],
     clips: [clip('main', 'one', 0, 3000, 100)] }
-  const e = createEditor({ project: initial })
+  const e = createEditor({ project: initial, history: { maxEntries: 1000 } })
   for (let i = 1; i <= 250; i++) {
     const id = 'part-' + i
     pass(e.dispatch(split('main', 3000 - i * 10, id)))
