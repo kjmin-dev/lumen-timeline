@@ -146,7 +146,8 @@ pre-commit:
 
 - Add pinned `oxfmt` and `lefthook`, an `.oxfmtrc.json` that keeps the defaults, and the `fmt` and `fmt:check` scripts.
 - One commit contains only `oxfmt` output. The next adds its SHA to `.git-blame-ignore-revs`. PRs merge with merge commits here, so the SHA survives.
-- The lefthook format job checks staged files. A `quality` CI job runs `npm run fmt:check` next to the existing test job.
+- The lefthook format job checks staged files. Lefthook hides unstaged changes while the hook runs, so a partially staged file is judged by its staged content. npm 11 blocks dependency install scripts by default, so `allowScripts` denies lefthook's postinstall and the root `prepare` script runs `lefthook install`.
+- A `quality` CI job runs `npm run fmt:check` next to the existing test job.
 
 ## PR H — Lint the current JavaScript with Oxlint
 

@@ -1,0 +1,7 @@
+# Git hooks run by lefthook. `npm install` installs them; CI repeats every check.
+pre-commit:
+  jobs:
+    - name: format
+      glob: "*"
+      run: npx oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+      fail_text: Run `npm run fmt`, then stage the result.
