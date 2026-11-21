@@ -18,7 +18,7 @@ The core will own editing commands, time and history. A shared browser view will
 
 ## Development
 
-`@lumen-timeline/core` is written in strict TypeScript. [tsrs](https://github.com/oxc-project/tsrs) type-checks it and emits `packages/core/dist`, which browsers and Node load by default. `npm install` builds it. `npm run build` rebuilds it, and `npm test` runs the suite directly against the TypeScript sources on Node 26. [oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) formats the repository with its default configuration. [Oxlint](https://oxc.rs/docs/guide/usage/linter.html) enforces correctness rules, package boundaries and type-aware rules that keep `any` out of the core. It also bans `as` and non-null `!` assertions, so the compiler checks every type.
+The core, media and timeline packages are written in strict TypeScript. [tsrs](https://github.com/oxc-project/tsrs) type-checks them and emits each package's `dist`, which browsers and Node load by default. `npm install` builds them. `npm run build` rebuilds them, and `npm test` runs the suite directly against the TypeScript sources on Node 26. [oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) formats the repository with its default configuration. [Oxlint](https://oxc.rs/docs/guide/usage/linter.html) enforces correctness rules, package boundaries and type-aware rules that keep `any` out of the core. It also bans `as` and non-null `!` assertions, so the compiler checks every type.
 
 Run `npm run check` before committing. It runs:
 
@@ -26,6 +26,6 @@ Run `npm run check` before committing. It runs:
 - the build;
 - the tests, against both the sources and the build;
 - a parity check, in which the TypeScript 7.1 compiler must report the same diagnostics as tsrs and emit identical files;
-- an API check that compares the core's declarations with `packages/core/api`. After an intended API change, run `npm run api:update`.
+- an API check that compares each package's declarations with its `api` snapshot. After an intended API change, run `npm run api:update`.
 
-The core tests in `packages/core/test` are type-checked TypeScript. `npm run fix` applies safe lint fixes and formatting. `npm install` also sets up a [lefthook](https://lefthook.dev) pre-commit hook that checks staged files, type-checks and runs the unit tests. CI repeats every check. To skip formatting-only commits in local blame, run `git config blame.ignoreRevsFile .git-blame-ignore-revs`. The [TypeScript and quality-gate plan](docs/plans/typescript-core.md) describes the remaining steps.
+Every package's tests in `packages/*/test` are type-checked TypeScript. `npm run fix` applies safe lint fixes and formatting. `npm install` also sets up a [lefthook](https://lefthook.dev) pre-commit hook that checks staged files, type-checks and runs the unit tests. CI repeats every check. To skip formatting-only commits in local blame, run `git config blame.ignoreRevsFile .git-blame-ignore-revs`. The [TypeScript and quality-gate plan](docs/plans/typescript-core.md) describes the remaining steps.

@@ -31,7 +31,7 @@ The second reference application is a podcast editor. It uses the audio output c
 
 ## Packages and ownership
 
-The core is written in strict TypeScript. tsrs type-checks it and emits ES modules with declarations, so JavaScript and TypeScript hosts load the same build. Media and timeline remain JavaScript ES modules until their own conversion. The headless core runs in Node with a fake clock. Browser resources are acquired by explicitly mounting a view or attaching media.
+The core, media and timeline packages are written in strict TypeScript without type assertions. tsrs type-checks them and emits ES modules with declarations, so JavaScript and TypeScript hosts load the same build. Media takes structural host interfaces, such as `AudioContextLike`, that real DOM objects satisfy. The headless core runs in Node with a fake clock. Browser resources are acquired by explicitly mounting a view or attaching media.
 
 | Proposed package                                                                                  | Responsibility                                                                                                                 |
 | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
