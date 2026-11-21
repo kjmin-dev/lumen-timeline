@@ -1,6 +1,8 @@
 # Roadmap
 
-All milestones are planned. The first release should let an application attach a timeline to an existing player, or use the same packages to build a multitrack editor. The [design](docs/design.md) defines the behavior each milestone must preserve.
+Clock and waveform experiments have established the v1 implementation boundaries. The milestones below track delivery of the library and its release gates. [Core architecture and measurement evidence](docs/core-architecture.md#evidence-and-implementation-gates)
+
+The first release should let an application attach a timeline to an existing player, or use the same packages to build a multitrack editor. The [design](docs/design.md) defines the behavior each milestone must preserve.
 
 ## Framework support
 
@@ -22,7 +24,7 @@ At each wrapper release, resolve the framework's stable npm `latest` tag, run it
 | 1. Establish the clock | Pure JavaScript time math, a fake player and a browser experiment with one reference video and two audio clips. | Seek into a playing clip, split it, change the right take, undo and resume after a stall. Compare the displayed frame and audible source offset with the expected timeline position. Cover 30000/1001 fps and 44.1/48 kHz. |
 | 2. Ship a vanilla editing workflow | Headless commands, versioned project JSON, HTML media and Web Audio adapters, accessible Canvas 2D timeline, markers, selection, trim, split, move and history. | In a vanilla browser example, edit with a pointer or keyboard, save, reopen and recover the same clips and active takes. Run the same commands headlessly. Play an audio-only project. |
 | 3. Build the dubbing studio | Video preview, bilingual line list, reference stems, speaker tracks, per-clip take audition and selection, editable metadata, a host-supplied take generator. | Edit a line, audition and apply a take, split it, regenerate only the right side, undo and reopen. Verify the left clip's audio and candidate list. Reproduce a stale generation result without overwriting the current line. |
-| 4. Scale timeline rendering | Visible-range indexing, waveform tiles, worker processing, WebGL2, opt-in WebGPU and Canvas 2D fallback. | Run the same geometry, hit-test and edit fixtures on all three backends. Simulate device loss during playback and editing. Publish frame pacing, memory use and cold/warm seek latency for the benchmark project. |
+| 4. Scale timeline rendering | Visible-range indexing, waveform tiles, worker processing, WebGL2, opt-in WebGPU, Canvas 2D fallback and the optional Rust 1.100.0 SIMD worker for large waveform batches. | Verify JS/WASM peak parity and worker round-trip costs. Run the same geometry, hit-test and edit fixtures on all three backends. Simulate device loss during playback and editing. Publish frame pacing, memory use and cold/warm seek latency for the benchmark project. |
 | 5. Deliver four framework wrappers | React, Svelte, SolidJS and Vue packages. Each mounts the shared view, exposes the editor handle, supports selector subscriptions and cleans up its bindings. | Build one minimal consumer per target major using packaged public exports. Run the same interaction and performance suite in all four and vanilla JS. Pass the wrapper checks below. |
 | 6. Validate the first release | Audio-only podcast editor, external-player integration guide, schema migrations and plugin documentation. | Both example editors use public APIs. The podcast example combines overlapping voices, music, chapter markers and a gain inspector. Verify previous-schema and missing-plugin round trips. |
 

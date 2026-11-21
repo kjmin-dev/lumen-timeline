@@ -1,0 +1,919 @@
+{
+  "date": "2026-11-21",
+  "machine": "Apple M1, macOS 26.5.2",
+  "ffmpeg": "9.0.2",
+  "playwright": "1.64.1",
+  "wasm": {
+    "chrome": {
+      "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "nodeVersion": "v26.13.1",
+      "engine": "chrome",
+      "browserVersion": "157.0.8103.79",
+      "node": {
+        "moduleBytes": 2900,
+        "instantiateMs": 0.38095799999996416,
+        "pcmSamples": 1048576,
+        "queries": 100000,
+        "scalarChecksum": 47097680,
+        "verifiedPeakValues": 8192,
+        "ms": {
+          "jsQuery": {
+            "median": 0.5619843750000086,
+            "p95": 1.183166750000055
+          },
+          "wasmQuery": {
+            "median": 0.6948853750000126,
+            "p95": 2.14016662500012
+          },
+          "jsConvert": {
+            "median": 3.70503124999982,
+            "p95": 7.614937499999996
+          },
+          "wasmConvert": {
+            "median": 3.0816353749999053,
+            "p95": 6.487697999999909
+          },
+          "jsPts": {
+            "median": 9.376520874999983,
+            "p95": 54.68471875
+          },
+          "wasmPts": {
+            "median": 3.195770874999994,
+            "p95": 6.9939375000000155
+          },
+          "jsPeaks": {
+            "median": 1.3404791250000017,
+            "p95": 3.94483850000006
+          },
+          "wasmResident": {
+            "median": 1.3325260000000299,
+            "p95": 9.494416624999985
+          },
+          "simdResident": {
+            "median": 0.28639062499996726,
+            "p95": 1.0129218750000746
+          },
+          "simdWithCopies": {
+            "median": 0.37734375000002274,
+            "p95": 1.243400999999949
+          }
+        }
+      },
+      "browserResults": {
+        "moduleBytes": 2900,
+        "instantiateMs": 0.6999998092651367,
+        "pcmSamples": 1048576,
+        "queries": 100000,
+        "scalarChecksum": 47097680,
+        "verifiedPeakValues": 8192,
+        "ms": {
+          "jsQuery": {
+            "median": 0.5875000059604645,
+            "p95": 0.6500000059604645
+          },
+          "wasmQuery": {
+            "median": 0.987500011920929,
+            "p95": 1.237500011920929
+          },
+          "jsConvert": {
+            "median": 1.1624999940395355,
+            "p95": 1.425000011920929
+          },
+          "wasmConvert": {
+            "median": 3.3624999821186066,
+            "p95": 4.362500011920929
+          },
+          "jsPts": {
+            "median": 7.6500000059604645,
+            "p95": 8.537499994039536
+          },
+          "wasmPts": {
+            "median": 3.4000000059604645,
+            "p95": 4.112499982118607
+          },
+          "jsPeaks": {
+            "median": 1.2874999940395355,
+            "p95": 1.4500000178813934
+          },
+          "wasmResident": {
+            "median": 1.3499999940395355,
+            "p95": 1.5
+          },
+          "simdResident": {
+            "median": 0.29999998211860657,
+            "p95": 0.375
+          },
+          "simdWithCopies": {
+            "median": 0.3999999761581421,
+            "p95": 0.5874999761581421
+          }
+        }
+      },
+      "worker": {
+        "readyMs": 7.1000001430511475,
+        "sizes": {
+          "4096": {
+            "js": {
+              "median": 0.03437500447034836,
+              "p95": 0.05312500149011612
+            },
+            "simd": {
+              "median": 0.03125,
+              "p95": 0.0625
+            }
+          },
+          "1048576": {
+            "js": {
+              "median": 1.4124999940395355,
+              "p95": 2.3125
+            },
+            "simd": {
+              "median": 0.5875000059604645,
+              "p95": 1.050000011920929
+            }
+          }
+        }
+      }
+    },
+    "webkit": {
+      "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "nodeVersion": "v26.13.1",
+      "engine": "webkit",
+      "browserVersion": "27.2",
+      "node": {
+        "moduleBytes": 2900,
+        "instantiateMs": 0.3734160000000202,
+        "pcmSamples": 1048576,
+        "queries": 100000,
+        "scalarChecksum": 47097680,
+        "verifiedPeakValues": 8192,
+        "ms": {
+          "jsQuery": {
+            "median": 0.524057374999984,
+            "p95": 0.8974114999999756
+          },
+          "wasmQuery": {
+            "median": 0.6749322499999835,
+            "p95": 1.5939636250000149
+          },
+          "jsConvert": {
+            "median": 3.581927124999993,
+            "p95": 5.247385375000022
+          },
+          "wasmConvert": {
+            "median": 3.054697874999988,
+            "p95": 5.019171874999984
+          },
+          "jsPts": {
+            "median": 9.424208375000035,
+            "p95": 15.486994750000008
+          },
+          "wasmPts": {
+            "median": 3.017989499999885,
+            "p95": 6.994473999999968
+          },
+          "jsPeaks": {
+            "median": 1.2935156250000546,
+            "p95": 4.142322874999991
+          },
+          "wasmResident": {
+            "median": 1.312807375000034,
+            "p95": 2.035541749999993
+          },
+          "simdResident": {
+            "median": 0.278010375000008,
+            "p95": 0.3311978750000435
+          },
+          "simdWithCopies": {
+            "median": 0.36010412500002076,
+            "p95": 0.7941146250000202
+          }
+        }
+      },
+      "browserResults": {
+        "moduleBytes": 2900,
+        "instantiateMs": 3,
+        "pcmSamples": 1048576,
+        "queries": 100000,
+        "scalarChecksum": 47097680,
+        "verifiedPeakValues": 8192,
+        "ms": {
+          "jsQuery": {
+            "median": 0.125,
+            "p95": 0.375
+          },
+          "wasmQuery": {
+            "median": 0.625,
+            "p95": 0.625
+          },
+          "jsConvert": {
+            "median": 2.875,
+            "p95": 3.625
+          },
+          "wasmConvert": {
+            "median": 2.625,
+            "p95": 2.875
+          },
+          "jsPts": {
+            "median": 8.375,
+            "p95": 10.625
+          },
+          "wasmPts": {
+            "median": 2.625,
+            "p95": 3.625
+          },
+          "jsPeaks": {
+            "median": 1.625,
+            "p95": 2
+          },
+          "wasmResident": {
+            "median": 1.375,
+            "p95": 1.5
+          },
+          "simdResident": {
+            "median": 0.25,
+            "p95": 0.375
+          },
+          "simdWithCopies": {
+            "median": 0.375,
+            "p95": 0.5
+          }
+        }
+      },
+      "worker": {
+        "readyMs": 15,
+        "sizes": {
+          "4096": {
+            "js": {
+              "median": 0.0625,
+              "p95": 0.0625
+            },
+            "simd": {
+              "median": 0.0625,
+              "p95": 0.0625
+            }
+          },
+          "1048576": {
+            "js": {
+              "median": 1.625,
+              "p95": 3.625
+            },
+            "simd": {
+              "median": 0.5,
+              "p95": 3
+            }
+          }
+        }
+      }
+    },
+    "firefox": {
+      "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "nodeVersion": "v26.13.1",
+      "engine": "firefox",
+      "browserVersion": "157.0",
+      "node": {
+        "moduleBytes": 2900,
+        "instantiateMs": 0.3170000000000073,
+        "pcmSamples": 1048576,
+        "queries": 100000,
+        "scalarChecksum": 47097680,
+        "verifiedPeakValues": 8192,
+        "ms": {
+          "jsQuery": {
+            "median": 0.5384636250000767,
+            "p95": 0.5927187499999604
+          },
+          "wasmQuery": {
+            "median": 0.6720468750000919,
+            "p95": 0.7530104999999594
+          },
+          "jsConvert": {
+            "median": 3.625302124999962,
+            "p95": 4.561145750000037
+          },
+          "wasmConvert": {
+            "median": 3.048343749999958,
+            "p95": 3.92071349999992
+          },
+          "jsPts": {
+            "median": 8.775927124999953,
+            "p95": 14.900515624999912
+          },
+          "wasmPts": {
+            "median": 3.071322875000078,
+            "p95": 4.801244874999952
+          },
+          "jsPeaks": {
+            "median": 1.3314322500000344,
+            "p95": 2.347223999999983
+          },
+          "wasmResident": {
+            "median": 1.314218750000009,
+            "p95": 1.9078072499999053
+          },
+          "simdResident": {
+            "median": 0.28202599999997346,
+            "p95": 0.3284947500000044
+          },
+          "simdWithCopies": {
+            "median": 0.3789738750000424,
+            "p95": 0.5653281250000077
+          }
+        }
+      },
+      "browserResults": {
+        "moduleBytes": 2900,
+        "instantiateMs": 1,
+        "pcmSamples": 1048576,
+        "queries": 100000,
+        "scalarChecksum": 47097680,
+        "verifiedPeakValues": 8192,
+        "ms": {
+          "jsQuery": {
+            "median": 0.625,
+            "p95": 0.75
+          },
+          "wasmQuery": {
+            "median": 0.875,
+            "p95": 0.875
+          },
+          "jsConvert": {
+            "median": 2.75,
+            "p95": 3
+          },
+          "wasmConvert": {
+            "median": 3.375,
+            "p95": 3.625
+          },
+          "jsPts": {
+            "median": 4.625,
+            "p95": 5.375
+          },
+          "wasmPts": {
+            "median": 3,
+            "p95": 3.25
+          },
+          "jsPeaks": {
+            "median": 2.25,
+            "p95": 2.375
+          },
+          "wasmResident": {
+            "median": 1.375,
+            "p95": 1.5
+          },
+          "simdResident": {
+            "median": 0.25,
+            "p95": 0.375
+          },
+          "simdWithCopies": {
+            "median": 0.375,
+            "p95": 0.5
+          }
+        }
+      },
+      "worker": {
+        "readyMs": 10,
+        "sizes": {
+          "4096": {
+            "js": {
+              "median": 0.03125,
+              "p95": 0.0625
+            },
+            "simd": {
+              "median": 0.03125,
+              "p95": 0.0625
+            }
+          },
+          "1048576": {
+            "js": {
+              "median": 2,
+              "p95": 2.25
+            },
+            "simd": {
+              "median": 0.375,
+              "p95": 0.5
+            }
+          }
+        }
+      }
+    }
+  },
+  "playback": {
+    "chrome": {
+      "engine": "chrome",
+      "browser": "157.0.8103.79",
+      "injectedDelayMs": 0,
+      "offlineSampleErrors": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "stalledAt": 3.9592,
+      "supersededSeeks": 99,
+      "acknowledgedSeeks": 100,
+      "positions": [
+        {
+          "tag": 2,
+          "sourceSecond": 3
+        },
+        {
+          "tag": 3,
+          "sourceSecond": 1
+        },
+        {
+          "tag": 2,
+          "sourceSecond": 5
+        },
+        {
+          "tag": 2,
+          "sourceSecond": 2
+        }
+      ],
+      "observations": {
+        "frames": 339,
+        "mismatches": 0,
+        "estimatedFrames": 0
+      },
+      "sampleRate": 48000,
+      "points": [
+        {
+          "second": 1,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.14383333333307746
+        },
+        {
+          "second": 2,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.0631668097180409
+        },
+        {
+          "second": 3,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.2158334763844323
+        },
+        {
+          "second": 5,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.12866680971819733
+        },
+        {
+          "second": 6,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.08733333333384508
+        },
+        {
+          "second": 15,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.19933342870081106
+        },
+        {
+          "second": 16,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.020166809716101852
+        },
+        {
+          "second": 17,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -0.014833237966740853
+        },
+        {
+          "second": 14,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.05816676203539828
+        }
+      ],
+      "missingFrames": [],
+      "p95AbsoluteMs": 0.2158334763844323,
+      "withinOneFrame": true,
+      "passed": true
+    },
+    "webkit": {
+      "engine": "webkit",
+      "browser": "27.2",
+      "injectedDelayMs": 0,
+      "offlineSampleErrors": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "stalledAt": 4,
+      "supersededSeeks": 99,
+      "acknowledgedSeeks": 100,
+      "positions": [
+        {
+          "tag": 2,
+          "sourceSecond": 3
+        },
+        {
+          "tag": 3,
+          "sourceSecond": 1
+        },
+        {
+          "tag": 2,
+          "sourceSecond": 5
+        },
+        {
+          "tag": 2,
+          "sourceSecond": 2
+        }
+      ],
+      "observations": {
+        "frames": 346,
+        "mismatches": 20,
+        "estimatedFrames": 346
+      },
+      "sampleRate": 48000,
+      "points": [
+        {
+          "second": 1,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.3333333333334849
+        },
+        {
+          "second": 2,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.3333333333334849
+        },
+        {
+          "second": 3,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0.3333333333334849
+        },
+        {
+          "second": 5,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -0.6666666666669698
+        },
+        {
+          "second": 6,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -0.6666666666669698
+        },
+        {
+          "second": 15,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -0.33333333333393966
+        },
+        {
+          "second": 16,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -0.33333333333393966
+        },
+        {
+          "second": 17,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -0.33333333333393966
+        },
+        {
+          "second": 14,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 0
+        }
+      ],
+      "missingFrames": [],
+      "p95AbsoluteMs": 0.6666666666669698,
+      "withinOneFrame": true,
+      "passed": true
+    },
+    "firefox": {
+      "engine": "firefox",
+      "browser": "157.0",
+      "injectedDelayMs": 0,
+      "offlineSampleErrors": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "stalledAt": 3.999377,
+      "supersededSeeks": 99,
+      "acknowledgedSeeks": 100,
+      "positions": [
+        {
+          "tag": 2,
+          "sourceSecond": 3
+        },
+        {
+          "tag": 3,
+          "sourceSecond": 1
+        },
+        {
+          "tag": 2,
+          "sourceSecond": 5
+        },
+        {
+          "tag": 2,
+          "sourceSecond": 2
+        }
+      ],
+      "observations": {
+        "frames": 283,
+        "mismatches": 135,
+        "estimatedFrames": 0
+      },
+      "sampleRate": 48000,
+      "points": [
+        {
+          "second": 1,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 5.50333333333333
+        },
+        {
+          "second": 2,
+          "frameWithinFlash": 1,
+          "pixelFrameDelta": -1,
+          "offsetMs": 3.9233333333336304
+        },
+        {
+          "second": 3,
+          "frameWithinFlash": 1,
+          "pixelFrameDelta": -1,
+          "offsetMs": -3.4433333333331575
+        },
+        {
+          "second": 5,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -4.799166666666679
+        },
+        {
+          "second": 6,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -2.132499999999709
+        },
+        {
+          "second": 15,
+          "frameWithinFlash": 1,
+          "pixelFrameDelta": -1,
+          "offsetMs": -11.510000000001128
+        },
+        {
+          "second": 16,
+          "frameWithinFlash": 1,
+          "pixelFrameDelta": -1,
+          "offsetMs": -1.23416666666526
+        },
+        {
+          "second": 17,
+          "frameWithinFlash": 1,
+          "pixelFrameDelta": -1,
+          "offsetMs": -0.07583333333241171
+        },
+        {
+          "second": 14,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": -13.184166666665988
+        }
+      ],
+      "missingFrames": [],
+      "p95AbsoluteMs": 13.184166666665988,
+      "withinOneFrame": true,
+      "passed": true
+    },
+    "control": {
+      "engine": "chrome",
+      "browser": "157.0.8103.79",
+      "injectedDelayMs": 100,
+      "offlineSampleErrors": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "stalledAt": 3.9651,
+      "supersededSeeks": 99,
+      "acknowledgedSeeks": 100,
+      "positions": [
+        {
+          "tag": 2,
+          "sourceSecond": 3
+        },
+        {
+          "tag": 3,
+          "sourceSecond": 1
+        },
+        {
+          "tag": 2,
+          "sourceSecond": 5
+        },
+        {
+          "tag": 2,
+          "sourceSecond": 2
+        }
+      ],
+      "observations": {
+        "frames": 342,
+        "mismatches": 0,
+        "estimatedFrames": 0
+      },
+      "sampleRate": 48000,
+      "points": [
+        {
+          "second": 1,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 99.97316661898276
+        },
+        {
+          "second": 2,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 100.11149999999998
+        },
+        {
+          "second": 3,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 100.0851666189833
+        },
+        {
+          "second": 5,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 100.01999995231563
+        },
+        {
+          "second": 6,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 100.0106665712974
+        },
+        {
+          "second": 15,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 100.07783333333282
+        },
+        {
+          "second": 16,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 105.37600004768319
+        },
+        {
+          "second": 17,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 100.03716666666696
+        },
+        {
+          "second": 14,
+          "frameWithinFlash": 0,
+          "pixelFrameDelta": 0,
+          "offsetMs": 99.97883338101747
+        }
+      ],
+      "missingFrames": [],
+      "p95AbsoluteMs": 105.37600004768319,
+      "withinOneFrame": false,
+      "passed": true
+    }
+  },
+  "ninetySecondRegression": {
+    "independentClipBoundaries": {
+      "engine": "chrome",
+      "browser": "157.0.8103.79",
+      "injectedDelayMs": 0,
+      "seconds": 90,
+      "elapsedSeconds": 90.58539999985695,
+      "observed": 89,
+      "unpairedPulses": 7,
+      "missingSeconds": [
+        10
+      ],
+      "observations": {
+        "frames": 2717,
+        "mismatches": 0,
+        "estimatedFrames": 0
+      },
+      "sampleRate": 48000,
+      "firstMinuteMeanMs": 1.6311385118324826,
+      "lastMinuteMeanMs": -0.0971387903447976,
+      "maxAbsoluteMs": 13.192666809716684,
+      "p95AbsoluteMs": 12.977666809718357,
+      "withinOneFrame": false,
+      "passed": false
+    },
+    "sharedProjection": {
+      "engine": "chrome",
+      "browser": "157.0.8103.79",
+      "injectedDelayMs": 0,
+      "seconds": 90,
+      "elapsedSeconds": 90.55410000014305,
+      "observed": 90,
+      "unpairedPulses": 0,
+      "missingSeconds": [],
+      "observations": {
+        "frames": 2716,
+        "mismatches": 0,
+        "estimatedFrames": 0
+      },
+      "sampleRate": 48000,
+      "firstMinuteMeanMs": -0.1124000476832407,
+      "lastMinuteMeanMs": 1.5659999697996683,
+      "maxAbsoluteMs": 4.900999952311395,
+      "p95AbsoluteMs": 4.501000047675916,
+      "withinOneFrame": true,
+      "passed": true
+    },
+    "sharedSampleWithDriftCorrection": {
+      "engine": "chrome",
+      "browser": "157.0.8103.79",
+      "injectedDelayMs": 0,
+      "seconds": 90,
+      "elapsedSeconds": 90.53479999995231,
+      "observed": 90,
+      "unpairedPulses": 0,
+      "missingSeconds": [],
+      "observations": {
+        "frames": 2716,
+        "mismatches": 0,
+        "estimatedFrames": 0
+      },
+      "sampleRate": 48000,
+      "firstMinuteMeanMs": 3.0643416674607766,
+      "lastMinuteMeanMs": -0.47512500397545715,
+      "maxAbsoluteMs": 13.096999999999753,
+      "p95AbsoluteMs": 12.99166661898198,
+      "withinOneFrame": true,
+      "passed": true
+    }
+  },
+  "continuousPlayback": {
+    "independentClipBoundaries": {
+      "engine": "chrome",
+      "browser": "157.0.8103.79",
+      "seconds": 1800,
+      "elapsedSeconds": 1800.6969000000954,
+      "observed": 1791,
+      "unpairedPulses": 135,
+      "missingSeconds": [
+        10,
+        80,
+        270,
+        310,
+        410,
+        450,
+        570,
+        630,
+        1700
+      ],
+      "observations": {
+        "frames": 54019,
+        "mismatches": 0,
+        "estimatedFrames": 0
+      },
+      "sampleRate": 48000,
+      "firstMinuteMeanMs": 0.8289492519495409,
+      "lastMinuteMeanMs": -0.2243471190139341,
+      "maxAbsoluteMs": 43.3410001907032,
+      "p95AbsoluteMs": 5.632666809484363,
+      "withinOneFrame": false
+    },
+    "sharedSampleWithDriftCorrection": {
+      "engine": "chrome",
+      "browser": "157.0.8103.79",
+      "injectedDelayMs": 0,
+      "seconds": 1800,
+      "elapsedSeconds": 1800.6606999998094,
+      "observed": 1800,
+      "unpairedPulses": 0,
+      "missingSeconds": [],
+      "observations": {
+        "frames": 54018,
+        "mismatches": 0,
+        "estimatedFrames": 0
+      },
+      "sampleRate": 48000,
+      "firstMinuteMeanMs": -0.11799435225691847,
+      "lastMinuteMeanMs": 0.3471389867054919,
+      "maxAbsoluteMs": 33.45716647588415,
+      "p95AbsoluteMs": 6.288666809676215,
+      "withinOneFrame": true,
+      "passed": true
+    }
+  }
+}
