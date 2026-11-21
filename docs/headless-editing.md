@@ -1,6 +1,6 @@
 # Headless clip editing
 
-The `@lumen-timeline/core` workspace exposes synchronous move, trim and split commands and transaction history. Run `npm ci` at the repository root to link the workspace. The same JavaScript entry point runs in Node or a browser.
+The `@lumen-timeline/core` workspace exposes synchronous move, trim and split commands and transaction history. Run `npm ci` at the repository root to link the workspaces and build the core with tsrs. The same ES module build runs in Node or a browser, and TypeScript hosts get its declarations.
 
 ```js
 import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";

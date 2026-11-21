@@ -29,9 +29,9 @@ The dubbing studio layout draws on the Hudson AI Studio tour. Its script selecti
 
 The second reference application is a podcast editor. It uses the audio output clock, overlapping host and guest tracks, background music, chapter markers and a gain inspector. Both applications should be buildable from public exports. An existing-player review tool can use an even smaller subset consisting of the player adapter, regions and a status field.
 
-## JavaScript packages and ownership
+## Packages and ownership
 
-Core APIs are implemented as pure JavaScript ES modules. Optional type declarations support typed consumers. The headless core runs in Node with a fake clock. Browser resources are acquired by explicitly mounting a view or attaching media.
+The core is written in strict TypeScript. tsrs type-checks it and emits ES modules with declarations, so JavaScript and TypeScript hosts load the same build. Media and timeline remain JavaScript ES modules until their own conversion. The headless core runs in Node with a fake clock. Browser resources are acquired by explicitly mounting a view or attaching media.
 
 | Proposed package                                                                                  | Responsibility                                                                                                                 |
 | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |

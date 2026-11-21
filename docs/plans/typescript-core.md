@@ -2,7 +2,7 @@
 
 **Outcome.** `@lumen-timeline/core` is written in strict TypeScript, type-checked and emitted by tsrs, and ships JavaScript plus declarations with unchanged runtime behavior. Formatting, lint, types, module boundaries and the public API surface are checked by tools on every commit and pull request, so a reviewer, human or LLM, no longer has to verify them by reading.
 
-**Starting point.** At `f418d7f`, the core is eleven ES modules (935 lines) with 66 `node:test` tests across the workspace. There is no build, formatter or linter. CI runs the unit suite and three Playwright verifications on Node 22. Browser pages load `/packages/core/*.mjs` through import maps, and several experiments import `time.mjs` and `interval-index.mjs` directly. The design currently promises "pure JavaScript ES modules" with optional declarations. This plan replaces that contract. [Design](../design.md#javascript-packages-and-ownership) · [Core architecture](../core-architecture.md) · [CI](../../.github/workflows/test.yml)
+**Starting point.** At `f418d7f`, the core is eleven ES modules (935 lines) with 66 `node:test` tests across the workspace. There is no build, formatter or linter. CI runs the unit suite and three Playwright verifications on Node 22. Browser pages load `/packages/core/*.mjs` through import maps, and several experiments import `time.mjs` and `interval-index.mjs` directly. The design currently promises "pure JavaScript ES modules" with optional declarations. This plan replaces that contract. [Design](../design.md#packages-and-ownership) · [Core architecture](../core-architecture.md) · [CI](../../.github/workflows/test.yml)
 
 ## Toolchain, observed on 2026-11-21
 
@@ -34,7 +34,7 @@ Before writing this plan, we tried each tool on scratch copies of the repository
 1. **Erasable TypeScript only.** No enums, namespaces, parameter properties or decorators (`erasableSyntaxOnly`). Emit is type erasure, so tsrs emit, Node type stripping and `tsc` all execute the same code.
 2. **Runtime validation stays authoritative.** Projects arrive as JSON and JS callers bypass types. Keep every `requireEdit`, safe-integer check and `Object.freeze`. Types describe runtime truth. For example, `EditFailure.target` is `unknown`, because `invalid-id` and `invalid-track` echo host input. Narrowing it would be a separate behavior change.
 3. **Ticks are `type Tick = number`, not a brand.** Positions round-trip through JSON and host arithmetic. A brand would force casts in every host and test. Reconsider only if unit mix-ups appear in practice.
-4. **The compiler enforces a headless core.** Compile `src/` with `lib: ["es2024"]` and `types: []`. DOM and Node globals then fail to type-check. Reach `crypto.randomUUID`, `reportError` and `queueMicrotask` through one typed `host` view of `globalThis`, keeping today's fallbacks.
+4. **The compiler enforces a headless core.** Compile `src/` with `lib: ["es2024"]` and `types: []`. DOM and Node globals then fail to type-check. The editor declares the one bare global it calls, `queueMicrotask`, and reads the optional `crypto.randomUUID` and `reportError` through a typed view of `globalThis`, keeping today's fallbacks.
 5. **Pin compilers in pairs.** Pin `tsrs` and `typescript` to the same TypeScript version, without a caret. CI uses tsrs default mode and never `--fast`, which tsrs documents can change diagnostics. Upgrade both together in a dedicated PR that runs the parity job.
 6. **Source and dist are selected by a scoped condition.** `@lumen-timeline/source` maps exports to `src/*.ts` for tests and type-checking. Without the condition, Node, browsers and bundlers get `dist/`. A scoped name can't collide with a consumer's own `source` condition.
 7. **Formatting follows the oxfmt defaults.** The output is Prettier-compatible with `printWidth` 100. There is no style to debate and no options to migrate when oxfmt changes. The config only adds the schema reference and excludes recorded measurement data.
@@ -69,12 +69,14 @@ Set every option explicitly. TypeScript 6 and 7 changed several defaults and rem
     "exactOptionalPropertyTypes": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
+    "noImplicitReturns": true,
     "noPropertyAccessFromIndexSignature": true,
     "noFallthroughCasesInSwitch": true,
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "isolatedDeclarations": true,
     "rewriteRelativeImportExtensions": true,
+    "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -85,10 +87,12 @@ Set every option explicitly. TypeScript 6 and 7 changed several defaults and rem
 
 ```json
 "exports": {
-  ".": { "types": "./dist/index.d.ts", "@lumen-timeline/source": "./src/index.ts", "default": "./dist/index.js" },
-  "./internal": { "types": "./dist/internal.d.ts", "@lumen-timeline/source": "./src/internal.ts", "default": "./dist/internal.js" }
+  ".": { "@lumen-timeline/source": "./src/index.ts", "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+  "./internal": { "@lumen-timeline/source": "./src/internal.ts", "types": "./dist/internal.d.ts", "default": "./dist/internal.js" }
 }
 ```
+
+The source condition comes first. TypeScript also matches `types` under a custom condition, so it would otherwise always resolve to `dist/`. Node ignores `types`.
 
 `exactOptionalPropertyTypes` matches the core's existing distinction between an absent field and `undefined`. Examples are the optional `trackId` on a move, the deleted `entityData` and the entity-data journal's use of `undefined` for absence. `./internal` is explicitly unstable. It exports `visitRange` and `splitClip`, which tests and the query benchmark use today through deep relative paths.
 
@@ -164,7 +168,7 @@ pre-commit:
   - deep imports in experiments → `@lumen-timeline/core` or `@lumen-timeline/core/internal`
 - Scripts: `build` = `tsrs -b`; `test` runs `node --test` with the source condition; `test:dist` runs it without; `parity` emits with `tsc -p` into a scratch directory and diffs against tsrs output. `prepare` builds, so a fresh `npm ci` can serve the examples. Enable type-aware lint for core.
 - Keep core tests as `.mjs` in this PR. They are the behavior oracle, and only their import lines may change. Media and timeline stay JavaScript and consume the emitted declarations.
-- Update the README, the [design](../design.md#javascript-packages-and-ownership), the [architecture](../core-architecture.md) and the [verification guide](../clock-and-wasm.md) commands.
+- Update the README, the [design](../design.md#packages-and-ownership), the [architecture](../core-architecture.md) and the [verification guide](../clock-and-wasm.md) commands.
 
 ## PR J — Typed tests and a locked API surface
 
