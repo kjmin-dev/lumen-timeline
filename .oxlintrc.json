@@ -78,5 +78,6 @@
   "options": {
     "typeAware": true,
     "typeCheck": true
-  }
+  },
+  "ignorePatterns": ["packages/*/api/**"]
 }
