@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium, firefox, webkit } from "playwright";
 import { serve } from "./server.mjs";
+import { verifyAudioCrossings } from "./verify-crossings.mjs";
 
 const engine = process.argv[2] ?? "chromium";
 const server = await serve();
@@ -25,6 +26,10 @@ async function trace(fallback) {
     }, fallback);
     await page.goto(server.url + "/examples/vanilla/audio.html");
     assert.equal(await page.locator("video").count(), 0);
+    if (!fallback) {
+      await verifyAudioCrossings(page);
+      console.log(engine + ": audio marker crossings passed");
+    }
     const studio = await page.evaluateHandle(async () => (await import("./app.mjs")).studio);
     const button = (name) => page.getByRole("button", { name, exact: true });
     await button("Play").click();

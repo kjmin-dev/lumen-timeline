@@ -21,7 +21,7 @@ The marker navigator lists markers in time order and seeks to the chosen one. **
 
 Drags snap to markers. Ties prefer the playhead, then a marker, then a neighboring clip edge, then the grid. Pass `snap: { markers: false }` to opt out.
 
-Both example projects start with two markers. Save project and Reopen saved keep them. `npm run verify:timeline` steps through markers from the keyboard, adds, renames, removes and undoes one, checks that a marker added during playback leaves the music reservation alone, and reopens the saved project.
+Both example projects start with two markers. Save project and Reopen saved keep them. The title row shows the last marker that playback crossed. Seeking past a marker, by any means, does not change it. [Marker crossings](media-transports.md#marker-crossings) `npm run verify:timeline` steps through markers from the keyboard, adds, renames, removes and undoes one, checks that a marker added during playback leaves the music reservation alone, and reopens the saved project. It then plays from 11 s, seeks the video element directly to 18.6 s and checks that only the marker at 19 s is crossed.
 
 ## Edit clips
 

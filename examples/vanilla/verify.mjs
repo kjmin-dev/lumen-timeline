@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { chromium, firefox, webkit } from "playwright";
 import { verifyEdits } from "./verify-edits.mjs";
 import { verifyMarkers } from "./verify-markers.mjs";
+import { verifyVideoCrossings } from "./verify-crossings.mjs";
 import { serve } from "./server.mjs";
 
 const server = await serve();
@@ -116,6 +117,8 @@ try {
         await page.screenshot({ path: process.env.LUMEN_SCREENSHOT });
       await verifyMarkers(page);
       console.log(engine + ": marker keys, toolbar, undo, playback continuity and reopen passed");
+      await verifyVideoCrossings(page);
+      console.log(engine + ": marker crossings and a native seek passed");
     }
     if (dpr === 2) {
       const layout = await page.evaluate(async () => {

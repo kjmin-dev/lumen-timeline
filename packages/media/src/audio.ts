@@ -52,6 +52,10 @@ export function createAudioTransport({
 }: MediaOptions): AudioTransport {
   let end = sequenceDuration(editor.getSnapshot());
   let position = 0;
+  // Presentation moves by playback only within a segment. Every other move
+  // starts a new one, so hosts can tell crossed markers from skipped ones.
+  let segment = 0;
+  let segmentStart = 0;
   let wantPlay = false;
   let disposed = false;
   let starting: Request<PlayResult> | null = null;
@@ -63,6 +67,8 @@ export function createAudioTransport({
     presentedTick: 0,
     requestedTick: null,
     precision: "exact",
+    segment,
+    segmentStart,
   });
   const listeners = new Set<(state: AudioTransportState) => void>();
   const scheduler = new VoiceScheduler({
@@ -80,10 +86,13 @@ export function createAudioTransport({
       !end ||
       (seeking ? seeking.tick >= end : position > end || (scheduler.anchor && currentTick() >= end))
     ) {
+      // Playback that reaches the shortened end keeps its segment. A clamp or
+      // an abandoned seek moves presentation without playing.
+      if (!end || seeking || position > end) jump(end);
       stop(end, end ? "ended" : "paused");
     } else if (seeking && position > end) {
       // A backward seek may still be draining the former, longer sequence.
-      position = end;
+      jump(end);
       publish("seeking", seeking.tick, state.precision);
     } else if (state.status === "ended" && position < end) publish("paused");
   });
@@ -99,7 +108,8 @@ export function createAudioTransport({
       (state.status === status &&
         state.presentedTick === position &&
         state.requestedTick === requestedTick &&
-        state.precision === precision)
+        state.precision === precision &&
+        state.segment === segment)
     )
       return;
     const next = Object.freeze({
@@ -108,6 +118,8 @@ export function createAudioTransport({
       presentedTick: position,
       requestedTick,
       precision,
+      segment,
+      segmentStart,
     });
     state = next;
     // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may unsubscribe or issue commands during delivery, so iterate a snapshot.
@@ -125,6 +137,18 @@ export function createAudioTransport({
         }
       }
     }
+  }
+  // Presentation continues from `tick` without playing the ticks before it.
+  function jump(tick: Tick): void {
+    segment++;
+    segmentStart = tick;
+    position = tick;
+  }
+  // A playing seek has landed once the output clock reaches its anchor, even
+  // before a frame observes it.
+  function land(): void {
+    const anchor = scheduler.anchor;
+    if (seeking && anchor && outputClock(context).time >= anchor.audio) jump(seeking.tick);
   }
   function currentTick(time: number = outputClock(context).time): Tick {
     const anchor = scheduler.anchor;
@@ -172,7 +196,7 @@ export function createAudioTransport({
     const clock = outputClock(context);
     if (seeking && clock.time < scheduler.anchor.audio) return;
     if (seeking) {
-      position = seeking.tick;
+      jump(seeking.tick);
       seeking.resolve("arrived");
       seeking = null;
     }
@@ -183,6 +207,7 @@ export function createAudioTransport({
   function contextChanged(): void {
     if (disposed) return;
     if (context.state === "closed") {
+      land();
       const error = new Error("Audio context closed");
       starting?.reject(error);
       seeking?.reject(error);
@@ -190,12 +215,13 @@ export function createAudioTransport({
       return;
     }
     if (context.state !== "running" && wantPlay && !starting) {
-      const frozen = seeking?.tick ?? currentTick();
+      // A pending seek freezes at its target. Otherwise playback stops where it is.
+      if (seeking) jump(seeking.tick);
+      else position = currentTick();
       seeking?.resolve("arrived");
       seeking = null;
       cancelFrame();
       scheduler.invalidate();
-      position = frozen;
       publish("interrupted");
     } else if (
       context.state === "running" &&
@@ -225,7 +251,7 @@ export function createAudioTransport({
       if (!end) return Promise.resolve("empty");
       if (starting) return starting.promise;
       if (scheduler.anchor || seeking) return Promise.resolve("playing");
-      if (position === end) position = 0;
+      if (position === end) jump(0);
       const op = (starting = request<PlayResult>());
       wantPlay = true;
       publish("starting");
@@ -255,7 +281,9 @@ export function createAudioTransport({
       return op.promise;
     },
     pause() {
-      if (!disposed && context.state !== "closed") stop(currentTick(), "paused");
+      if (disposed || context.state === "closed") return;
+      land();
+      stop(currentTick(), "paused");
     },
     seek(tick: Tick): Promise<SeekResult> {
       if (disposed || context.state === "closed")
@@ -264,13 +292,14 @@ export function createAudioTransport({
         return Promise.reject(new RangeError("Invalid seek tick"));
       const active = wantPlay && !starting && context.state === "running";
       const interrupted = wantPlay && state.status === "interrupted";
+      land();
       const lastPresented = currentTick();
       supersede();
       cancelFrame();
       scheduler.invalidate();
       if (!active || tick === end) {
         wantPlay = interrupted && tick < end;
-        position = tick;
+        jump(tick);
         publish(wantPlay ? "interrupted" : tick === end && end ? "ended" : "paused");
         return Promise.resolve("arrived");
       }
@@ -302,6 +331,8 @@ export function createAudioTransport({
         presentedTick: position,
         requestedTick: null,
         precision: "exact",
+        segment,
+        segmentStart,
       });
       const error = new Error("Transport disposed");
       starting?.reject(error);

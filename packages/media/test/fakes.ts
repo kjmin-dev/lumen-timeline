@@ -69,29 +69,49 @@ export class FakeContext extends EventTarget implements AudioContextLike {
   }
 }
 
-/** A paused video that counts transport calls and never presents a frame. */
+type FrameCallback = (now: number, frame: VideoFrameMetadataLike) => void;
+
+/** A paused video that counts transport calls and presents frames on request. */
 export class FakeVideo extends EventTarget implements VideoElementLike {
   currentTime = 1;
   readonly duration = 12;
   readonly paused = true;
   readonly ended = false;
-  readonly seeking = false;
+  seeking = false;
   readonly readyState = 4;
   starts = 0;
   pauses = 0;
   framesCancelled = 0;
+  private frame: FrameCallback | null = null;
   play(): void {
     this.starts++;
   }
   pause(): void {
     this.pauses++;
   }
-  requestVideoFrameCallback(
-    _callback: (now: number, frame: VideoFrameMetadataLike) => void,
-  ): number {
+  requestVideoFrameCallback(callback: FrameCallback): number {
+    this.frame = callback;
     return 1;
   }
   cancelVideoFrameCallback(): void {
     this.framesCancelled++;
+    this.frame = null;
+  }
+  /** Calls the pending frame callback, as the browser does when it presents a frame. */
+  present(mediaTime: number): void {
+    const callback = this.frame;
+    this.frame = null;
+    callback?.(1000, { mediaTime });
+  }
+  /** Starts a seek on the element, as native controls do, and fires its events. */
+  nativeSeek(seconds: number): void {
+    this.seeking = true;
+    this.currentTime = seconds;
+    this.dispatchEvent(new Event("seeking"));
+  }
+  /** Completes the element's current seek. */
+  seeked(): void {
+    this.seeking = false;
+    this.dispatchEvent(new Event("seeked"));
   }
 }

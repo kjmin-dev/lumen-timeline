@@ -6,3 +6,4 @@ export type { ClipWindow, SourceWindow, TakeWindow } from "./time.ts";
 export { sequenceDuration } from "./extent.ts";
 export type { SequenceExtent } from "./extent.ts";
 export type * from "./types.ts";
+export { watchMarkerCrossings } from "./crossings.ts";

@@ -5,8 +5,9 @@ import {
   createEditor,
   sequenceDuration,
   TICKS_PER_SECOND as hz,
+  watchMarkerCrossings,
 } from "@lumen-timeline/core";
-import type { Clip, Marker, TakeCatalog } from "@lumen-timeline/core";
+import type { Clip, Marker, PresentationSource, TakeCatalog } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
 import type { AudioBufferLike, ResolveBuffer } from "@lumen-timeline/media";
 import type { TestContext } from "node:test";
@@ -85,6 +86,10 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
 }
 function timers(t: TestContext): void {
   t.mock.timers.enable({ apis: ["setInterval"] });
+}
+/** The output time a play or playing seek anchors to: one render quantum ahead. */
+function anchorTime(context: FakeContext): number {
+  return (Math.ceil(context.currentTime * context.sampleRate) + 128) / context.sampleRate;
 }
 /** The most recently created item, which the test expects to exist. */
 function last<T>(items: readonly T[]): T {
@@ -353,4 +358,220 @@ test("a marker after the last clip extends playback through silence to its tick"
   at(origin + 6);
   assert.deepEqual(ended, [sec(5)]);
   assert.equal(transport.snapshot().presentedTick, sec(5));
+});
+
+test("a segment changes only when presentation moves without playing", async (t) => {
+  timers(t);
+  const { transport, context, editor, at } = fixture(t);
+  const segment = () => {
+    const s = transport.snapshot();
+    return [s.segment, s.segmentStart];
+  };
+  assert.deepEqual(segment(), [0, 0]);
+  await transport.seek(sec(1));
+  assert.deepEqual(segment(), [1, sec(1)]);
+  await transport.play();
+  const origin = context.nodes[0].when;
+  at(origin + 0.5);
+  assert.equal(transport.snapshot().presentedTick, sec(1.5));
+  transport.pause();
+  assert.deepEqual(segment(), [1, sec(1)]);
+  await transport.play();
+  at(origin + 1);
+  // A playing seek is reported in the old segment until presentation lands.
+  const seek = transport.seek(sec(5));
+  assert.deepEqual(segment(), [1, sec(1)]);
+  const anchor = anchorTime(context);
+  await Promise.resolve();
+  at(anchor + 0.25, anchor + 0.25);
+  assert.equal(await seek, "arrived");
+  assert.equal(transport.snapshot().presentedTick, sec(5.25));
+  assert.deepEqual(segment(), [2, sec(5)]);
+  // Playback reaches the end in the same segment; replay starts a new one.
+  at(anchor + 4, anchor + 4);
+  assert.equal(transport.snapshot().status, "ended");
+  assert.deepEqual(segment(), [2, sec(5)]);
+  await transport.play();
+  assert.deepEqual(segment(), [3, 0]);
+  // A context interruption freezes playback; recovery continues the segment.
+  at(origin + 9.5, origin + 9.5);
+  context.setState("suspended");
+  context.setState("running");
+  assert.deepEqual(segment(), [3, 0]);
+  // Shortening the sequence behind a paused position clamps it into a new segment.
+  transport.pause();
+  await transport.seek(sec(7));
+  assert.deepEqual(segment(), [4, sec(7)]);
+  // Ending exactly at the position is not a move.
+  assert.ok(editor.dispatch(commands.trimClip({ clipId: "music", edge: "right", delta: -hz })).ok);
+  assert.ok(
+    editor.dispatch(commands.trimClip({ clipId: "dialogue", edge: "right", delta: -hz })).ok,
+  );
+  assert.deepEqual(segment(), [4, sec(7)]);
+  assert.ok(editor.dispatch(commands.trimClip({ clipId: "music", edge: "right", delta: -hz })).ok);
+  assert.deepEqual(segment(), [5, sec(6)]);
+  assert.equal(transport.snapshot().presentedTick, sec(6));
+});
+
+test("pausing a seek the output already reached starts its segment at the target", async (t) => {
+  timers(t);
+  const { transport, context, at } = fixture(t);
+  await transport.play();
+  at(1);
+  const seek = transport.seek(sec(2.5));
+  const anchor = anchorTime(context);
+  await Promise.resolve();
+  // The device reaches the anchor before any wake-up observes it.
+  context.currentTime = 1.5;
+  context.outputTime = anchor + 0.1;
+  transport.pause();
+  assert.equal(await seek, "superseded");
+  const s = transport.snapshot();
+  assert.deepEqual([s.segmentStart, s.presentedTick], [sec(2.5), sec(2.6)]);
+});
+
+test("marker crossings follow audio playback, skip a seek and include a marker at the end", async (t) => {
+  timers(t);
+  const { transport, editor, context, at } = fixture(t, {
+    markers: [
+      { id: "intro", start: sec(1) },
+      { id: "skipped", start: sec(3) },
+      { id: "chorus", start: sec(6) },
+      { id: "end", start: sec(8) },
+    ],
+  });
+  const source: PresentationSource = transport;
+  const crossed: [string, number, number][] = [];
+  const stop = watchMarkerCrossings(editor, source, ({ markers, after, through }) => {
+    for (const m of markers) crossed.push([m.id, after, through]);
+  });
+  await transport.play();
+  const origin = 128 / context.sampleRate;
+  at(origin + 0.5);
+  at(origin + 1.25);
+  assert.deepEqual(crossed, [["intro", sec(0.5), sec(1.25)]]);
+  // The seek lands on its target and is first observed a quarter second later.
+  const seek = transport.seek(sec(5.9));
+  const anchor = anchorTime(context);
+  await Promise.resolve();
+  at(anchor + 0.25, anchor + 0.25);
+  assert.equal(await seek, "arrived");
+  assert.deepEqual(crossed.at(-1), ["chorus", sec(5.9), sec(6.15)]);
+  at(anchor + 3, anchor + 3);
+  assert.equal(transport.snapshot().status, "ended");
+  assert.deepEqual(
+    crossed.map(([id]) => id),
+    ["intro", "chorus", "end"],
+  );
+  assert.deepEqual(crossed.at(-1), ["end", sec(6.15), sec(8)]);
+  assert.equal(stop(), true);
+});
+
+test("seeks that are abandoned, clamped, frozen or overtaken start their own segments", async (t) => {
+  timers(t);
+  // Disposal rejects the seeks left pending here.
+  const settled = (): void => {};
+  const of = (s: { segment: number; segmentStart: number; presentedTick: number }) => [
+    s.segment,
+    s.segmentStart,
+    s.presentedTick,
+  ];
+  {
+    // A seek target beyond a shortened sequence is abandoned at the new end.
+    const { transport, editor, at } = fixture(t, { clips: [clip("music", 0, 8)] });
+    await transport.play();
+    at(1);
+    void transport.seek(sec(7)).catch(settled);
+    await Promise.resolve();
+    assert.ok(
+      editor.dispatch(commands.trimClip({ clipId: "music", edge: "right", delta: sec(-3) })).ok,
+    );
+    assert.deepEqual(of(transport.snapshot()), [1, sec(5), sec(5)]);
+  }
+  {
+    // A backward seek still draining a shortened sequence clamps its shown position.
+    const { transport, editor, context, at } = fixture(t, { clips: [clip("music", 0, 8)] });
+    await transport.play();
+    const origin = context.nodes[0].when;
+    at(origin + 7);
+    void transport.seek(sec(2)).catch(settled);
+    await Promise.resolve();
+    assert.ok(
+      editor.dispatch(commands.trimClip({ clipId: "music", edge: "right", delta: -hz })).ok,
+    );
+    // Ending exactly at the shown position leaves it alone.
+    assert.equal(transport.snapshot().status, "seeking");
+    assert.deepEqual(of(transport.snapshot()), [0, 0, sec(7)]);
+    assert.ok(
+      editor.dispatch(commands.trimClip({ clipId: "music", edge: "right", delta: -hz })).ok,
+    );
+    assert.deepEqual(of(transport.snapshot()), [1, sec(6), sec(6)]);
+  }
+  {
+    // An interruption freezes a pending seek at its target.
+    const { transport, context, at } = fixture(t);
+    await transport.play();
+    at(1);
+    void transport.seek(sec(4)).catch(settled);
+    await Promise.resolve();
+    context.setState("suspended");
+    assert.deepEqual(of(transport.snapshot()), [1, sec(4), sec(4)]);
+  }
+  {
+    // A seek that reached the output before the next one keeps its segment.
+    const { transport, context, at } = fixture(t);
+    await transport.play();
+    at(1);
+    void transport.seek(sec(3)).catch(settled);
+    const anchor = anchorTime(context);
+    await Promise.resolve();
+    context.currentTime = context.outputTime = anchor + 0.2;
+    void transport.seek(sec(6)).catch(settled);
+    assert.deepEqual(of(transport.snapshot()), [1, sec(3), sec(3.2)]);
+  }
+  {
+    // So does one that reached the output before the context closed.
+    const { transport, context, at } = fixture(t);
+    await transport.play();
+    at(1);
+    void transport.seek(sec(3)).catch(settled);
+    const anchor = anchorTime(context);
+    await Promise.resolve();
+    context.currentTime = context.outputTime = anchor + 0.2;
+    context.setState("closed");
+    assert.equal(transport.snapshot().status, "closed");
+    assert.deepEqual(of(transport.snapshot()), [1, sec(3), sec(3.2)]);
+  }
+  {
+    // A paused seek to the current position still starts a segment.
+    const { transport } = fixture(t);
+    await transport.seek(0);
+    assert.deepEqual(of(transport.snapshot()), [1, 0, 0]);
+  }
+});
+
+test("playback that reaches a shortened end keeps its segment and crosses markers before it", async (t) => {
+  timers(t);
+  const { transport, editor, context, at } = fixture(t, {
+    clips: [clip("music", 0, 8)],
+    markers: [{ id: "late", start: sec(4.2) }],
+  });
+  const crossed: string[] = [];
+  watchMarkerCrossings(editor, transport, ({ markers }) =>
+    crossed.push(...markers.map((m) => m.id)),
+  );
+  await transport.play();
+  const origin = context.nodes[0].when;
+  at(origin + 4);
+  // The clock moves on before any wake-up observes it, then the sequence shrinks.
+  context.currentTime = context.outputTime = origin + 4.8;
+  assert.ok(
+    editor.dispatch(commands.trimClip({ clipId: "music", edge: "right", delta: sec(-3.5) })).ok,
+  );
+  assert.equal(transport.snapshot().status, "ended");
+  assert.deepEqual(
+    [transport.snapshot().segment, transport.snapshot().presentedTick],
+    [0, sec(4.5)],
+  );
+  assert.deepEqual(crossed, ["late"]);
 });

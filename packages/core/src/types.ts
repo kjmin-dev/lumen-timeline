@@ -390,6 +390,35 @@ export interface ReadHandle {
 /** Removes a subscription. Returns whether it was still active. */
 export type Unsubscribe = () => boolean;
 
+/**
+ * The presentation fields of a transport snapshot. Within one segment the
+ * presented tick moves only by playback. Any other move, such as a seek,
+ * starts a new segment.
+ */
+export interface PresentationState {
+  readonly presentedTick: Tick;
+  /** Changes whenever the presented position moves other than by playback. */
+  readonly segment: number;
+  /** The tick that presentation continues from in this segment. */
+  readonly segmentStart: Tick;
+}
+
+/** A transport, or any player adapter, that reports presentation segments. */
+export interface PresentationSource {
+  snapshot(): PresentationState;
+  subscribe(listener: (state: PresentationState) => void): () => unknown;
+}
+
+/** Markers that playback crossed between two presented ticks. */
+export interface MarkerCrossing {
+  /** Markers with `after < start <= through`, in snapshot order. Never empty. */
+  readonly markers: readonly Marker[];
+  readonly after: Tick;
+  readonly through: Tick;
+  /** The project revision the markers were read from. */
+  readonly revision: number;
+}
+
 export interface EditorSession {
   getSelection(): readonly string[];
   /** Throws an `EditError` for unknown clip IDs or after disposal. */

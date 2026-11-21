@@ -1,4 +1,9 @@
-import { createEditor, sequenceDuration, TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
+import {
+  createEditor,
+  sequenceDuration,
+  TICKS_PER_SECOND as hz,
+  watchMarkerCrossings,
+} from "@lumen-timeline/core";
 import { mountTimeline } from "@lumen-timeline/timeline";
 import { attachPlayer } from "./player.mjs";
 
@@ -113,6 +118,13 @@ export async function openProject(data) {
   }
   const offClock = clockLabel ? transport.subscribe(showClock) : () => {};
   showClock(transport.snapshot());
+  // Announce the last marker that playback crossed. Seeking past one stays silent.
+  const cue = document.querySelector("#marker-cue");
+  cue.textContent = "none";
+  const offCrossings = watchMarkerCrossings(editor, transport, ({ markers }) => {
+    const marker = markers.at(-1);
+    cue.textContent = marker.label ?? marker.id;
+  });
   return {
     editor,
     view,
@@ -121,6 +133,7 @@ export async function openProject(data) {
       off();
       deselect();
       offClock();
+      offCrossings();
       view.dispose();
       await playback.dispose();
       editor.dispose();

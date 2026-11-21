@@ -17,10 +17,14 @@ export async function verifyMarkers(page) {
         settled: t.requestedTick === null,
       };
     });
+  // waitForFunction treats a returned promise as truthy, so its predicates stay
+  // synchronous and read the live module namespace.
+  await page.evaluate(async () => {
+    window.lumenApp = await import("./app.mjs");
+  });
   const settle = (tick) =>
-    page.waitForFunction(async (target) => {
-      const { studio } = await import("./app.mjs");
-      const t = studio.transport.snapshot();
+    page.waitForFunction((target) => {
+      const t = window.lumenApp.studio.transport.snapshot();
       return t.requestedTick === null && t.presentedTick === target;
     }, tick);
   await page.evaluate(async () => {
@@ -89,9 +93,8 @@ export async function verifyMarkers(page) {
 
   // A marker edit during playback leaves the music reservation alone.
   await page.getByRole("button", { name: "Play", exact: true }).click();
-  await page.waitForFunction(async () => {
-    const { studio } = await import("./app.mjs");
-    window.lumenBed = studio.transport.diagnostics("bed").reservation;
+  await page.waitForFunction(() => {
+    window.lumenBed = window.lumenApp.studio.transport.diagnostics("bed").reservation;
     return window.lumenBed !== undefined;
   });
   await page.getByRole("group", { name: "Timeline clips" }).focus();
