@@ -22,7 +22,7 @@ const probe = pcmOnly
     ? "soak(" + soakSeconds + ")"
     : "run(" + (control ? 0.1 : 0) + ")";
 const pageHtml = `<video muted playsinline width="160" height="64"></video><button>Run</button>
-<script type="importmap">{"imports":{"@lumen-timeline/media":"/packages/media/index.mjs","@lumen-timeline/core":"/packages/core/index.mjs"}}</script>
+<script type="importmap">{"imports":{"@lumen-timeline/media":"/packages/media/index.mjs","@lumen-timeline/core":"/packages/core/dist/index.js","@lumen-timeline/core/internal":"/packages/core/dist/internal.js"}}</script>
 <script type="module">
 import {run} from '/experiments/sync/browser.mjs'
 import {soak} from '/experiments/sync/soak.mjs'
@@ -43,17 +43,6 @@ const modules = new Set([
   "/experiments/sync/continuous-edits.mjs",
   "/experiments/sync/soak.mjs",
   "/experiments/sync/edited-pcm.mjs",
-  "/packages/core/index.mjs",
-  "/packages/core/editor.mjs",
-  "/packages/core/document.mjs",
-  "/packages/core/clip-patches.mjs",
-  "/packages/core/entity-data.mjs",
-  "/packages/core/history.mjs",
-  "/packages/core/time.mjs",
-  "/packages/core/extent.mjs",
-  "/packages/core/read.mjs",
-  "/packages/core/interval-index.mjs",
-  "/packages/core/playback.mjs",
 ]);
 const server = http.createServer(async (req, res) => {
   try {
@@ -62,7 +51,7 @@ const server = http.createServer(async (req, res) => {
       res.end(pageHtml);
       return;
     }
-    if (modules.has(req.url)) {
+    if (modules.has(req.url) || /^\/packages\/core\/dist\/[a-z-]+\.js$/.test(req.url)) {
       res.setHeader("Content-Type", "text/javascript");
       res.end(await readFile(join(root, req.url)));
       return;

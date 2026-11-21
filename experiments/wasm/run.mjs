@@ -44,15 +44,18 @@ try {
   await page.context().route("http://lumen-bench.test/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/")
-      return route.fulfill({ contentType: "text/html", body: "<title>Lumen benchmark</title>" });
+      return route.fulfill({
+        contentType: "text/html",
+        body: '<title>Lumen benchmark</title><script type="importmap">{"imports":{"@lumen-timeline/core":"/packages/core/dist/index.js"}}</script>',
+      });
     if (
       ![
         "/experiments/wasm/measure.mjs",
         "/experiments/wasm/worker-bench.mjs",
         "/experiments/wasm/worker.mjs",
         "/experiments/wasm/peaks.mjs",
-        "/packages/core/time.mjs",
-      ].includes(path)
+      ].includes(path) &&
+      !/^\/packages\/core\/dist\/[a-z-]+\.js$/.test(path)
     )
       return route.abort();
     const body = await readFile(new URL("../.." + path, import.meta.url));
