@@ -1,30 +1,103 @@
 import {
   EditError,
+  isArray,
   openProject,
   orderTrack,
   requireEdit,
   validId,
   validateClip,
 } from "./document.ts";
+import type { TrackLayout } from "./document.ts";
 import { ClipDraft, inverse, rebase } from "./clip-patches.ts";
 import { DataDraft, applyData, invertData, normalizeEntityData } from "./entity-data.ts";
 import { createHistory } from "./history.ts";
 import { readRegistry } from "./read.ts";
 import { splitClip } from "./time.ts";
+import type {
+  AffectedInterval,
+  Clip,
+  ClipCommand,
+  ClipPatch,
+  CommitHistory,
+  DataPatch,
+  EditCommand,
+  EditCommit,
+  Editor,
+  EditOptions,
+  EditorOptions,
+  EditResult,
+  HistoryState,
+  MoveCommand,
+  PreviewCommand,
+  PreviewResult,
+  ProjectSnapshot,
+  RemoveDataCommand,
+  RevisionOptions,
+  SetDataCommand,
+  SplitCommand,
+  TrimCommand,
+} from "./types.ts";
 
-export const commands = Object.freeze({
+// A bare global, read exactly as in plain JavaScript. The core compiles
+// without DOM or Node declarations, so it declares only what it uses.
+declare function queueMicrotask(callback: () => void): void;
+
+// Optional host capabilities, read as properties of the global object.
+const host = globalThis as typeof globalThis & {
+  readonly crypto?: { readonly randomUUID?: () => string };
+  readonly reportError?: (error: unknown) => void;
+};
+
+type Arguments<C> = Omit<C, "type">;
+
+export interface Commands {
+  moveClips(args: Arguments<MoveCommand>): MoveCommand;
+  trimClip(args: Arguments<TrimCommand>): TrimCommand;
+  splitClip(args: Arguments<SplitCommand>): SplitCommand;
+  setEntityData(args: Arguments<SetDataCommand>): SetDataCommand;
+  removeEntityData(args: Arguments<RemoveDataCommand>): RemoveDataCommand;
+}
+
+export const commands: Readonly<Commands> = Object.freeze({
   moveClips: (args) => ({ ...args, type: "move" }),
   trimClip: (args) => ({ ...args, type: "trim" }),
   splitClip: (args) => ({ ...args, type: "split" }),
   setEntityData: (args) => ({ ...args, type: "set-data" }),
   removeEntityData: (args) => ({ ...args, type: "remove-data" }),
-});
+} satisfies Commands);
 
-function positions(clips) {
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+interface DocumentSubscriber {
+  revision: number;
+  update(document: ProjectSnapshot, result: EditCommit): void;
+}
+
+interface VersionedSubscriber<T> {
+  readonly listen: (value: T) => void;
+  version: number;
+}
+
+interface Notification {
+  readonly result: EditCommit | null;
+  readonly document: ProjectSnapshot;
+  readonly state: HistoryState | null;
+  readonly version: number;
+  readonly selection: readonly string[] | null;
+  readonly selectionVersion: number;
+}
+
+interface Geometry {
+  readonly clips: readonly Clip[];
+  readonly layout: TrackLayout;
+  readonly positions: Map<string, number>;
+}
+
+function positions(clips: readonly Clip[]): Map<string, number> {
   return new Map(clips.map((clip, index) => [clip.id, index]));
 }
 
-function intervals(clips) {
+function intervals(clips: readonly Clip[]): readonly AffectedInterval[] {
   return Object.freeze(
     clips.map((clip) =>
       Object.freeze({
@@ -37,7 +110,7 @@ function intervals(clips) {
   );
 }
 
-export function createEditor({ project, history: limits }) {
+export function createEditor({ project, history: limits }: EditorOptions): Editor {
   let { snapshot, rules, byTrack } = openProject(project);
   let byId = positions(snapshot.clips);
   if (Object.hasOwn(snapshot, "entityData")) {
@@ -48,19 +121,19 @@ export function createEditor({ project, history: limits }) {
   const reads = readRegistry(snapshot.tracks);
   reads.pin(snapshot, byTrack);
   const history = createHistory(limits);
-  const subscribers = new Set();
-  const historySubscribers = new Set();
-  const selectionSubscribers = new Set();
-  let selection = Object.freeze([]);
+  const subscribers = new Set<DocumentSubscriber>();
+  const historySubscribers = new Set<VersionedSubscriber<HistoryState>>();
+  const selectionSubscribers = new Set<VersionedSubscriber<readonly string[]>>();
+  let selection: readonly string[] = Object.freeze([]);
   let selectionVersion = 0;
   let historyVersion = 0;
-  const notifications = [];
+  const notifications: Notification[] = [];
   let notifying = false;
   let disposed = false;
   let fallbackId = 0;
 
-  function newClipId(draft) {
-    if (typeof globalThis.crypto?.randomUUID === "function") return globalThis.crypto.randomUUID();
+  function newClipId(draft: ClipDraft): string {
+    if (typeof host.crypto?.randomUUID === "function") return host.crypto.randomUUID();
     // Embedded HTTP editors may lack randomUUID. Hosts can also supply a durable ID.
     let id;
     do {
@@ -69,7 +142,7 @@ export function createEditor({ project, history: limits }) {
     return id;
   }
 
-  function stageClip(command, draft) {
+  function stageClip(command: ClipCommand, draft: ClipDraft): void {
     const type = command?.type;
     requireEdit(
       ["move", "trim", "split"].includes(type),
@@ -79,10 +152,7 @@ export function createEditor({ project, history: limits }) {
     );
     const ids = type === "move" ? command.clipIds : [command.clipId];
     requireEdit(
-      Array.isArray(ids) &&
-        ids.length > 0 &&
-        ids.every(validId) &&
-        new Set(ids).size === ids.length,
+      isArray(ids) && ids.length > 0 && ids.every(validId) && new Set(ids).size === ids.length,
       "invalid-selection",
       null,
       "Expected distinct clip IDs",
@@ -100,13 +170,14 @@ export function createEditor({ project, history: limits }) {
       const clip = draft.get(id);
       requireEdit(clip, "missing-clip", id, "Clip does not exist");
       requireEdit(
-        !rules.tracks.get(clip.trackId).locked,
+        // Every staged clip passed validateClip, so its track exists.
+        !rules.tracks.get(clip.trackId)!.locked,
         "locked-track",
         clip.trackId,
         "Source track is locked",
       );
 
-      let after;
+      let after: readonly Clip[];
       if (type === "move") {
         const trackId = command.trackId === undefined ? clip.trackId : command.trackId;
         const destination = rules.tracks.get(trackId);
@@ -162,11 +233,11 @@ export function createEditor({ project, history: limits }) {
     }
   }
 
-  function deliver(fn) {
+  function deliver(fn: () => void): void {
     try {
       fn();
     } catch (error) {
-      if (typeof globalThis.reportError === "function") globalThis.reportError(error);
+      if (typeof host.reportError === "function") host.reportError(error);
       else
         queueMicrotask(() => {
           throw error;
@@ -174,7 +245,11 @@ export function createEditor({ project, history: limits }) {
     }
   }
 
-  function notify(result, historyChanged, selectionChanged = false) {
+  function notify(
+    result: EditCommit | null,
+    historyChanged: boolean,
+    selectionChanged = false,
+  ): void {
     const state = historyChanged
       ? Object.freeze({
           undoDepth: history.undoDepth,
@@ -195,19 +270,15 @@ export function createEditor({ project, history: limits }) {
     if (notifying) return;
     notifying = true;
     try {
+      // Each loop below runs only when its event field is set, so the
+      // non-null assertions inside the delivered callbacks hold.
       for (const event of notifications) {
         if (event.result) {
           // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may subscribe or unsubscribe during delivery, so iterate a snapshot.
           for (const sub of [...subscribers]) {
             if (!subscribers.has(sub) || sub.revision >= event.document.revision) continue;
             sub.revision = event.document.revision;
-            deliver(() => {
-              const next = sub.select(event.document);
-              if (!Object.is(sub.value, next)) {
-                sub.value = next;
-                sub.listen(next, event.result, event.document);
-              }
-            });
+            deliver(() => sub.update(event.document, event.result!));
           }
         }
         if (event.selection) {
@@ -215,7 +286,7 @@ export function createEditor({ project, history: limits }) {
           for (const sub of [...selectionSubscribers]) {
             if (!selectionSubscribers.has(sub) || sub.version >= event.selectionVersion) continue;
             sub.version = event.selectionVersion;
-            deliver(() => sub.listen(event.selection));
+            deliver(() => sub.listen(event.selection!));
           }
         }
         if (event.state) {
@@ -223,7 +294,7 @@ export function createEditor({ project, history: limits }) {
           for (const sub of [...historySubscribers]) {
             if (!historySubscribers.has(sub) || sub.version >= event.version) continue;
             sub.version = event.version;
-            deliver(() => sub.listen(event.state));
+            deliver(() => sub.listen(event.state!));
           }
         }
       }
@@ -233,7 +304,8 @@ export function createEditor({ project, history: limits }) {
     }
   }
 
-  function stageTracks(before, after) {
+  // Staged clips passed validateClip, so every touched track exists.
+  function stageTracks(before: readonly Clip[], after: readonly Clip[]): TrackLayout {
     const removedIds = new Set(before.map((clip) => clip.id));
     const touched = new Set(before.concat(after).map((clip) => clip.trackId));
     const layout = new Map(byTrack);
@@ -243,28 +315,33 @@ export function createEditor({ project, history: limits }) {
         (byTrack.get(trackId) ?? []).filter((clip) => !removedIds.has(clip.id)),
       );
     }
-    for (const clip of after) layout.get(clip.trackId).push(clip);
-    for (const id of touched) orderTrack(layout.get(id), rules.tracks.get(id));
+    for (const clip of after) layout.get(clip.trackId)!.push(clip);
+    for (const id of touched) orderTrack(layout.get(id)!, rules.tracks.get(id)!);
 
     return layout;
   }
 
-  function prepareLayout(patches, before, after) {
+  function prepareLayout(
+    patches: readonly ClipPatch[],
+    before: readonly Clip[],
+    after: readonly Clip[],
+  ): Geometry {
     const layout = stageTracks(before, after);
-    const clips = [];
+    const clips: Clip[] = [];
     let cursor = 0;
+    // Patch indices are sorted and lie within the current clip array.
     for (const patch of patches) {
-      while (cursor < patch.index) clips.push(snapshot.clips[cursor++]);
+      while (cursor < patch.index) clips.push(snapshot.clips[cursor++]!);
       for (const clip of patch.after) clips.push(clip);
       cursor += patch.before.length;
     }
-    while (cursor < snapshot.clips.length) clips.push(snapshot.clips[cursor++]);
+    while (cursor < snapshot.clips.length) clips.push(snapshot.clips[cursor++]!);
     // Placement-only changes keep every ID at its existing array position.
     const structural = patches.some((p) => p.before.length !== p.after.length);
     return { clips: Object.freeze(clips), layout, positions: structural ? positions(clips) : byId };
   }
 
-  function checkRevision(options) {
+  function checkRevision(options: RevisionOptions | undefined): void {
     requireEdit(!disposed, "disposed", null, "Editor has been disposed");
     requireEdit(
       options?.expectedRevision === undefined || options.expectedRevision === snapshot.revision,
@@ -274,7 +351,7 @@ export function createEditor({ project, history: limits }) {
     );
   }
 
-  function nextRevision() {
+  function nextRevision(): number {
     const revision = snapshot.revision + 1;
     requireEdit(
       Number.isSafeInteger(revision),
@@ -285,11 +362,14 @@ export function createEditor({ project, history: limits }) {
     return revision;
   }
 
-  function preview(input, options) {
+  function preview(
+    input: PreviewCommand | readonly PreviewCommand[],
+    options?: RevisionOptions,
+  ): PreviewResult {
     try {
       checkRevision(options);
       const draft = new ClipDraft(snapshot.clips, byId);
-      for (const command of Array.isArray(input) ? input : [input]) {
+      for (const command of (Array.isArray(input) ? input : [input]) as readonly PreviewCommand[]) {
         requireEdit(
           command?.type === "move" || command?.type === "trim",
           "unsupported-preview",
@@ -320,11 +400,18 @@ export function createEditor({ project, history: limits }) {
     }
   }
 
-  function execute(input, mode, options) {
+  function execute(
+    input: EditCommand | readonly EditCommand[] | null,
+    mode: "edit" | "undo" | "redo",
+    options: EditOptions | undefined,
+  ): EditResult {
     try {
       checkRevision(options);
-      let patches, inverses, data, inverseData;
-      let policy = options?.history === undefined ? "record" : options.history;
+      let patches: readonly ClipPatch[];
+      let inverses: readonly ClipPatch[];
+      let data: readonly DataPatch[];
+      let inverseData: readonly DataPatch[];
+      let policy: CommitHistory = options?.history === undefined ? "record" : options.history;
       if (mode === "edit") {
         requireEdit(
           policy === "record" || policy === "ignore",
@@ -334,7 +421,7 @@ export function createEditor({ project, history: limits }) {
         );
         const clips = new ClipDraft(snapshot.clips, byId);
         const fields = new DataDraft(snapshot.entityData);
-        for (const command of Array.isArray(input) ? input : [input]) {
+        for (const command of (Array.isArray(input) ? input : [input]) as readonly EditCommand[]) {
           if (command?.type === "set-data" || command?.type === "remove-data")
             fields.stage(command);
           else stageClip(command, clips);
@@ -363,7 +450,7 @@ export function createEditor({ project, history: limits }) {
       const entityData = applyData(snapshot.entityData, data);
       const revision = nextRevision();
       const oldIds = new Set(before.map((c) => c.id));
-      const result = Object.freeze({
+      const result: EditCommit = Object.freeze({
         ok: true,
         revision,
         history: policy,
@@ -375,7 +462,11 @@ export function createEditor({ project, history: limits }) {
         createdIds: Object.freeze(after.filter((c) => !oldIds.has(c.id)).map((c) => c.id)),
         affected: Object.freeze({ before: intervals(before), after: intervals(after) }),
       });
-      const next = { ...snapshot, revision, clips: geometry?.clips ?? snapshot.clips };
+      const next: Mutable<ProjectSnapshot> = {
+        ...snapshot,
+        revision,
+        clips: geometry?.clips ?? snapshot.clips,
+      };
       if (entityData === undefined) delete next.entityData;
       else next.entityData = entityData;
 
@@ -389,7 +480,7 @@ export function createEditor({ project, history: limits }) {
       }
       snapshot = Object.freeze(next);
       reads.pin(snapshot, byTrack);
-      const pruned = geometry && selection.some((id) => !byId.has(id));
+      const pruned = geometry !== null && selection.some((id) => !byId.has(id));
       if (pruned) selection = Object.freeze(selection.filter((id) => byId.has(id)));
       notify(result, policy !== "ignore" && history.undoDepth + history.redoDepth > 0, pruned);
       return result;
@@ -415,7 +506,7 @@ export function createEditor({ project, history: limits }) {
       select(ids) {
         requireEdit(!disposed, "disposed", null, "Editor has been disposed");
         requireEdit(
-          Array.isArray(ids) && ids.every((id) => byId.has(id)),
+          isArray(ids) && ids.every((id) => byId.has(id)),
           "invalid-selection",
           null,
           "Expected existing clip IDs",
@@ -471,7 +562,17 @@ export function createEditor({ project, history: limits }) {
     },
     subscribe(select, listen) {
       requireEdit(!disposed, "disposed", null, "Editor has been disposed");
-      const sub = { select, listen, value: select(snapshot), revision: snapshot.revision };
+      let value = select(snapshot);
+      const sub: DocumentSubscriber = {
+        revision: snapshot.revision,
+        update(document, result) {
+          const next = select(document);
+          if (!Object.is(value, next)) {
+            value = next;
+            listen(next, result, document);
+          }
+        },
+      };
       subscribers.add(sub);
       return () => subscribers.delete(sub);
     },

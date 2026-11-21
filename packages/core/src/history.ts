@@ -1,23 +1,48 @@
 import { requireEdit } from "./document.ts";
+import type { ClipPatch, DataPatch, HistoryLimits } from "./types.ts";
+
+export interface HistoryEntry {
+  readonly forward: readonly ClipPatch[];
+  readonly inverse: readonly ClipPatch[];
+  readonly data: readonly DataPatch[];
+  readonly inverseData: readonly DataPatch[];
+}
+
+interface StoredEntry extends HistoryEntry {
+  readonly bytes: number;
+}
+
+export interface History {
+  readonly undoDepth: number;
+  readonly redoDepth: number;
+  readonly estimatedBytes: number;
+  peek(mode: "undo" | "redo"): HistoryEntry | undefined;
+  /** Moves the newest entry across. The caller has checked that it exists. */
+  advance(mode: "undo" | "redo"): void;
+  record(entry: HistoryEntry): void;
+  discard(direction: "undo" | "redo"): boolean;
+  clear(): void;
+}
 
 // Approximate logical payload size. Immutable children are cheap to reweigh.
 // Shared values may be counted multiple times; this is not a measurement of heap size.
-function estimator() {
-  const sizes = new WeakMap();
-  function bytes(value) {
+function estimator(): (value: unknown) => number {
+  const sizes = new WeakMap<object, number>();
+  function bytes(value: unknown): number {
     if (typeof value === "string") return 16 + value.length * 2;
     if (value === null || typeof value !== "object") return 8;
     const cached = sizes.get(value);
     if (cached !== undefined) return cached;
     let size = 32;
-    for (const key of Object.keys(value)) size += 8 + key.length * 2 + bytes(value[key]);
+    for (const key of Object.keys(value))
+      size += 8 + key.length * 2 + bytes((value as { readonly [key: string]: unknown })[key]);
     sizes.set(value, size);
     return size;
   }
   return bytes;
 }
 
-export function createHistory(options = {}) {
+export function createHistory(options: HistoryLimits = {}): History {
   requireEdit(
     options !== null && typeof options === "object" && !Array.isArray(options),
     "invalid-history",
@@ -34,8 +59,8 @@ export function createHistory(options = {}) {
     null,
     "History limits must be nonnegative safe integers",
   );
-  const past = [];
-  const future = [];
+  const past: StoredEntry[] = [];
+  const future: StoredEntry[] = [];
   const weigh = estimator();
   let estimatedBytes = 0;
 
@@ -51,8 +76,8 @@ export function createHistory(options = {}) {
     },
     peek: (mode) => (mode === "undo" ? past : future).at(-1),
     advance(mode) {
-      if (mode === "undo") future.push(past.pop());
-      else past.push(future.pop());
+      if (mode === "undo") future.push(past.pop()!);
+      else past.push(future.pop()!);
     },
     record(entry) {
       const bytes = maxEntries && maxBytes ? weigh(entry) : 0;
@@ -63,7 +88,7 @@ export function createHistory(options = {}) {
       estimatedBytes += bytes;
       // One atomic edit may exceed the byte budget. Keep the newest edit intact.
       while (past.length > 1 && (past.length > maxEntries || estimatedBytes > maxBytes)) {
-        estimatedBytes -= past.shift().bytes;
+        estimatedBytes -= past.shift()!.bytes;
       }
     },
     discard(direction) {

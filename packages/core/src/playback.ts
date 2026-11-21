@@ -1,17 +1,42 @@
 import { validId } from "./document.ts";
 import { sourceWindow, ticksToUnits, unitsToTicks } from "./time.ts";
+import type {
+  AudioPlan,
+  AudioSpan,
+  Clip,
+  PlanIssue,
+  SourceRange,
+  TakeBinding,
+  TakeCatalog,
+  Tick,
+  TickRange,
+  Track,
+  Version,
+} from "./types.ts";
 
-const validVersion = (value) => validId(value) || (Number.isSafeInteger(value) && value >= 0);
+const validVersion = (value: unknown): value is Version =>
+  validId(value) || (Number.isSafeInteger(value) && (value as number) >= 0);
 
-function nativeRange(start, end, source, binding) {
-  const clamp = (sample) =>
+function nativeRange(
+  start: Tick,
+  end: Tick,
+  source: Tick,
+  binding: TakeBinding,
+): SourceRange | null {
+  const clamp = (sample: number): number =>
     Math.max(binding.availableStart, Math.min(binding.availableEnd, sample));
   const sourceStart = clamp(ticksToUnits(source, binding.sampleRate));
   const sourceEnd = clamp(ticksToUnits(source + (end - start), binding.sampleRate));
   return sourceEnd > sourceStart ? Object.freeze({ start, end, sourceStart, sourceEnd }) : null;
 }
 
-function planClip(clip, track, range, binding) {
+function planClip(
+  clip: Clip,
+  takeId: string,
+  track: Track,
+  range: TickRange,
+  binding: TakeBinding | undefined,
+): AudioSpan | null {
   if (
     !binding ||
     !validId(binding.assetId) ||
@@ -44,11 +69,14 @@ function planClip(clip, track, range, binding) {
   const window = nativeRange(start, end, full.sourceStart + (start - full.start), binding);
   if (!window) return null;
   const audible = nativeRange(full.start, full.end, full.sourceStart, binding);
+  // Unreachable: rounding and clamping are monotonic, so the full range holds
+  // at least the samples of the window inside it.
+  if (!audible) return null;
   return Object.freeze({
     clipId: clip.id,
     trackId: track.id,
     chainId: clip.continuityId ?? null,
-    takeId: clip.activeTakeId,
+    takeId,
     assetId: binding.assetId,
     assetVersion: binding.assetVersion,
     streamId: binding.streamId,
@@ -60,7 +88,13 @@ function planClip(clip, track, range, binding) {
   });
 }
 
-export function planAudio(revision, tracks, range, catalog, visit) {
+export function planAudio(
+  revision: number,
+  tracks: readonly Track[],
+  range: TickRange,
+  catalog: TakeCatalog,
+  visit: (trackId: string, emit: (clip: Clip) => void) => void,
+): AudioPlan {
   if (
     !catalog ||
     !validVersion(catalog.version) ||
@@ -69,8 +103,8 @@ export function planAudio(revision, tracks, range, catalog, visit) {
     Array.isArray(catalog.takes)
   )
     throw new TypeError("Expected a versioned take catalog");
-  const spans = [];
-  const issues = [];
+  const spans: AudioSpan[] = [];
+  const issues: PlanIssue[] = [];
   const solo = tracks.some((track) => track.solo === true);
   for (const track of tracks) {
     if (track.mute === true || (solo && track.solo !== true) || track.gain === 0) continue;
@@ -86,7 +120,7 @@ export function planAudio(revision, tracks, range, catalog, visit) {
         return;
       }
       try {
-        const span = planClip(clip, track, range, catalog.takes[id]);
+        const span = planClip(clip, id, track, range, catalog.takes[id]);
         if (span) spans.push(span);
       } catch (error) {
         if (!(error instanceof RangeError)) throw error;

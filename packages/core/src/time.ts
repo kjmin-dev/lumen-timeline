@@ -1,7 +1,9 @@
+import type { Clip, Tick } from "./types.ts";
+
 // Source rates are rational units per second, e.g. 30000 / 1001 frames.
 export const TICKS_PER_SECOND = 282_240_000;
 
-function convert(value, numerator, denominator, toTicks) {
+function convert(value: number, numerator: number, denominator: number, toTicks: boolean): number {
   if (
     !Number.isSafeInteger(value) ||
     !Number.isSafeInteger(numerator) ||
@@ -38,23 +40,45 @@ function convert(value, numerator, denominator, toTicks) {
   return result;
 }
 
-export function unitsToTicks(units, numerator, denominator = 1) {
+export function unitsToTicks(units: number, numerator: number, denominator: number = 1): Tick {
   return convert(units, numerator, denominator, true);
 }
 
-export function ticksToUnits(ticks, numerator, denominator = 1) {
+export function ticksToUnits(ticks: Tick, numerator: number, denominator: number = 1): number {
   return convert(ticks, numerator, denominator, false);
 }
 
+/** Clip placement fields read by `sourceWindow`. */
+export type ClipWindow = Pick<Clip, "start" | "duration" | "contentIn">;
+
+/** A take's source mapping and availability, normalized to project ticks. */
+export interface TakeWindow {
+  readonly sourceAtContentZero: Tick;
+  readonly availableStart: Tick;
+  readonly availableEnd: Tick;
+}
+
+/** The audible part of a clip in `[from, until)` and its source position. */
+export interface SourceWindow {
+  readonly start: Tick;
+  readonly end: Tick;
+  readonly sourceStart: Tick;
+}
+
 // Clip, take and query boundaries have already been normalized to project ticks.
-export function sourceWindow(clip, take, from, until) {
+export function sourceWindow(
+  clip: ClipWindow,
+  take: TakeWindow,
+  from: Tick,
+  until: Tick,
+): SourceWindow | null {
   const origin = take.sourceAtContentZero + clip.contentIn - clip.start;
   const start = Math.max(from, clip.start, take.availableStart - origin);
   const end = Math.min(until, clip.start + clip.duration, take.availableEnd - origin);
   return start < end ? { start, end, sourceStart: start + origin } : null;
 }
 
-export function splitClip(clip, at, rightId) {
+export function splitClip(clip: Clip, at: Tick, rightId: string): [Clip, Clip] {
   const leftDuration = at - clip.start;
   if (!Number.isSafeInteger(at) || leftDuration <= 0 || leftDuration >= clip.duration) {
     throw new RangeError("Split must be inside the clip");
