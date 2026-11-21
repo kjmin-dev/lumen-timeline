@@ -1,0 +1,31 @@
+.lt { color-scheme: dark; color: #e1e5e4; background: #14191c; border: 1px solid #394045; border-radius: 10px; overflow: hidden; font: 13px system-ui, sans-serif; --gutter: clamp(90px, 15vw, 160px); }
+.lt * { box-sizing: border-box; }
+.lt-tools { min-height: 50px; padding: 8px 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid #394045; }
+.lt-tools label { color: #bcc7c8; }
+.lt button, .lt select, .lt input[type=number] { border: 1px solid #465155; background: #252d31; color: #eef1e9; padding: 5px 9px; border-radius: 5px; font: inherit; }
+.lt button { cursor: pointer; }
+.lt button:hover { background: #333c40; }
+.lt button:disabled { opacity: .45; cursor: default; }
+.lt :focus-visible { outline: 2px solid #ffc18e; outline-offset: -2px; }
+.lt [data-play] { min-width: 62px; background: #dca27b; border-color: #dca27b; color: #251710; font-weight: 650; }
+.lt-time { margin: 0 8px; font: 13px ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.lt-spacer { flex: 1; }
+.lt-grid { display: grid; grid-template-columns: var(--gutter) minmax(0, 1fr); }
+.lt-track-title, .lt-label { border-right: 1px solid #394045; display: flex; align-items: center; padding-left: 14px; }
+.lt-track-title { color: #aebfc0; font-size: 11px; }
+.lt-ruler { display: block; width: 100%; height: 31px; cursor: crosshair; touch-action: none; }
+.lt-scroll { height: 150px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; background: #171c20; border-top: 1px solid #343c40; }
+.lt-space { position: relative; }
+.lt-pin { position: sticky; top: 0; overflow: hidden; }
+.lt-headers, .lt-surface { position: relative; min-width: 0; }
+.lt-surface { touch-action: pan-y; }
+.lt-label { position: absolute; left: 0; width: 100%; gap: 8px; border-bottom: 1px solid #343c40; background: #20262a; overflow: hidden; white-space: nowrap; }
+.lt-label::before { content: ''; width: 5px; height: 14px; flex: 0 0 auto; background: var(--track-color); border-radius: 2px; }
+.lt-surface canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.lt-head { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: #ffd7a4; pointer-events: none; }
+.lt-head::before { content: ''; position: absolute; top: 0; left: -3px; width: 7px; height: 7px; background: #ffd7a4; clip-path: polygon(0 0,100% 0,100% 55%,50% 100%,0 55%); }
+.lt-pan { display: flex; gap: 12px; align-items: center; padding: 8px 14px; color: #9ca9ac; font-size: 11px; border-top: 1px solid #343c40; }
+.lt-pan input { width: 100%; accent-color: #9bbdb5; }
+.lt-message:not(:empty) { padding: 6px 14px; color: #ffcc9e; }
+
+.lt button[data-play]:hover { background: #efb792; color: #251710; }

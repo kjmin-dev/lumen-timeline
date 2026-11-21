@@ -1,0 +1,8 @@
+{
+  "name": "@lumen-timeline/timeline",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.mjs", "./style.css": "./style.css" },
+  "dependencies": { "@lumen-timeline/core": "0.0.0" }
+}

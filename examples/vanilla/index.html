@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidal study · Lumen Timeline</title>
+<link rel="stylesheet" href="/packages/timeline/style.css"><link rel="stylesheet" href="./studio.css">
+<script type="importmap">{"imports":{"@lumen-timeline/core":"/packages/core/index.mjs","@lumen-timeline/timeline":"/packages/timeline/index.mjs"}}</script>
+</head><body>
+<header><div class="brand"><i aria-hidden="true"></i>Lumen <b>Timeline</b></div><span>Vanilla workspace</span></header>
+<main>
+<div class="title"><h1>Tidal study</h1><span>Reference sequence · 00:24</span></div>
+<section class="workspace" aria-label="Reference and clip inspector">
+<div class="monitor"><div class="panel-head">Reference monitor <small>24 s / 10 fps</small></div>
+<video muted playsinline preload="auto" src="./media/tidal-study.webm" aria-label="Animated tidal contours"></video></div>
+<aside><div class="panel-head">Clip inspector</div><h2 id="clip-name">No selection</h2>
+<dl><dt>Track</dt><dd id="track">—</dd><dt>Timeline range</dt><dd id="range">—</dd><dt>Source offset</dt><dd id="offset">—</dd><dt>Active take</dt><dd id="take">—</dd></dl></aside>
+</section>
+<div class="title timeline-title"><h2>Timeline</h2><span>2 audio tracks</span></div>
+<div id="timeline"></div><p id="status" role="status"></p>
+</main><script type="module" src="./app.mjs"></script>
+</body></html>
