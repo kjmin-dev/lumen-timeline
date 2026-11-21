@@ -1,7 +1,16 @@
 import { bindEditing, snapConfig } from "./gestures.ts";
 import type { PointerInfo } from "./gestures.ts";
 import { TICKS_PER_SECOND as hz, sequenceDuration } from "@lumen-timeline/core";
-import type { Clip, EditCommit, ProjectSnapshot, Tick, Track } from "@lumen-timeline/core";
+import { commands } from "@lumen-timeline/core";
+import type {
+  Clip,
+  EditCommit,
+  EditResult,
+  Marker,
+  ProjectSnapshot,
+  Tick,
+  Track,
+} from "@lumen-timeline/core";
 import { element } from "./dom.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
@@ -35,6 +44,7 @@ const colors = [
 const palette = (index: number): readonly [string, string] =>
   colors[index % colors.length] ?? colors[0];
 const clampTick = (tick: Tick, end: Tick): Tick => Math.max(0, Math.min(end, tick));
+const markerColor = "#ffd7a4";
 
 interface Row extends Packed {
   readonly track: Track;
@@ -67,6 +77,8 @@ export function mountTimeline(
     <div class="lt-tools">
       <button type="button" data-play>Play</button><output class="lt-time"></output>
       <label>Clip <select aria-label="Clip navigator"></select></label>
+      <label>Marker <select aria-label="Marker navigator"></select></label>
+      <button type="button" data-marker-add>Add marker</button>
       <span class="lt-spacer"></span><button type="button" data-out aria-label="Zoom out">−</button>
       <button type="button" data-in aria-label="Zoom in">+</button>
     </div>
@@ -78,6 +90,9 @@ export function mountTimeline(
         <div class="lt-head" hidden></div>
       </div></div></div></div>
     <label class="lt-pan">Scroll <input type="range" aria-label="Timeline scroll" min="0" value="0"></label>
+    <form class="lt-marker-edit"><label>Marker label <input type="text" aria-label="Marker label"></label>
+      <button type="submit" data-marker-rename>Rename marker</button>
+      <button type="button" data-marker-remove>Remove marker</button></form>
     <div class="lt-message" role="status"></div>`;
   container.append(root);
   const ruler = element(root, ".lt-ruler", "canvas"),
@@ -96,6 +111,12 @@ export function mountTimeline(
     headerList = element(root, ".lt-headers", "div");
   const zoomIn = element(root, "[data-in]", "button"),
     zoomOut = element(root, "[data-out]", "button");
+  const markerNavigator = element(root, "select[aria-label='Marker navigator']", "select"),
+    markerAdd = element(root, "[data-marker-add]", "button"),
+    markerForm = element(root, ".lt-marker-edit", "form"),
+    markerLabel = element(root, ".lt-marker-edit input", "input"),
+    markerRename = element(root, "[data-marker-rename]", "button"),
+    markerRemove = element(root, "[data-marker-remove]", "button");
   const events = new win.AbortController();
   const listen: Listen = (target, type, fn, options = {}) =>
     target.addEventListener(type, fn, { ...options, signal: events.signal });
@@ -173,7 +194,31 @@ export function mountTimeline(
       ctx.fillRect(Math.round(x), h - 6, 1, 6);
       ctx.fillText(formatTime(Math.round(seconds * hz)).replace(/\.000$/, ""), x + 4, 17);
     });
+    ctx.font = "600 10px system-ui, sans-serif";
+    for (const marker of visibleMarkers()) {
+      const x = Math.round(pixelAt(marker.start, view));
+      const color = marker.color ?? markerColor;
+      const text = marker.label ?? marker.id;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, 0, 1, h);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + 7, 0);
+      ctx.lineTo(x, 7);
+      ctx.fill();
+      // A backing keeps the label legible over tick marks below the time labels.
+      ctx.fillStyle = "#14191c";
+      ctx.fillRect(x + 2, h - 13, ctx.measureText(text).width + 6, 12);
+      ctx.fillStyle = color;
+      ctx.fillText(text, x + 5, h - 4);
+    }
     ruler.setAttribute("aria-valuemax", String(duration / hz));
+  }
+  function visibleMarkers(): readonly Marker[] {
+    return read.markersIn({
+      start: view.startTick,
+      end: Math.min(maxTick, tickAt(width, view) + 1),
+    });
   }
   function paintOverlay(): void {
     const ctx = setup(overlay, width, height);
@@ -209,6 +254,11 @@ export function mountTimeline(
       ctx.strokeRect(b.x + 1, b.y + 1, Math.max(0, b.endX - b.x - 2), b.height - 2);
     }
     ctx.restore();
+    // Markers belong to the document and stay put during playback.
+    for (const marker of visibleMarkers()) {
+      ctx.fillStyle = (marker.color ?? markerColor) + "88";
+      ctx.fillRect(Math.round(pixelAt(marker.start, view)), 0, 1, height);
+    }
     diagnostics.overlayPaints++;
   }
   function frame(state: TransportState = transport.snapshot()): void {
@@ -311,6 +361,58 @@ export function mountTimeline(
     navigator.replaceChildren(options);
     navigator.value = editor.session.getSelection().at(-1) ?? "";
   }
+  // Rebuild the marker list, keeping the chosen marker while it exists.
+  function updateMarkers(): void {
+    const chosen = markerNavigator.value;
+    const options = doc.createDocumentFragment();
+    options.append(new win.Option("Select marker", ""));
+    for (const m of snapshot.markers ?? [])
+      options.append(new win.Option((m.label ?? m.id) + " · " + formatTime(m.start), m.id));
+    markerNavigator.replaceChildren(options);
+    chooseMarker(chosen);
+  }
+  function chooseMarker(id: string): void {
+    const marker = snapshot.markers?.find((m) => m.id === id);
+    markerNavigator.value = marker ? marker.id : "";
+    markerLabel.value = marker?.label ?? "";
+    markerRename.disabled = markerRemove.disabled = !marker;
+  }
+  function playhead(): Tick {
+    return transport.snapshot().requestedTick ?? transport.snapshot().presentedTick;
+  }
+  function reportEdit(result: EditResult): EditResult {
+    message.textContent = result.ok ? "" : result.reason;
+    return result;
+  }
+  function addMarker(): void {
+    const count = snapshot.markers?.length ?? 0;
+    const result = reportEdit(
+      editor.dispatch(
+        commands.addMarker({
+          start: clampTick(playhead(), duration),
+          label: "Marker " + (count + 1),
+        }),
+      ),
+    );
+    if (result.ok && !result.unchanged) chooseMarker(result.markerPatches[0]?.id ?? "");
+  }
+  // `[` and `]` step between markers; `M` adds one at the playhead.
+  function markerKey(e: KeyboardEvent): void {
+    if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+    const key = e.key.toLowerCase();
+    if (key === "m") {
+      e.preventDefault();
+      addMarker();
+    } else if (key === "]" || key === "[") {
+      e.preventDefault();
+      const t = playhead();
+      const target = key === "]" ? read.nextMarker(t) : read.previousMarker(t);
+      if (target) {
+        chooseMarker(target.id);
+        seek(target.start);
+      }
+    }
+  }
   function selected(ids: readonly string[]): void {
     navigator.value = ids.at(-1) ?? "";
     paintOverlay();
@@ -338,6 +440,24 @@ export function mountTimeline(
   });
   listen(ruler, "pointermove", (e) => {
     if (ruler.hasPointerCapture(e.pointerId)) scrub(e);
+  });
+  listen(ruler, "keydown", markerKey);
+  listen(surface, "keydown", markerKey);
+  listen(markerNavigator, "change", () => {
+    chooseMarker(markerNavigator.value);
+    const marker = snapshot.markers?.find((m) => m.id === markerNavigator.value);
+    if (marker) seek(marker.start);
+  });
+  listen(markerAdd, "click", addMarker);
+  listen(markerForm, "submit", (event) => {
+    event.preventDefault();
+    const markerId = markerNavigator.value;
+    if (markerId)
+      reportEdit(editor.dispatch(commands.updateMarker({ markerId, label: markerLabel.value })));
+  });
+  listen(markerRemove, "click", () => {
+    const markerId = markerNavigator.value;
+    if (markerId) reportEdit(editor.dispatch(commands.removeMarker({ markerId })));
   });
   listen(ruler, "keydown", (e) => {
     const t = transport.snapshot().requestedTick ?? transport.snapshot().presentedTick;
@@ -413,7 +533,17 @@ export function mountTimeline(
     (next: ProjectSnapshot, change: EditCommit) => {
       snapshot = next;
       read = editor.read(next);
-      if (!change.patches.length) return;
+      if (change.markerPatches.length) updateMarkers();
+      if (!change.patches.length) {
+        if (!change.markerPatches.length) return;
+        // A marker can change an implicit extent; otherwise only markers repaint.
+        const oldDuration = duration;
+        duration = sequenceDuration(snapshot);
+        if (duration !== oldDuration) return refresh();
+        paintRuler();
+        paintOverlay();
+        return;
+      }
       const dirty = new Set(
         [...change.affected.before, ...change.affected.after].map((r) => r.trackId),
       );
@@ -423,6 +553,7 @@ export function mountTimeline(
       if (change.patches.some((p) => p.before.length !== p.after.length)) updateNavigator();
       if (duration !== oldDuration || rows.some((r, i) => r.height !== oldRows[i]?.height))
         return refresh();
+      if (change.markerPatches.length) paintRuler();
       visible = visible.flatMap((r) => rows[r.index] ?? []);
       const end = tickAt(width, view);
       const intersects = [...change.affected.before, ...change.affected.after].some(
@@ -456,6 +587,7 @@ export function mountTimeline(
   }
   rebuildRows();
   updateNavigator();
+  updateMarkers();
   onResolution();
   return {
     setViewport,

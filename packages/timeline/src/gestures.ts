@@ -26,6 +26,7 @@ export interface SnapHold {
 /** The read handle members snapping needs. */
 export interface SnapRead {
   clipsIn(range: TickRange, options?: ClipQueryOptions): readonly Span[];
+  markersIn(range: TickRange): readonly { readonly start: Tick }[];
 }
 
 /** A clip being dragged: its placement and track. */
@@ -84,7 +85,13 @@ export function snapDelta(
   clips: readonly DragClip[],
   edge: Edge,
   dest: string | undefined,
-  { gridTicks, tolerancePx, neighbors = true, playhead: snapToPlayhead = true }: SnapConfig,
+  {
+    gridTicks,
+    tolerancePx,
+    neighbors = true,
+    playhead: snapToPlayhead = true,
+    markers = true,
+  }: SnapConfig,
   view: Pick<Viewport, "pixelsPerSecond">,
   read: SnapRead,
   playhead: Tick,
@@ -117,23 +124,25 @@ export function snapDelta(
         const target = held.priority === 0 ? playhead : held.target;
         if (Math.abs(target - proposed) <= tolerance * 1.4) return { delta: target - origin, held };
       }
+      // Ties prefer the playhead, then a marker, then a clip edge, then the grid.
       if (snapToPlayhead) offer(playhead - proposed, 0, playhead, origin);
-      const near = neighbors
-        ? read.clipsIn(
-            {
-              start: Math.floor(proposed - tolerance) - 1,
-              end: Math.ceil(proposed + tolerance) + 1,
-            },
-            { trackIds: [dest ?? c.trackId] },
-          )
-        : [];
+      const nearby = {
+        start: Math.floor(proposed - tolerance) - 1,
+        end: Math.ceil(proposed + tolerance) + 1,
+      };
+      if (markers) {
+        // markersIn is half-open, so include a marker exactly at the window end.
+        for (const m of read.markersIn({ start: nearby.start, end: nearby.end + 1 }))
+          offer(m.start - proposed, 1, m.start, origin);
+      }
+      const near = neighbors ? read.clipsIn(nearby, { trackIds: [dest ?? c.trackId] }) : [];
       for (const n of near)
         if (!excluded.has(n.id)) {
-          for (const t of [n.start, n.start + n.duration]) offer(t - proposed, 1, t, origin);
+          for (const t of [n.start, n.start + n.duration]) offer(t - proposed, 2, t, origin);
         }
       if (gridTicks) {
         const target = Math.round(proposed / gridTicks) * gridTicks;
-        offer(target - proposed, 2, target, origin);
+        offer(target - proposed, 3, target, origin);
       }
     }
   }

@@ -27,7 +27,8 @@
 }
 .lt button,
 .lt select,
-.lt input[type="number"] {
+.lt input[type="number"],
+.lt input[type="text"] {
   border: 1px solid #465155;
   background: #252d31;
   color: #eef1e9;
@@ -184,7 +185,8 @@
   user-select: none;
   -webkit-user-select: none;
 }
-.lt-edit {
+.lt-edit,
+.lt-marker-edit {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -192,7 +194,8 @@
   padding: 10px 14px;
   border-top: 1px solid #384247;
 }
-.lt-edit label {
+.lt-edit label,
+.lt-marker-edit label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -200,4 +203,7 @@
 }
 .lt-edit input {
   width: 7em;
+}
+.lt-marker-edit input {
+  width: 12em;
 }
