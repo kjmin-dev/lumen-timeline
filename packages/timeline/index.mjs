@@ -1,3 +1,4 @@
+import { bindEditing, snapConfig } from './gestures.mjs'
 import { TICKS_PER_SECOND as hz } from '@lumen-timeline/core'
 import { formatTime, hit, laneHeight, rowInset, pack, pixelAt, rectangle, tickAt, viewport, zoomAt } from './geometry.mjs'
 
@@ -5,7 +6,8 @@ const maxTick = 7 * 86400 * hz
 const colors = [['#2b5555', '#87d6cb'], ['#604332', '#ffb184'], ['#464360', '#c8bbff']]
 const clampTick = (tick, end) => Math.max(0, Math.min(end, tick))
 
-export function mountTimeline(container, { editor, transport, pixelsPerSecond = 48, startTick = 0 }) {
+export function mountTimeline(container, { editor, transport, pixelsPerSecond = 48, startTick = 0, snap }) {
+  const config = snapConfig(snap)
   const doc = container.ownerDocument
   const win = doc.defaultView
   const root = doc.createElement('section')
@@ -40,7 +42,7 @@ export function mountTimeline(container, { editor, transport, pixelsPerSecond = 
   let read = editor.read(snapshot)
   let view = viewport(startTick, pixelsPerSecond, 0, maxTick)
   let duration = 0, width = 0, height = 0, dpr = 0, totalHeight = 0
-  let rows = [], visible = [], boxes = []
+  let rows = [], visible = [], boxes = [], ghosts = []
   const packed = new Map()
   const diagnostics = { layoutBuilds: 0, staticPaints: 0, overlayPaints: 0 }
   let disposed = false
@@ -107,7 +109,22 @@ export function mountTimeline(container, { editor, transport, pixelsPerSecond = 
       ctx.strokeStyle = '#fff3d9'
       ctx.lineWidth = 2
       ctx.strokeRect(b.x + 1, b.y + 1, Math.max(0, b.endX - b.x - 2), b.height - 2)
+      ctx.fillStyle = '#ffddaa'
+      for (const x of [b.left, b.right - 3]) {
+        if (x >= 0 && x + 3 <= width) ctx.fillRect(x, b.y + 6, 3, b.height - 12)
+      }
     }
+    ctx.save()
+    ctx.setLineDash([5, 3]); ctx.lineWidth = 2
+    for (const clip of ghosts) {
+      const row = visible.find(r => r.track.id === clip.trackId)
+      if (!row) continue
+      const b = rectangle(clip, row.lanes.get(clip.id) ?? 0, row.top - scroll.scrollTop, view, width)
+      if (b.endX <= b.x) continue
+      ctx.fillStyle = '#ffe6ab33'; ctx.fillRect(b.x, b.y, b.endX - b.x, b.height)
+      ctx.strokeStyle = '#ffe6ab'; ctx.strokeRect(b.x + 1, b.y + 1, Math.max(0, b.endX - b.x - 2), b.height - 2)
+    }
+    ctx.restore()
     diagnostics.overlayPaints++
   }
   function frame(state = transport.snapshot()) {
@@ -196,13 +213,12 @@ export function mountTimeline(container, { editor, transport, pixelsPerSecond = 
     navigator.value = ids.at(-1) ?? ''
     paintOverlay()
   }
-  function selectAt(event) {
-    const r = surface.getBoundingClientRect()
-    const b = hit(boxes, event.clientX - r.left, event.clientY - r.top)
-    if (!b) return editor.session.select([])
-    const ids = editor.session.getSelection()
-    if (event.shiftKey) editor.session.select(ids.includes(b.clip.id) ? ids.filter(id => id !== b.clip.id) : [...ids, b.clip.id])
-    else editor.session.select([b.clip.id])
+  function point(event) {
+    const rect = surface.getBoundingClientRect()
+    const x = event.clientX - rect.left, y = event.clientY - rect.top
+    const top = y + scroll.scrollTop
+    const row = visible.find(r => y >= 0 && y < height && r.top <= top && top < r.top + r.height)
+    return { x, width, tick: tickAt(x, view), box: hit(boxes, x, y), trackId: row?.track.id }
   }
   function seek(tick) {
     Promise.resolve(transport.seek(clampTick(tick, duration))).catch(error => { if (!disposed) message.textContent = error.message })
@@ -212,11 +228,12 @@ export function mountTimeline(container, { editor, transport, pixelsPerSecond = 
   listen(ruler, 'pointermove', e => { if (ruler.hasPointerCapture(e.pointerId)) scrub(e) })
   listen(ruler, 'keydown', e => {
     const t = transport.snapshot().requestedTick ?? transport.snapshot().presentedTick
-    const step = Math.round(hz / 30)
+    const step = config.gridTicks || 1
     const targets = { Home: 0, End: duration, ArrowLeft: t - step, ArrowRight: t + step }
     if (Object.hasOwn(targets, e.key)) { e.preventDefault(); seek(targets[e.key]) }
   })
-  listen(surface, 'pointerdown', e => { if (e.button === 0) { surface.focus(); selectAt(e) } })
+  const stopEditing = bindEditing({ root, surface, editor, transport, listen, point, getView: () => view,
+    setGhost: next => { ghosts = next; paintOverlay() }, message, config })
   listen(navigator, 'change', () => {
     const clip = snapshot.clips.find(c => c.id === navigator.value)
     editor.session.select(clip ? [clip.id] : [])
@@ -274,11 +291,11 @@ export function mountTimeline(container, { editor, transport, pixelsPerSecond = 
   return {
     setViewport,
     getViewport: () => ({ ...view }),
-    getDiagnostics: () => ({ ...diagnostics }),
+    getDiagnostics: () => ({ ...diagnostics, previewClipCount: ghosts.length }),
     dispose() {
       if (disposed) return
       disposed = true
-      events.abort(); resize.disconnect(); offDoc(); offSelection(); offFrame(); root.remove()
+      stopEditing(); events.abort(); resize.disconnect(); offDoc(); offSelection(); offFrame(); root.remove()
     },
   }
 }

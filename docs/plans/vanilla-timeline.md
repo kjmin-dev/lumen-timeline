@@ -41,3 +41,5 @@ view.dispose()
 - Merge C after Node geometry/session tests and Playwright mount, seek, DPR, paint and lifecycle checks pass.
 - Build D on C. Run pointer and keyboard traces against the same expected document, assert the background voice identity in the fixture, and retain the 44.1/48 kHz PCM suite and short live-clock probe.
 - The next milestone 2 follow-up is an audio-only example using the same mount with an audio-clock adapter. [Roadmap](../../ROADMAP.md#milestones)
+
+The implementation and reproduction commands for both slices are in the [vanilla timeline guide](../vanilla-timeline.md).

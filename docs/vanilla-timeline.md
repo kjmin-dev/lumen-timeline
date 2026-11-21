@@ -9,3 +9,15 @@ Load `@lumen-timeline/timeline/style.css` and call `mountTimeline(element, { edi
 The ruler and static clips are cached separately from selection and the moving playhead. Track subrows are assigned from complete track intervals and retained across horizontal pans. Painting and picking use CSS pixels; the backing canvas follows device pixel ratio. `view.getDiagnostics()` returns paint and layout counts. `view.dispose()` releases that mount's observers, subscriptions and DOM. The host owns its editor and transport.
 
 Run `npm test` and `npm run verify:timeline` for geometry, session and real-browser checks. Install the test browser with `npx playwright install chromium`. The ten-second playback trace asserts zero extra layout or static paint operations at a fixed viewport.
+
+## Edit clips
+
+Drag a clip body to move the selection. Drag a visible endpoint to trim it. Shift-click adds or removes a clip from the selection. A clipped edge of the viewport still picks the body when the true trim handle is offscreen. The music track in the example is locked. The dialogue track rejects overlapping placements.
+
+The dashed overlay previews a candidate move or trim. Release commits one transaction. Escape, pointer cancellation, lost capture and view disposal discard the gesture. A change to a selected placement cancels the drag. Independent metadata writes can advance the revision while the gesture continues. On release the view validates the absolute intent against the latest sequence and track constraints.
+
+Configure snapping with `snap: { gridTicks, tolerancePx, neighbors, playhead }` in the mount options. The nearest target within the CSS-pixel tolerance wins. Ties prefer the playhead, then a neighboring boundary, then the grid. Hold Alt to bypass snapping. Set the grid interval or the tolerance to zero to disable the grid or all snapping, respectively.
+
+The clip navigator and numeric edit controls support keyboard operation. Choose Move, Trim start or Trim end; enter a signed delta in seconds and activate Apply. With the clip surface focused, Left/Right nudges by one grid interval and S splits at the playhead. Undo uses Ctrl/Command-Z and redo uses Ctrl/Command-Shift-Z or Ctrl-Y. Text entry and IME composition retain their native shortcuts. The split selects the new right-hand clip.
+
+Save project stores the immutable JSON snapshot in local browser storage. Reopen saved loads it into a new editor with the same clip IDs, offsets and active takes, a fresh selection and empty undo/redo stacks. The browser regression repeats the same move and trim via pointer and numeric controls and checks the music node and its end reservation throughout playback.
