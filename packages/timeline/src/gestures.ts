@@ -1,6 +1,78 @@
 import { commands, TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
+import type {
+  Clip,
+  ClipQueryOptions,
+  EditResult,
+  Editor,
+  PreviewResult,
+  Tick,
+  TickRange,
+} from "@lumen-timeline/core";
+import { element, tagName } from "./dom.ts";
+import type { Listen } from "./dom.ts";
+import type { Box, Span, Viewport } from "./geometry.ts";
+import type { SnapConfig, SnapOptions, TimelineTransport } from "./types.ts";
 
-export function handleAt(box, x, width) {
+export type Edge = "left" | "right" | "move";
+
+/** The candidate a drag snapped to, kept so a held snap resists jitter. */
+export interface SnapHold {
+  readonly correction: number;
+  readonly priority: number;
+  readonly target: Tick;
+  readonly origin: Tick;
+}
+
+/** The read handle members snapping needs. */
+export interface SnapRead {
+  clipsIn(range: TickRange, options?: ClipQueryOptions): readonly Span[];
+}
+
+/** A clip being dragged: its placement and track. */
+export type DragClip = Span & { readonly trackId: string };
+
+/** Where a pointer event lands in the view. */
+export interface PointerInfo {
+  readonly x: number;
+  readonly width: number;
+  readonly tick: Tick;
+  readonly box: Box<Clip> | undefined;
+  readonly trackId: string | undefined;
+}
+
+export interface EditingOptions {
+  readonly root: HTMLElement;
+  readonly surface: HTMLElement;
+  readonly editor: Editor;
+  readonly transport: TimelineTransport;
+  readonly listen: Listen;
+  readonly point: (event: PointerEvent) => PointerInfo;
+  readonly getView: () => Viewport;
+  readonly setGhost: (clips: readonly Clip[]) => void;
+  readonly message: HTMLElement;
+  readonly config: SnapConfig;
+}
+
+interface Drag {
+  readonly pointer: number;
+  readonly x: number;
+  readonly y: number;
+  readonly tick: Tick;
+  readonly edge: Edge;
+  revision: number;
+  readonly anchorTrack: string;
+  readonly anchorId: string;
+  readonly clips: readonly Clip[];
+  moved: boolean;
+  held?: SnapHold | null | undefined;
+  dest?: string | undefined;
+}
+
+export function handleAt(
+  box: { readonly left: number; readonly right: number },
+  x: number,
+  width: number,
+): Edge {
   const inside = Math.min(6, (box.right - box.left) / 2);
   if (box.left >= 0 && box.left < width && Math.abs(x - box.left) <= inside) return "left";
   if (box.right > 0 && box.right <= width && Math.abs(x - box.right) <= inside) return "right";
@@ -8,21 +80,21 @@ export function handleAt(box, x, width) {
 }
 
 export function snapDelta(
-  delta,
-  clips,
-  edge,
-  dest,
-  { gridTicks, tolerancePx, neighbors = true, playhead: snapToPlayhead = true },
-  view,
-  read,
-  playhead,
-  held,
-) {
+  delta: number,
+  clips: readonly DragClip[],
+  edge: Edge,
+  dest: string | undefined,
+  { gridTicks, tolerancePx, neighbors = true, playhead: snapToPlayhead = true }: SnapConfig,
+  view: Pick<Viewport, "pixelsPerSecond">,
+  read: SnapRead,
+  playhead: Tick,
+  held?: SnapHold | null,
+): { readonly delta: number; readonly held?: SnapHold } {
   if (!delta || !tolerancePx) return { delta };
   const tolerance = (tolerancePx * hz) / view.pixelsPerSecond;
   const excluded = new Set(clips.map((c) => c.id));
-  let best;
-  function offer(correction, priority, target, origin) {
+  let best: SnapHold | undefined;
+  function offer(correction: number, priority: number, target: Tick, origin: Tick): void {
     if (Math.abs(correction) > tolerance) return;
     if (
       !best ||
@@ -68,17 +140,26 @@ export function snapDelta(
   return best ? { delta: delta + best.correction, held: best } : { delta };
 }
 
-const placementMatches = (a, b) =>
-  b &&
+const placementMatches = (a: Clip, b: Clip | undefined): boolean =>
+  b !== undefined &&
   a.trackId === b.trackId &&
   a.start === b.start &&
   a.duration === b.duration &&
   a.contentIn === b.contentIn;
-const isEntry = (node) =>
-  node?.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node?.tagName);
+// Text entry keeps its native shortcuts.
+function isEntry(node: EventTarget | null): boolean {
+  if (!node) return false;
+  const tag = tagName(node);
+  return (
+    Boolean(Reflect.get(node, "isContentEditable")) ||
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT"
+  );
+}
 
-export function snapConfig(snap) {
-  const config = { gridTicks: Math.round(hz / 30), tolerancePx: 5, ...snap };
+export function snapConfig(snap?: SnapOptions): SnapConfig {
+  const config: SnapConfig = { gridTicks: Math.round(hz / 30), tolerancePx: 5, ...snap };
   if (
     !Number.isSafeInteger(config.gridTicks) ||
     config.gridTicks < 0 ||
@@ -100,7 +181,7 @@ export function bindEditing({
   setGhost,
   message,
   config,
-}) {
+}: EditingOptions): () => void {
   const toolbar = root.ownerDocument.createElement("form");
   toolbar.className = "lt-edit";
   toolbar.innerHTML = `<label>Operation <select aria-label="Edit operation"><option value="move">Move</option>
@@ -109,50 +190,58 @@ export function bindEditing({
     <button type="submit" data-apply>Apply</button><button type="button" data-split>Split at playhead</button>
     <span class="lt-spacer"></span><button type="button" data-undo>Undo</button><button type="button" data-redo>Redo</button>`;
   message.before(toolbar);
-  const el = (s) => toolbar.querySelector(s);
-  let drag = null,
+  const operation = element(toolbar, "select", "select");
+  const deltaInput = element(toolbar, "input", "input");
+  const applyButton = element(toolbar, "[data-apply]", "button");
+  const splitButton = element(toolbar, "[data-split]", "button");
+  const undoButton = element(toolbar, "[data-undo]", "button");
+  const redoButton = element(toolbar, "[data-redo]", "button");
+  let drag: Drag | null = null,
     composing = false;
-  const playhead = () => transport.snapshot().requestedTick ?? transport.snapshot().presentedTick;
+  const playhead = (): Tick =>
+    transport.snapshot().requestedTick ?? transport.snapshot().presentedTick;
 
-  function report(result) {
+  function report<R extends EditResult | PreviewResult>(result: R): R {
     message.textContent = result.ok ? "" : result.reason;
     return result;
   }
-  function buttons() {
+  function buttons(): void {
     const count = editor.session.getSelection().length;
-    el("[data-apply]").disabled = !count || (el("select").value !== "move" && count !== 1);
-    el("[data-split]").disabled = count !== 1;
-    el("[data-undo]").disabled = !editor.history.canUndo;
-    el("[data-redo]").disabled = !editor.history.canRedo;
+    applyButton.disabled = !count || (operation.value !== "move" && count !== 1);
+    splitButton.disabled = count !== 1;
+    undoButton.disabled = !editor.history.canUndo;
+    redoButton.disabled = !editor.history.canRedo;
   }
-  function apply(edge, delta) {
+  function apply(edge: Edge, delta: number): void {
     const ids = editor.session.getSelection();
-    if (!ids.length || (edge !== "move" && ids.length !== 1)) return;
+    const first = ids[0];
+    if (first === undefined || (edge !== "move" && ids.length !== 1)) return;
     const cmd =
       edge === "move"
         ? commands.moveClips({ clipIds: ids, delta })
-        : commands.trimClip({ clipId: ids[0], edge, delta });
+        : commands.trimClip({ clipId: first, edge, delta });
     report(editor.dispatch(cmd));
   }
-  function split() {
+  function split(): void {
     const ids = editor.session.getSelection();
-    if (ids.length !== 1) return;
-    const result = report(editor.dispatch(commands.splitClip({ clipId: ids[0], at: playhead() })));
-    if (result.ok) editor.session.select(result.createdIds);
+    const only = ids[0];
+    if (ids.length !== 1 || only === undefined) return;
+    const result = report(editor.dispatch(commands.splitClip({ clipId: only, at: playhead() })));
+    if (result.ok && !result.unchanged) editor.session.select(result.createdIds);
   }
-  function finish() {
+  function finish(): void {
     const old = drag;
     drag = null;
     if (old && surface.hasPointerCapture(old.pointer)) surface.releasePointerCapture(old.pointer);
     setGhost([]);
     surface.style.cursor = "";
   }
-  function cancel(reason = "") {
+  function cancel(reason = ""): void {
     if (!drag) return;
     finish();
     message.textContent = reason;
   }
-  function intent(e, commit) {
+  function intent(e: PointerEvent, commit: boolean): void {
     if (!drag || drag.pointer !== e.pointerId) return;
     const p = point(e);
     if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 3) {
@@ -196,6 +285,8 @@ export function bindEditing({
           drag.held,
         );
     drag.held = snapped.held;
+    const anchor = drag.clips[0];
+    if (anchor === undefined) return;
     const cmd =
       drag.edge === "move"
         ? commands.moveClips({
@@ -203,7 +294,7 @@ export function bindEditing({
             delta: snapped.delta,
             trackId: dest,
           })
-        : commands.trimClip({ clipId: drag.clips[0].id, edge: drag.edge, delta: snapped.delta });
+        : commands.trimClip({ clipId: anchor.id, edge: drag.edge, delta: snapped.delta });
     const options = { expectedRevision: current.revision };
     const preview = report(editor.preview(cmd, options));
     if (commit) {
@@ -265,7 +356,7 @@ export function bindEditing({
         : "ew-resize";
   });
   listen(surface, "pointerup", (e) => intent(e, true));
-  for (const type of ["pointercancel", "lostpointercapture"])
+  for (const type of ["pointercancel", "lostpointercapture"] as const)
     listen(surface, type, (e) => {
       if (drag?.pointer === e.pointerId) cancel();
     });
@@ -281,7 +372,7 @@ export function bindEditing({
       cancel();
       return;
     }
-    if (drag || e.target.tagName === "BUTTON") return;
+    if (drag || tagName(e.target) === "BUTTON") return;
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && (key === "z" || key === "y")) {
       e.preventDefault();
@@ -297,20 +388,22 @@ export function bindEditing({
       }
     }
   });
-  listen(el("select"), "change", buttons);
+  listen(operation, "change", buttons);
   listen(toolbar, "submit", (event) => {
     event.preventDefault();
     if (composing) return;
-    const seconds = el("input").valueAsNumber;
+    const seconds = deltaInput.valueAsNumber;
     if (!Number.isFinite(seconds)) {
       message.textContent = "Enter a time delta in seconds.";
       return;
     }
-    apply(el("select").value, Math.round(seconds * hz));
+    const edge = operation.value;
+    if (edge === "move" || edge === "left" || edge === "right")
+      apply(edge, Math.round(seconds * hz));
   });
-  listen(el("[data-split]"), "click", split);
-  listen(el("[data-undo]"), "click", () => report(editor.history.undo()));
-  listen(el("[data-redo]"), "click", () => report(editor.history.redo()));
+  listen(splitButton, "click", split);
+  listen(undoButton, "click", () => report(editor.history.undo()));
+  listen(redoButton, "click", () => report(editor.history.redo()));
   const offSelection = editor.session.subscribeSelection(() => {
     cancel();
     buttons();

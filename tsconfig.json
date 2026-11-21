@@ -12,6 +12,12 @@
     },
     {
       "path": "packages/media/test"
+    },
+    {
+      "path": "packages/timeline"
+    },
+    {
+      "path": "packages/timeline/test"
     }
   ]
 }
