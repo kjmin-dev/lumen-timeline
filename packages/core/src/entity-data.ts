@@ -1,4 +1,4 @@
-import { freezeJson, requireEdit, validId } from "./document.mjs";
+import { freezeJson, requireEdit, validId } from "./document.ts";
 
 const own = (object, key) => (object && Object.hasOwn(object, key) ? object[key] : undefined);
 const dictionary = (value) => value !== null && typeof value === "object" && !Array.isArray(value);

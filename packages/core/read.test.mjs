@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createEditor, commands, unitsToTicks, ticksToUnits } from "@lumen-timeline/core";
-import { visitRange } from "./interval-index.mjs";
+import { visitRange } from "@lumen-timeline/core/internal";
 
 const sec = (value) => unitsToTicks(value, 1);
 const clip = (id, trackId, start, duration, take = "A") => ({

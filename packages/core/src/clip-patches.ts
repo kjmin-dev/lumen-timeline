@@ -1,4 +1,4 @@
-import { requireEdit } from "./document.mjs";
+import { requireEdit } from "./document.ts";
 
 function splice(index, before, after) {
   return Object.freeze({ index, before: Object.freeze(before), after: Object.freeze(after) });

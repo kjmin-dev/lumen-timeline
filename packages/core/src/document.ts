@@ -1,4 +1,4 @@
-import { TICKS_PER_SECOND } from "./time.mjs";
+import { TICKS_PER_SECOND } from "./time.ts";
 
 const MAX_TICK = 7 * 86400 * TICKS_PER_SECOND;
 

@@ -14,7 +14,7 @@
     "lint": "oxlint --deny-warnings --report-unused-disable-directives-severity=error",
     "fix": "oxlint --fix && oxfmt",
     "check": "npm run fmt:check && npm run lint && npm test",
-    "test": "node --test packages/core/*.test.mjs packages/media/*.test.mjs packages/timeline/*.test.mjs experiments/sync/*.test.mjs",
+    "test": "node --conditions=@lumen-timeline/source --test packages/core/*.test.mjs packages/media/*.test.mjs packages/timeline/*.test.mjs experiments/sync/*.test.mjs",
     "verify:sync": "node experiments/sync/run.mjs",
     "bench:wasm": "node experiments/wasm/run.mjs",
     "verify:pcm": "node experiments/sync/run.mjs chromium --pcm",

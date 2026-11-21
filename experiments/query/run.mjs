@@ -1,5 +1,5 @@
 import { createEditor } from "@lumen-timeline/core";
-import { visitRange } from "../../packages/core/interval-index.mjs";
+import { visitRange } from "@lumen-timeline/core/internal";
 
 const tracks = Array.from({ length: 40 }, (_, i) => ({ id: "track-" + i }));
 for (const dense of [false, true]) {

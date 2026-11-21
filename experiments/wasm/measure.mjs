@@ -1,5 +1,5 @@
 import { reducePeaks } from "./peaks.mjs";
-import { unitsToTicks } from "../../packages/core/time.mjs";
+import { unitsToTicks } from "@lumen-timeline/core";
 export async function measure(moduleBytes) {
   const before = performance.now();
   const { instance } = await WebAssembly.instantiate(Uint8Array.from(moduleBytes));

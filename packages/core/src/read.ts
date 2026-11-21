@@ -1,6 +1,6 @@
-import { requireEdit } from "./document.mjs";
-import { visitRange } from "./interval-index.mjs";
-import { planAudio } from "./playback.mjs";
+import { requireEdit } from "./document.ts";
+import { visitRange } from "./interval-index.ts";
+import { planAudio } from "./playback.ts";
 
 function validate(range) {
   requireEdit(

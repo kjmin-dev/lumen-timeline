@@ -5,12 +5,12 @@ import {
   requireEdit,
   validId,
   validateClip,
-} from "./document.mjs";
-import { ClipDraft, inverse, rebase } from "./clip-patches.mjs";
-import { DataDraft, applyData, invertData, normalizeEntityData } from "./entity-data.mjs";
-import { createHistory } from "./history.mjs";
-import { readRegistry } from "./read.mjs";
-import { splitClip } from "./time.mjs";
+} from "./document.ts";
+import { ClipDraft, inverse, rebase } from "./clip-patches.ts";
+import { DataDraft, applyData, invertData, normalizeEntityData } from "./entity-data.ts";
+import { createHistory } from "./history.ts";
+import { readRegistry } from "./read.ts";
+import { splitClip } from "./time.ts";
 
 export const commands = Object.freeze({
   moveClips: (args) => ({ ...args, type: "move" }),

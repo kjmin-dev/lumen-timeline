@@ -1,5 +1,5 @@
-import { validId } from "./document.mjs";
-import { sourceWindow, ticksToUnits, unitsToTicks } from "./time.mjs";
+import { validId } from "./document.ts";
+import { sourceWindow, ticksToUnits, unitsToTicks } from "./time.ts";
 
 const validVersion = (value) => validId(value) || (Number.isSafeInteger(value) && value >= 0);
 

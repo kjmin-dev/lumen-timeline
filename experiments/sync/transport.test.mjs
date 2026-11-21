@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { VideoTransport, presentationTime } from "./transport.mjs";
-import { createEditor } from "../../packages/core/index.mjs";
+import { createEditor } from "@lumen-timeline/core";
 import { bufferCatalog } from "./buffer-fixture.mjs";
-import { TICKS_PER_SECOND as hz } from "../../packages/core/time.mjs";
+import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
 
 function makeTransport(player, context, output, clips, takes) {
   const editor = createEditor({

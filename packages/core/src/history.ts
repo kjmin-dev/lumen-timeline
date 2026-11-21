@@ -1,4 +1,4 @@
-import { requireEdit } from "./document.mjs";
+import { requireEdit } from "./document.ts";
 
 // Approximate logical payload size. Immutable children are cheap to reweigh.
 // Shared values may be counted multiple times; this is not a measurement of heap size.
