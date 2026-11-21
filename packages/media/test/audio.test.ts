@@ -6,7 +6,7 @@ import {
   sequenceDuration,
   TICKS_PER_SECOND as hz,
 } from "@lumen-timeline/core";
-import type { Clip, TakeCatalog } from "@lumen-timeline/core";
+import type { Clip, Marker, TakeCatalog } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
 import type { AudioBufferLike, ResolveBuffer } from "@lumen-timeline/media";
 import type { TestContext } from "node:test";
@@ -28,6 +28,7 @@ interface FixtureOptions {
   readonly context?: FakeContext;
   readonly clips?: Clip[];
   readonly duration?: number;
+  readonly markers?: Marker[];
   readonly resolveBuffer?: ResolveBuffer;
 }
 function fixture(t: TestContext, options: FixtureOptions = {}) {
@@ -39,6 +40,7 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
       tracks: clips.map((c) => ({ id: c.id })),
       clips,
       ...(options.duration === undefined ? {} : { duration: sec(options.duration) }),
+      ...(options.markers === undefined ? {} : { markers: options.markers }),
     },
   });
   const rate = context.sampleRate;
@@ -331,4 +333,24 @@ test("a denied resume surfaces its reason and a later user gesture can retry", a
   context.setState("closed");
   assert.equal(transport.snapshot().status, "closed");
   await assert.rejects(transport.seek(0), /unavailable/);
+});
+
+test("a marker after the last clip extends playback through silence to its tick", async (t) => {
+  timers(t);
+  const { transport, context, at } = fixture(t, {
+    clips: [clip("line", 2, 1)],
+    markers: [{ id: "chapter", start: sec(5) }],
+  });
+  const ended: number[] = [];
+  transport.subscribe((s) => {
+    if (s.status === "ended") ended.push(s.presentedTick);
+  });
+  await transport.play();
+  const origin = 128 / context.sampleRate;
+  at(origin + 4);
+  assert.equal(transport.snapshot().status, "playing");
+  assert.equal(transport.snapshot().presentedTick, sec(4));
+  at(origin + 6);
+  assert.deepEqual(ended, [sec(5)]);
+  assert.equal(transport.snapshot().presentedTick, sec(5));
 });

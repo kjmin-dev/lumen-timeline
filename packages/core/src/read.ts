@@ -1,14 +1,17 @@
 import { defined } from "./invariant.ts";
-import { isArray, requireEdit } from "./validation.ts";
+import { isArray, requireEdit, safeInteger } from "./validation.ts";
 import { visitRange } from "./interval-index.ts";
+import { markerIndex } from "./markers.ts";
 import { planAudio } from "./playback.ts";
 import type {
   AudioPlan,
   Clip,
   ClipQueryOptions,
+  Marker,
   ProjectSnapshot,
   ReadHandle,
   TakeCatalog,
+  Tick,
   TickRange,
   Track,
 } from "./types.ts";
@@ -16,6 +19,10 @@ import type {
 export interface ReadRegistry {
   pin(snapshot: ProjectSnapshot, layout: ReadonlyMap<string, readonly Clip[]>): void;
   read(snapshot: ProjectSnapshot): ReadHandle;
+}
+
+function validateTick(tick: Tick): void {
+  requireEdit(safeInteger(tick), "invalid-range", null, "Expected an integer tick");
 }
 
 function validate(range: TickRange): void {
@@ -69,6 +76,26 @@ export function readRegistry(tracks: readonly Track[]): ReadRegistry {
           return planAudio(snapshot.revision, tracks, range, catalog, (id, emit) =>
             visitRange(layout.get(id), range.start, range.end, emit),
           );
+        },
+        markersIn(range: TickRange): readonly Marker[] {
+          validate(range);
+          const markers = snapshot.markers ?? [];
+          return Object.freeze(
+            markers.slice(
+              markerIndex(markers, range.start, false),
+              markerIndex(markers, range.end, false),
+            ),
+          );
+        },
+        nextMarker(tick: Tick): Marker | undefined {
+          validateTick(tick);
+          const markers = snapshot.markers ?? [];
+          return markers[markerIndex(markers, tick, true)];
+        },
+        previousMarker(tick: Tick): Marker | undefined {
+          validateTick(tick);
+          const markers = snapshot.markers ?? [];
+          return markers[markerIndex(markers, tick, false) - 1];
         },
       });
       handles.set(snapshot, handle);

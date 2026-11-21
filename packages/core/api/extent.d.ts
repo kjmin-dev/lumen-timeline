@@ -6,5 +6,12 @@ export interface SequenceExtent {
         readonly start: Tick;
         readonly duration: Tick;
     }[];
+    readonly markers?: readonly {
+        readonly start: Tick;
+    }[];
 }
+/**
+ * The explicit duration, or else the end of the last clip or the last marker,
+ * whichever is later. An empty sequence has zero length.
+ */
 export declare function sequenceDuration(snapshot: SequenceExtent): Tick;
