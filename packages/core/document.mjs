@@ -93,7 +93,7 @@ export function validateClip(clip, { tracks, duration, minimum }) {
 }
 
 export function orderTrack(clips, track) {
-  clips.sort((a, b) => a.start - b.start)
+  clips.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   if (track.overlap !== 'exclusive') return
   for (let i = 1; i < clips.length; i++) {
     const previous = clips[i - 1]

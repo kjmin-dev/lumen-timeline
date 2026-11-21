@@ -2,6 +2,7 @@ import { EditError, openProject, orderTrack, requireEdit, validId, validateClip 
 import { ClipDraft, inverse, rebase } from './clip-patches.mjs'
 import { DataDraft, applyData, invertData, normalizeEntityData } from './entity-data.mjs'
 import { createHistory } from './history.mjs'
+import { readRegistry } from './read.mjs'
 import { splitClip } from './time.mjs'
 
 export const commands = Object.freeze({
@@ -30,6 +31,8 @@ export function createEditor({ project, history: limits }) {
     const normalized = normalizeEntityData(entityData)
     snapshot = Object.freeze(normalized ? { ...rest, entityData: normalized } : rest)
   }
+  const reads = readRegistry(snapshot.tracks)
+  reads.pin(snapshot, byTrack)
   const history = createHistory(limits)
   const subscribers = new Set()
   const historySubscribers = new Set()
@@ -217,6 +220,7 @@ export function createEditor({ project, history: limits }) {
         byTrack = geometry.layout
       }
       snapshot = Object.freeze(next)
+      reads.pin(snapshot, byTrack)
       notify(result, policy !== 'ignore' && history.undoDepth + history.redoDepth > 0)
       return result
     } catch (error) {
@@ -229,6 +233,7 @@ export function createEditor({ project, history: limits }) {
 
   return {
     getSnapshot: () => snapshot,
+    read: (document = snapshot) => reads.read(document),
     dispatch: (command, options) => execute(command, 'edit', options),
     history: {
       undo: options => execute(null, 'undo', options),

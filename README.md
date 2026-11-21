@@ -11,3 +11,4 @@ The core will own editing commands, time and history. A shared browser view will
 - [Roadmap](ROADMAP.md) lists the implementation milestones, framework version targets and acceptance tests.
 - [Clock verification](docs/clock-and-wasm.md) explains how to run the headless regressions, browser playback probes and Rust 1.100 waveform benchmarks.
 - [Headless clip editing](docs/headless-editing.md) shows the workspace API for transactional trim, split, move and undo/redo.
+- [Timeline reads and audio plans](docs/playback-read-api.md) covers revision-pinned placement queries, catalog bindings and source sample ranges.

@@ -28,6 +28,8 @@ At each wrapper release, resolve the framework's stable npm `latest` tag, run it
 | 5. Deliver four framework wrappers | React, Svelte, SolidJS and Vue packages. Each mounts the shared view, exposes the editor handle, supports selector subscriptions and cleans up its bindings. | Build one minimal consumer per target major using packaged public exports. Run the same interaction and performance suite in all four and vanilla JS. Pass the wrapper checks below. |
 | 6. Validate the first release | Audio-only podcast editor, external-player integration guide, schema migrations and plugin documentation. | Both example editors use public APIs. The podcast example combines overlapping voices, music, chapter markers and a gain inspector. Verify previous-schema and missing-plugin round trips. |
 
+The next milestone 2 slice connects the committed editor to the player through a pinned range query and a pure playback plan. [Playback planning and incremental scheduling](docs/plans/playback-planning.md)
+
 ## Wrapper acceptance tests
 
 - Mount, update options, unmount and remount in each framework. Count active subscriptions, animation callbacks, audio nodes and GPU contexts. Repeated mounts must release view-owned resources and preserve an editor supplied by the host.
