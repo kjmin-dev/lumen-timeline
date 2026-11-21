@@ -1,0 +1,62 @@
+// Source rates are rational units per second, e.g. 30000 / 1001 frames.
+export const TICKS_PER_SECOND = 282_240_000
+
+function convert(value, numerator, denominator, toTicks) {
+  if (!Number.isSafeInteger(value) || !Number.isSafeInteger(numerator) ||
+      !Number.isSafeInteger(denominator) || numerator <= 0 || denominator <= 0) {
+    throw new RangeError('Expected a safe integer position and positive integer rate terms')
+  }
+  const scale = TICKS_PER_SECOND * denominator
+  if (Number.isSafeInteger(scale)) {
+    const multiplier = toTicks ? scale : numerator
+    const divisor = toTicks ? numerator : scale
+    // Cancel an exact ratio first, as is possible for common audio and frame rates.
+    if (multiplier % divisor === 0) {
+      const result = value * (multiplier / divisor)
+      if (!Number.isSafeInteger(result)) throw new RangeError('Time exceeds safe integer range')
+      return result || 0
+    }
+    const product = Math.abs(value) * multiplier
+    if (Number.isSafeInteger(product)) {
+      const remainder = product % divisor
+      const whole = (product - remainder) / divisor
+      const rounded = whole + Number(remainder >= divisor - remainder)
+      return rounded === 0 ? 0 : value < 0 ? -rounded : rounded
+    }
+  }
+  const exactScale = BigInt(TICKS_PER_SECOND) * BigInt(denominator)
+  const multiplier = toTicks ? exactScale : BigInt(numerator)
+  const divisor = toTicks ? BigInt(numerator) : exactScale
+  const magnitude = (BigInt(Math.abs(value)) * multiplier + divisor / 2n) / divisor
+  const result = Number(value < 0 ? -magnitude : magnitude)
+  if (!Number.isSafeInteger(result)) throw new RangeError('Time exceeds safe integer range')
+  return result
+}
+
+export function unitsToTicks(units, numerator, denominator = 1) {
+  return convert(units, numerator, denominator, true)
+}
+
+export function ticksToUnits(ticks, numerator, denominator = 1) {
+  return convert(ticks, numerator, denominator, false)
+}
+
+// Clip, take and query boundaries have already been normalized to project ticks.
+export function sourceWindow(clip, take, from, until) {
+  const origin = take.sourceAtContentZero + clip.contentIn - clip.start
+  const start = Math.max(from, clip.start, take.availableStart - origin)
+  const end = Math.min(until, clip.start + clip.duration, take.availableEnd - origin)
+  return start < end ? { start, end, sourceStart: start + origin } : null
+}
+
+export function splitClip(clip, at, rightId) {
+  const leftDuration = at - clip.start
+  if (!Number.isSafeInteger(at) || leftDuration <= 0 || leftDuration >= clip.duration) {
+    throw new RangeError('Split must be inside the clip')
+  }
+  return [
+    { ...clip, duration: leftDuration },
+    { ...clip, id: rightId, start: at, duration: clip.duration - leftDuration,
+      contentIn: clip.contentIn + leftDuration },
+  ]
+}
