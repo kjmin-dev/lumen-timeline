@@ -114,7 +114,7 @@ try {
 async function verifyUnavailable() {
   const page = await browser.newPage()
   try {
-    await page.route('**/media/*', route => route.abort())
+    await page.route('**/examples/vanilla/media/*', route => route.abort())
     await page.goto(server.url)
     await page.getByLabel('Clip navigator').selectOption('line')
     assert.equal(await page.locator('#clip-name').textContent(), 'Tidal contours')

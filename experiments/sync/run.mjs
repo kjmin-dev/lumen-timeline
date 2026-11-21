@@ -17,6 +17,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url))
 const fixture = await mkdtemp(join(tmpdir(), 'lumen-sync-'))
 const probe = pcmOnly ? 'verifyEditedPcm()' : soakSeconds ? 'soak(' + soakSeconds + ')' : 'run(' + (control ? 0.100 : 0) + ')'
 const pageHtml = `<video muted playsinline width="160" height="64"></video><button>Run</button>
+<script type="importmap">{"imports":{"@lumen-timeline/core":"/packages/core/index.mjs"}}</script>
 <script type="module">
 import {run} from '/experiments/sync/browser.mjs'
 import {soak} from '/experiments/sync/soak.mjs'
@@ -24,7 +25,7 @@ import {verifyEditedPcm} from '/experiments/sync/edited-pcm.mjs'
 document.querySelector('button').onclick = () => { window.result = ${probe}; window.result.catch(() => {}) }
 </script>`
 const modules = new Set(['/experiments/sync/browser.mjs', '/experiments/sync/probe.js',
-  '/experiments/sync/transport.mjs', '/experiments/sync/buffer-fixture.mjs', '/experiments/sync/continuous-edits.mjs', '/experiments/sync/soak.mjs', '/experiments/sync/edited-pcm.mjs',
+  '/packages/media/video-driver.mjs', '/packages/media/voice-scheduler.mjs', '/experiments/sync/transport.mjs', '/experiments/sync/buffer-fixture.mjs', '/experiments/sync/continuous-edits.mjs', '/experiments/sync/soak.mjs', '/experiments/sync/edited-pcm.mjs',
   '/packages/core/index.mjs', '/packages/core/editor.mjs', '/packages/core/document.mjs',
   '/packages/core/clip-patches.mjs', '/packages/core/entity-data.mjs', '/packages/core/history.mjs', '/packages/core/time.mjs',
   '/packages/core/read.mjs', '/packages/core/interval-index.mjs', '/packages/core/playback.mjs'])
