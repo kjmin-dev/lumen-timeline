@@ -16,7 +16,8 @@ export const project = { schemaVersion: 1, duration: 24 * hz,
 }
 export async function openProject(data) {
   const editor = createEditor({ project: data })
-  const transport = await attachPlayer(video, editor, error => { document.querySelector('#status').textContent = error.message })
+  const playback = await attachPlayer(video, editor, error => { document.querySelector('#status').textContent = error.message })
+  const { transport } = playback
   const view = mountTimeline(document.querySelector('#timeline'), { editor, transport, snap: { gridTicks: hz / 10 },
     pixelsPerSecond: Math.max(20, (document.querySelector('#timeline').clientWidth - 160) / 24) })
   function inspector() {
@@ -38,7 +39,7 @@ export async function openProject(data) {
   const deselect = editor.session.subscribeSelection(bindInspector)
   bindInspector()
   return { editor, view, transport, async dispose() {
-    off(); deselect(); view.dispose(); await transport.dispose(); editor.dispose()
+    off(); deselect(); view.dispose(); await playback.dispose(); editor.dispose()
   } }
 }
 export let studio

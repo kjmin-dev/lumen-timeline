@@ -28,7 +28,7 @@ At each wrapper release, resolve the framework's stable npm `latest` tag, run it
 | 5. Deliver four framework wrappers | React, Svelte, SolidJS and Vue packages. Each mounts the shared view, exposes the editor handle, supports selector subscriptions and cleans up its bindings. | Build one minimal consumer per target major using packaged public exports. Run the same interaction and performance suite in all four and vanilla JS. Pass the wrapper checks below. |
 | 6. Validate the first release | Audio-only podcast editor, external-player integration guide, schema migrations and plugin documentation. | Both example editors use public APIs. The podcast example combines overlapping voices, music, chapter markers and a gain inspector. Verify previous-schema and missing-plugin round trips. |
 
-The vanilla Canvas 2D example connects selection, seeking, pointer and keyboard edits, and project reload to the playback and history engines. The next milestone 2 follow-up is an audio-only host using the same view. [Interactive timeline plan](docs/plans/vanilla-timeline.md)
+The vanilla Canvas 2D example connects selection, seeking, pointer and keyboard edits, and project reload to the playback and history engines. The next slice shares the voice scheduler and adds an audio-output-clock transport and audio-only host. [Audio-only implementation plan](docs/plans/audio-only-transport.md)
 
 ## Wrapper acceptance tests
 

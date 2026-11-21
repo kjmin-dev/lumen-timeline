@@ -9,7 +9,7 @@ export async function serve(port = 0) {
   const server = http.createServer(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname
     if (path === '/') { res.writeHead(302, { Location: '/examples/vanilla/index.html' }).end(); return }
-    if (!/^\/(examples\/vanilla|packages\/(core|timeline)|experiments\/sync)\/[a-zA-Z0-9_./-]+$/.test(path) || !types[extname(path)]) {
+    if (!/^\/(examples\/vanilla|packages\/(core|timeline|media)|experiments\/sync)\/[a-zA-Z0-9_./-]+$/.test(path) || !types[extname(path)]) {
       res.writeHead(404).end(); return
     }
     try {

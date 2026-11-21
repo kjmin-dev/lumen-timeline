@@ -57,11 +57,8 @@ export async function verifyEdits(browser, url) {
     await button('Play').click()
     const studioHandle = await page.evaluateHandle(async () => (await import('./app.mjs')).studio)
     const bed = await page.waitForFunction(studio => {
-      const { driver } = studio.transport
-      const voice = driver.voices.get('bed')
-      if (voice?.node && driver.voices.get('line')?.node) {
-        return { node: voice.node, end: voice.endSample, generation: driver.generation }
-      }
+      const voice = studio.transport.diagnostics('bed')
+      if (voice.reservation && studio.transport.diagnostics('line').reservation) return voice
     }, studioHandle)
     // Alt bypasses snapping; these gestures have exact integer-second intent.
     await page.keyboard.down('Alt')
@@ -88,11 +85,11 @@ export async function verifyEdits(browser, url) {
       const range = { start: Math.round(16.2 * 282240000), end: Math.round(16.3 * 282240000) }
       return studio.editor
         .read()
-        .planAudio(range, studio.transport.driver.catalog)
+        .planAudio(range, studio.transport.catalog)
         .spans.find(s => s.clipId === 'line').window.sourceStart
     })
     const rate = await page.evaluate(
-      async () => (await import('./app.mjs')).studio.transport.driver.context.sampleRate,
+      async () => (await import('./app.mjs')).studio.transport.diagnostics().sampleRate,
     )
     assert.equal(sourceSample, Math.round(3.2 * rate))
     await button('Undo').click()
@@ -105,9 +102,8 @@ export async function verifyEdits(browser, url) {
     assert.deepEqual((await state()).clips, s.clips)
     assert.ok(
       await bed.evaluate(async b => {
-        const { driver } = (await import('./app.mjs')).studio.transport
-        const voice = driver.voices.get('bed')
-        return voice?.node === b.node && voice.endSample === b.end && driver.generation === b.generation
+        const state = (await import('./app.mjs')).studio.transport.diagnostics('bed')
+        return state.reservation === b.reservation && state.endSample === b.endSample && state.generation === b.generation
       }),
       'music reservation changed during dialogue editing',
     )
