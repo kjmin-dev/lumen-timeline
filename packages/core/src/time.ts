@@ -78,7 +78,10 @@ export function sourceWindow(
   return start < end ? { start, end, sourceStart: start + origin } : null;
 }
 
-export function splitClip(clip: Clip, at: Tick, rightId: string): [Clip, Clip] {
+/** Fields `splitClip` reads. It copies every other field of the record unchanged. */
+export type SplitSource = Pick<Clip, "start" | "duration" | "contentIn">;
+
+export function splitClip<C extends SplitSource>(clip: C, at: Tick, rightId: string): [C, C] {
   const leftDuration = at - clip.start;
   if (!Number.isSafeInteger(at) || leftDuration <= 0 || leftDuration >= clip.duration) {
     throw new RangeError("Split must be inside the clip");

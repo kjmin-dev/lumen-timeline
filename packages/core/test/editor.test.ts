@@ -1,8 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEditor, commands, EditError, TICKS_PER_SECOND } from "@lumen-timeline/core";
+import type {
+  Clip,
+  EditCommand,
+  EditErrorCode,
+  Project,
+  ProjectSnapshot,
+} from "@lumen-timeline/core";
+import { codeOf, commit, pass } from "./support.ts";
+import type { Draft } from "./support.ts";
 
-const clip = (id, trackId, start, duration, contentIn = 0) => ({
+type Review = { review: { version: number; data: { notes: string[] } } };
+type Fixture = Draft<Project> & { extensions: Review };
+
+const clip = (
+  id: string,
+  trackId: string,
+  start: number,
+  duration: number,
+  contentIn = 0,
+): Draft<Clip> => ({
   id,
   trackId,
   kind: "audio",
@@ -12,7 +30,7 @@ const clip = (id, trackId, start, duration, contentIn = 0) => ({
   takeSetId: "takes",
   activeTakeId: "A",
 });
-const project = () => ({
+const project = (): Fixture => ({
   schemaVersion: 1,
   duration: 100,
   tracks: [
@@ -29,13 +47,12 @@ const project = () => ({
   ],
   extensions: { review: { version: 1, data: { notes: ["keep"] } } },
 });
-const move = (clipIds, delta, trackId) => commands.moveClips({ clipIds, delta, trackId });
-const trim = (clipId, edge, delta) => commands.trimClip({ clipId, edge, delta });
-const split = (clipId, at, rightId) => commands.splitClip({ clipId, at, rightId });
-function pass(result) {
-  assert.ok(result.ok, JSON.stringify(result));
-  return result;
-}
+const move = (clipIds: string[], delta: number, trackId?: string) =>
+  commands.moveClips({ clipIds, delta, trackId });
+const trim = (clipId: string, edge: "left" | "right", delta: number) =>
+  commands.trimClip({ clipId, edge, delta });
+const split = (clipId: string, at: number, rightId?: string) =>
+  commands.splitClip({ clipId, at, rightId });
 
 test("snapshots retain independent immutable JSON and reopen with their revision", () => {
   const input = project();
@@ -46,9 +63,9 @@ test("snapshots retain independent immutable JSON and reopen with their revision
   input.clips[0].start = 50;
   input.extensions.review.data.notes.push("later");
   assert.equal(first.clips[0].start, 10);
-  assert.deepEqual(first.extensions.review.data.notes, ["keep"]);
+  assert.deepEqual((first.extensions as Review).review.data.notes, ["keep"]);
   assert.throws(() => {
-    first.extensions.review.data.notes.push("no");
+    (first.extensions as Review).review.data.notes.push("no");
   }, TypeError);
   pass(e.dispatch(trim("a", "left", 2)));
   const current = e.getSnapshot();
@@ -63,7 +80,7 @@ test("snapshots retain independent immutable JSON and reopen with their revision
 
 test("moves a selection as one transaction, including the vacated track intervals", () => {
   const e = createEditor({ project: project() });
-  const result = pass(e.dispatch(move(["b", "a"], 3)));
+  const result = commit(e.dispatch(move(["b", "a"], 3)));
   assert.deepEqual(result.changedIds, ["a", "b"]);
   assert.deepEqual(
     result.affected.before.map((r) => [r.start, r.end]),
@@ -79,7 +96,7 @@ test("moves a selection as one transaction, including the vacated track interval
       [21, 29],
     ],
   );
-  const moved = pass(e.dispatch(move(["a", "b"], 0, "bed")));
+  const moved = commit(e.dispatch(move(["a", "b"], 0, "bed")));
   assert.deepEqual(
     moved.affected.before.map((r) => r.trackId),
     ["voice", "voice"],
@@ -100,12 +117,12 @@ test("rejections and no-ops leave snapshots, subscriptions and redo untouched", 
   pass(e.dispatch(trim("a", "right", -1)));
   pass(e.history.undo());
   const before = e.getSnapshot();
-  const seen = [];
+  const seen: ProjectSnapshot[] = [];
   e.subscribe(
     (s) => s,
     (s) => seen.push(s),
   );
-  for (const [cmd, code] of [
+  const cases: [EditCommand, EditErrorCode][] = [
     [move(["a"], 1), "overlap"],
     [move(["a", "locked"], 1, "bed"), "locked-track"],
     [move(["a"], 0, "guide"), "locked-track"],
@@ -116,6 +133,7 @@ test("rejections and no-ops leave snapshots, subscriptions and redo untouched", 
     [move([], 0), "invalid-selection"],
     [move(["a", "b"], -11), "invalid-range"],
     [move(["a"], 99), "invalid-range"],
+    // @ts-expect-error -- An unknown trim edge is a type error and a runtime rejection.
     [trim("a", "end", 1), "invalid-edge"],
     [trim("a", "left", 8), "invalid-range"],
     [trim("a", "right", NaN), "invalid-delta"],
@@ -123,19 +141,21 @@ test("rejections and no-ops leave snapshots, subscriptions and redo untouched", 
     [split("a", 18), "invalid-range"],
     [split("a", 12.5), "invalid-range"],
     [split("a", 12, "b"), "invalid-id"],
+    // @ts-expect-error -- An unknown command type is a type error and a runtime rejection.
     [{ type: "other" }, "unknown-command"],
-  ]) {
-    assert.equal(e.dispatch(cmd).code, code);
+  ];
+  for (const [cmd, code] of cases) {
+    assert.equal(codeOf(e.dispatch(cmd)), code);
     assert.equal(e.getSnapshot(), before);
   }
-  assert.equal(e.dispatch(trim("a", "left", 1), { expectedRevision: 0 }).code, "stale-revision");
-  assert.equal(e.history.redo({ expectedRevision: 1 }).code, "stale-revision");
+  assert.equal(codeOf(e.dispatch(trim("a", "left", 1), { expectedRevision: 0 })), "stale-revision");
+  assert.equal(codeOf(e.history.redo({ expectedRevision: 1 })), "stale-revision");
   assert.equal(pass(e.dispatch(move(["a"], 0))).unchanged, true);
   assert.equal(pass(e.dispatch(trim("a", "right", 0))).unchanged, true);
   assert.deepEqual(seen, []);
   assert.equal(e.history.canRedo, true);
   pass(e.dispatch(trim("a", "right", -2), { expectedRevision: before.revision }));
-  assert.equal(e.history.redo().code, "empty-history");
+  assert.equal(codeOf(e.history.redo()), "empty-history");
   assert.equal(seen.length, 1);
 });
 
@@ -144,9 +164,9 @@ test("trim uses content handles, minimum duration, exclusive neighbors and slot 
   data.minClipDuration = 2;
   data.clips[0].contentBounds = { start: 2, end: 12 };
   const e = createEditor({ project: data });
-  assert.equal(e.dispatch(trim("a", "left", -3)).code, "source-bounds");
-  assert.equal(e.dispatch(trim("a", "right", 1)).code, "source-bounds");
-  assert.equal(e.dispatch(split("a", 11)).code, "invalid-range");
+  assert.equal(codeOf(e.dispatch(trim("a", "left", -3))), "source-bounds");
+  assert.equal(codeOf(e.dispatch(trim("a", "right", 1))), "source-bounds");
+  assert.equal(codeOf(e.dispatch(split("a", 11))), "invalid-range");
   pass(e.dispatch(trim("a", "left", -2)));
   let a = e.getSnapshot().clips[0];
   assert.deepEqual([a.start, a.duration, a.contentIn], [8, 10, 2]);
@@ -154,7 +174,7 @@ test("trim uses content handles, minimum duration, exclusive neighbors and slot 
   pass(e.dispatch(trim("a", "right", -3)));
   a = e.getSnapshot().clips[0];
   assert.deepEqual([a.start, a.duration, a.contentIn], [10, 5, 4]);
-  assert.equal(e.dispatch(trim("b", "left", -4)).code, "overlap");
+  assert.equal(codeOf(e.dispatch(trim("b", "left", -4))), "overlap");
   pass(e.dispatch(trim("unrelated", "left", -2)));
   assert.equal(e.getSnapshot().clips[2].contentIn, -2);
 });
@@ -162,7 +182,7 @@ test("trim uses content handles, minimum duration, exclusive neighbors and slot 
 test("split preserves identity, takes, exact ordering and inverse patches", () => {
   const e = createEditor({ project: project() });
   const first = e.getSnapshot();
-  const result = pass(e.dispatch(split("a", 13)));
+  const result = commit(e.dispatch(split("a", 13)));
   const [rightId] = result.createdIds;
   const edited = e.getSnapshot();
   assert.ok(rightId && rightId !== "a");
@@ -171,10 +191,10 @@ test("split preserves identity, takes, exact ordering and inverse patches", () =
     { ...first.clips[0], id: rightId, start: 13, duration: 5, contentIn: 7 },
   ]);
   assert.equal(edited.clips[2], first.clips[1]);
-  const undo = pass(e.history.undo());
+  const undo = commit(e.history.undo());
   assert.equal(undo.patches, result.inversePatches);
   assert.deepEqual(e.getSnapshot().clips, first.clips);
-  const redo = pass(e.history.redo());
+  const redo = commit(e.history.redo());
   assert.deepEqual(redo.createdIds, [rightId]);
   assert.deepEqual(e.getSnapshot().clips, edited.clips);
   assert.deepEqual([result.revision, undo.revision, redo.revision], [1, 2, 3]);
@@ -196,6 +216,7 @@ test("validates loaded projects and preserves opaque extension data", () => {
       p.clips[1].id = p.clips[0].id;
     },
     (p) => {
+      // @ts-expect-error -- Projects must use the timeline tick rate.
       p.timebase = 1000;
     },
     (p) => {
@@ -213,7 +234,7 @@ test("validates loaded projects and preserves opaque extension data", () => {
     (p) => {
       p.deferred = new Map();
     },
-  ]) {
+  ] satisfies ((p: Fixture) => void)[]) {
     const p = project();
     modify(p);
     assert.throws(() => createEditor({ project: p }), EditError);
@@ -221,15 +242,15 @@ test("validates loaded projects and preserves opaque extension data", () => {
   const data = project();
   data.clips[0].extensions = { words: { version: 7, data: [1, 2] } };
   const e = createEditor({ project: data });
-  assert.equal(e.dispatch(split("a", 13)).code, "split-policy-required");
+  assert.equal(codeOf(e.dispatch(split("a", 13))), "split-policy-required");
   pass(e.dispatch(move(["a"], -1)));
   assert.deepEqual(e.getSnapshot().clips[0].extensions, data.clips[0].extensions);
 });
 
 test("selector subscriptions deliver coherent revisions, including nested commits, and unsubscribe", () => {
   const e = createEditor({ project: project() });
-  const revisions = [];
-  const selected = [];
+  const revisions: number[] = [];
+  const selected: number[] = [];
   e.subscribe(
     (s) => s.revision,
     (revision) => {
@@ -252,12 +273,12 @@ test("selector subscriptions deliver coherent revisions, including nested commit
   pass(e.dispatch(trim("a", "right", -1)));
   assert.deepEqual(revisions, [1, 2]);
   e.dispose();
-  assert.equal(e.dispatch(trim("a", "left", 1)).code, "disposed");
-  assert.equal(e.history.undo().code, "disposed");
+  assert.equal(codeOf(e.dispatch(trim("a", "left", 1))), "disposed");
+  assert.equal(codeOf(e.history.undo()), "disposed");
 });
 
 test("1,000 committed edits rewind and replay the same source windows and IDs", () => {
-  const initial = {
+  const initial: Draft<Project> = {
     schemaVersion: 1,
     duration: 10000,
     tracks: [{ id: "one" }, { id: "two", overlap: "exclusive" }],

@@ -6,7 +6,10 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-const projects = [{ path: "packages/core", emit: true }];
+const projects = [
+  { path: "packages/core", emit: true },
+  { path: "packages/core/test", emit: false },
+];
 const compilers = ["tsrs", "tsc"];
 const windows = process.platform === "win32";
 const bin = (name) => join("node_modules", ".bin", windows ? name + ".cmd" : name);

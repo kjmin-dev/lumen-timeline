@@ -59,7 +59,19 @@
       "files": ["**/*.test.mjs", "**/*.test.ts", "**/test/**"],
       "rules": {
         "import/no-nodejs-modules": "off",
-        "no-restricted-imports": "off"
+        "no-restricted-imports": "off",
+        "typescript/no-floating-promises": [
+          "error",
+          {
+            "allowForKnownSafeCalls": [
+              {
+                "from": "package",
+                "package": "node:test",
+                "name": ["test", "it", "describe", "suite"]
+              }
+            ]
+          }
+        ]
       }
     }
   ],

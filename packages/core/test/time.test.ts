@@ -30,7 +30,7 @@ test("seek into a clip, split its source, switch the right take and restore", ()
   const clip = { id: "line", start: 12 * hz, duration: 4 * hz, contentIn: hz, take: "A" };
   const a = { sourceAtContentZero: 0, availableStart: 0, availableEnd: 8 * hz };
   const b = { ...a, sourceAtContentZero: -1.5 * hz, availableEnd: 2 * hz };
-  assert.equal(sourceWindow(clip, a, 14 * hz, 16 * hz).sourceStart, 3 * hz);
+  assert.equal(sourceWindow(clip, a, 14 * hz, 16 * hz)!.sourceStart, 3 * hz);
   const [left, right] = splitClip(clip, 14 * hz, "right");
   assert.equal(sourceWindow(left, a, 14 * hz, 16 * hz), null);
   assert.deepEqual(sourceWindow(right, b, 0, 16 * hz), {
@@ -46,7 +46,7 @@ test("seek into a clip, split its source, switch the right take and restore", ()
 });
 
 test("both conversion directions agree with exact rational rounding, including half ties and overflow", () => {
-  function oracle(value, multiplier, divisor) {
+  function oracle(value: number, multiplier: bigint, divisor: bigint): number {
     const magnitude = (BigInt(Math.abs(value)) * multiplier + divisor / 2n) / divisor;
     return Number(value < 0 ? -magnitude : magnitude);
   }
@@ -61,7 +61,7 @@ test("both conversion directions agree with exact rational rounding, including h
       for (const [fn, mul, div] of [
         [unitsToTicks, scale, BigInt(num)],
         [ticksToUnits, BigInt(num), scale],
-      ]) {
+      ] as const) {
         const expected = oracle(value, mul, div);
         if (Number.isSafeInteger(expected)) assert.equal(fn(value, num, den), expected);
         else assert.throws(() => fn(value, num, den), RangeError);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEditor, commands } from "@lumen-timeline/core";
+import { codeOf, pass } from "./support.ts";
 
 test("preview matches dispatch validation and produces placements without publishing or branching history", () => {
   const editor = createEditor({
@@ -22,7 +23,8 @@ test("preview matches dispatch validation and produces placements without publis
       })),
     },
   });
-  const move = (delta, trackId) => commands.moveClips({ clipIds: ["a"], delta, trackId });
+  const move = (delta: number, trackId?: string) =>
+    commands.moveClips({ clipIds: ["a"], delta, trackId });
   assert.ok(editor.dispatch(move(2)).ok);
   editor.history.undo();
   const snap = editor.getSnapshot(),
@@ -33,7 +35,7 @@ test("preview matches dispatch validation and produces placements without publis
     () => events++,
   );
   editor.history.subscribe(() => events++);
-  const p = editor.preview(move(8));
+  const p = pass(editor.preview(move(8)));
   assert.equal(p.placements[0].start, 8);
   for (const cmd of [
     move(15),
@@ -43,9 +45,10 @@ test("preview matches dispatch validation and produces placements without publis
   ]) {
     assert.deepEqual(editor.preview(cmd), editor.dispatch(cmd));
   }
-  assert.equal(editor.preview(move(2), { expectedRevision: 0 }).code, "stale-revision");
+  assert.equal(codeOf(editor.preview(move(2), { expectedRevision: 0 })), "stale-revision");
   assert.equal(
-    editor.preview(commands.splitClip({ clipId: "a", at: 5 })).code,
+    // @ts-expect-error -- Preview accepts only moves and trims, and the runtime rejects a split too.
+    codeOf(editor.preview(commands.splitClip({ clipId: "a", at: 5 }))),
     "unsupported-preview",
   );
   assert.equal(editor.getSnapshot(), snap);

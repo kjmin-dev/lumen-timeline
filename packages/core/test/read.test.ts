@@ -1,10 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createEditor, commands, unitsToTicks, ticksToUnits } from "@lumen-timeline/core";
+import type {
+  Clip,
+  EditResult,
+  ReadHandle,
+  TakeBinding,
+  TickRange,
+  Track,
+} from "@lumen-timeline/core";
 import { visitRange } from "@lumen-timeline/core/internal";
 
-const sec = (value) => unitsToTicks(value, 1);
-const clip = (id, trackId, start, duration, take = "A") => ({
+const sec = (value: number): number => unitsToTicks(value, 1);
+const clip = (
+  id: string,
+  trackId: string,
+  start: number,
+  duration: number,
+  take: string | null = "A",
+): Clip => ({
   id,
   trackId,
   kind: "audio",
@@ -13,9 +27,9 @@ const clip = (id, trackId, start, duration, take = "A") => ({
   contentIn: 0,
   activeTakeId: take,
 });
-const open = (clips, tracks = [{ id: "voice" }]) =>
+const open = (clips: readonly Clip[], tracks: readonly Track[] = [{ id: "voice" }]) =>
   createEditor({ project: { schemaVersion: 1, tracks, clips } });
-const binding = (rate) => ({
+const binding = (rate: number): TakeBinding => ({
   assetId: "asset",
   streamId: "mono",
   assetVersion: 1,
@@ -24,14 +38,14 @@ const binding = (rate) => ({
   availableStart: 0,
   availableEnd: rate * 20,
 });
-const range = (start, end) => ({ start, end });
-function commit(result) {
+const range = (start: number, end: number): TickRange => ({ start, end });
+function commit(result: EditResult): void {
   assert.equal(result.ok, true, JSON.stringify(result));
 }
 
 test("range query matches an independent seeded oracle, in stable document order", () => {
   let seed = 42;
-  const rand = (n) => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) % n;
+  const rand = (n: number): number => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) % n;
   const tracks = [{ id: "z", mute: true }, { id: "a" }, { id: "empty" }];
   const clips = [clip("long", "a", 0, 3000), clip("no-take", "z", 8, 20, null)];
   for (let i = 0; i < 500; i++)
@@ -72,7 +86,7 @@ test("range query matches an independent seeded oracle, in stable document order
 test("old snapshots and reentrant notifications retain their own layout", () => {
   const e = open([clip("line", "voice", 1, 3)]);
   const pinned = e.read();
-  const queried = [];
+  const queried: number[] = [];
   e.subscribe(
     (s) => s.revision,
     (r) => {
@@ -96,7 +110,7 @@ test("queries prune sparse windows without losing long overlaps or dense matches
     clip("long", "voice", 0, 50000),
     ...Array.from({ length: 499 }, (_, i) => clip(String(i), "voice", 100 + i * 80, 2)),
   ];
-  const found = [];
+  const found: string[] = [];
   const visits = visitRange(clips, 35001, 35010, (c) => found.push(c.id));
   assert.ok(visits < 50, String(visits));
   assert.deepEqual(found, ["long"]);
@@ -111,7 +125,7 @@ test("worked plan preserves absolute source samples across split, move and undo"
     const e = open([{ ...clip("line", "voice", sec(12), sec(4)), contentIn: sec(1) }]);
     const first = e.read();
     const catalog = { version: "v1", takes: { A: binding(rate) } };
-    function check(read, pos, id) {
+    function check(read: ReadHandle, pos: number, id: string): void {
       const q = range(unitsToTicks(pos, 10), unitsToTicks(pos + 1, 10));
       const plan = read.planAudio(q, catalog);
       assert.equal(plan.revision, read.revision);
