@@ -5,8 +5,8 @@ import {
   ticksToUnits,
   TICKS_PER_SECOND as hz,
   sourceWindow,
-  splitClip,
-} from "./time.mjs";
+} from "@lumen-timeline/core";
+import { splitClip } from "@lumen-timeline/core/internal";
 
 test("native sample and fractional-frame boundaries survive a seven-day round trip", () => {
   for (const [num, den] of [

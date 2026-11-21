@@ -1,5 +1,4 @@
-import { TICKS_PER_SECOND as hz } from "../../packages/core/time.mjs";
-import { createEditor } from "../../packages/core/index.mjs";
+import { TICKS_PER_SECOND as hz, createEditor } from "@lumen-timeline/core";
 import { bufferCatalog } from "./buffer-fixture.mjs";
 import { VideoTransport } from "./transport.mjs";
 import { createTake, frameObserver } from "./browser.mjs";

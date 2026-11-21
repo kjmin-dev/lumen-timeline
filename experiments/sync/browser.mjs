@@ -1,11 +1,7 @@
-import {
-  TICKS_PER_SECOND as hz,
-  sourceWindow,
-  splitClip,
-  ticksToUnits,
-} from "../../packages/core/time.mjs";
+import { TICKS_PER_SECOND as hz, sourceWindow, ticksToUnits } from "@lumen-timeline/core";
+import { splitClip } from "@lumen-timeline/core/internal";
 import { bufferCatalog } from "./buffer-fixture.mjs";
-import { createEditor, commands } from "../../packages/core/index.mjs";
+import { createEditor, commands } from "@lumen-timeline/core";
 import { VideoTransport, scheduleWindow, presentationTime } from "./transport.mjs";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

@@ -14,6 +14,10 @@ pre-commit:
       glob: "*.{js,mjs,cjs,ts,mts,cts}"
       run: npx oxlint --deny-warnings --report-unused-disable-directives-severity=error --no-error-on-unmatched-pattern {staged_files}
       fail_text: Fix the reported problems. `npm run fix` applies the safe fixes.
+    - name: types
+      glob: "*.{ts,mts,cts,json}"
+      run: npx tsrs -b
+      fail_text: Fix the type errors reported by tsrs.
     - name: unit
       glob: "*.{js,mjs,cjs,ts,mts,cts,json}"
       run: npm test --silent

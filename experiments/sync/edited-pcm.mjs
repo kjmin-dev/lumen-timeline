@@ -1,4 +1,4 @@
-import { commands, createEditor, unitsToTicks } from "../../packages/core/index.mjs";
+import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { verifyAudioOnlyPcm } from "./audio-only-pcm.mjs";
 import { verifyContinuousEdits } from "./continuous-edits.mjs";
 import { bufferCatalog } from "./buffer-fixture.mjs";

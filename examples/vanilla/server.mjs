@@ -8,6 +8,8 @@ export async function serve(port = 0) {
   const types = {
     ".html": "text/html",
     ".mjs": "text/javascript",
+    ".js": "text/javascript",
+    ".map": "application/json",
     ".css": "text/css",
     ".webm": "video/webm",
     ".ogg": "audio/ogg",

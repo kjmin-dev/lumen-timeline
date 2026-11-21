@@ -99,7 +99,7 @@ function fixture(t, options = {}) {
     editor,
     context,
     transport,
-    at(renderTime, outputTime = renderTime) {
+    at: (renderTime, outputTime = renderTime) => {
       context.currentTime = renderTime;
       context.outputTime = outputTime;
       t.mock.timers.tick(25);

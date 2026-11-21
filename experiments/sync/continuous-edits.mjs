@@ -1,4 +1,4 @@
-import { commands, createEditor, unitsToTicks } from "../../packages/core/index.mjs";
+import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { VideoTransport } from "./transport.mjs";
 import { bufferCatalog } from "./buffer-fixture.mjs";
 

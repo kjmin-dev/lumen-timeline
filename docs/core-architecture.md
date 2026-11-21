@@ -1,6 +1,6 @@
 # Core implementation architecture
 
-This is the implementation contract for the first release of Lumen Timeline. One JavaScript editor owns the project, edit history, selection and transport. It can run in Node, attach to an existing player, or drive several views of the same project. Browser adapters own playback and drawing resources. The optional Rust 1.100.0 WebAssembly component reduces large PCM buffers into waveform peaks.
+This is the implementation contract for the first release of Lumen Timeline. One editor owns the project, edit history, selection and transport. The core is written in strict TypeScript and compiled by tsrs. [TypeScript core plan](plans/typescript-core.md) It can run in Node, attach to an existing player, or drive several views of the same project. Browser adapters own playback and drawing resources. The optional Rust 1.100.0 WebAssembly component reduces large PCM buffers into waveform peaks.
 
 The [product design](design.md) defines the editing behavior, including trim, split, move and takes. The [roadmap](../ROADMAP.md) defines the release gates. The contracts below apply across all packages. File names and internal data structures can evolve behind them.
 

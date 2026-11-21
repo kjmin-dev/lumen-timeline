@@ -1,5 +1,5 @@
 import { reducePeaks } from "./peaks.mjs";
-import { unitsToTicks } from "../../packages/core/time.mjs";
+import { unitsToTicks } from "@lumen-timeline/core";
 export async function measure(moduleBytes) {
   const before = performance.now();
   const { instance } = await WebAssembly.instantiate(Uint8Array.from(moduleBytes));
@@ -71,7 +71,7 @@ export async function measure(moduleBytes) {
     jsPeaks,
     wasmResident: () => peaks(inputPtr, buckets, outputPtr),
     simdResident: () => peaks_simd(inputPtr, buckets, outputPtr),
-    simdWithCopies() {
+    simdWithCopies: () => {
       wasmPcm.set(pcm);
       peaks_simd(inputPtr, buckets, outputPtr);
       copied.set(wasmPairs);
