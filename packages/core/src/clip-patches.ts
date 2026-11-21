@@ -1,5 +1,6 @@
-import { requireEdit } from "./document.ts";
+import { defined } from "./invariant.ts";
 import type { Clip, ClipPatch } from "./types.ts";
+import { requireEdit } from "./validation.ts";
 
 function splice(index: number, before: readonly Clip[], after: readonly Clip[]): ClipPatch {
   return Object.freeze({ index, before: Object.freeze(before), after: Object.freeze(after) });
@@ -27,11 +28,11 @@ function sameFields(a: Clip, b: Clip): boolean {
 // A split's descendants stay in the original clip's array slot until commit.
 // Moves affect placement on the timeline, independently of document array order.
 export class ClipDraft {
-  declare readonly clips: readonly Clip[];
-  declare readonly positions: ReadonlyMap<string, number>;
-  declare readonly edited: Map<string, Clip>;
-  declare readonly owners: Map<string, number>;
-  declare readonly groups: Map<number, Clip[]>;
+  readonly clips: readonly Clip[];
+  readonly positions: ReadonlyMap<string, number>;
+  readonly edited: Map<string, Clip>;
+  readonly owners: Map<string, number>;
+  readonly groups: Map<number, Clip[]>;
 
   constructor(clips: readonly Clip[], positions: ReadonlyMap<string, number>) {
     this.clips = clips;
@@ -48,7 +49,7 @@ export class ClipDraft {
 
   // `clip` is the current version of a clip from `get`, so it has an owner slot.
   replace(clip: Clip, after: readonly Clip[]): void {
-    const owner = (this.owners.get(clip.id) ?? this.positions.get(clip.id))!;
+    const owner = defined(this.owners.get(clip.id) ?? this.positions.get(clip.id), "clip slot");
     let group = this.groups.get(owner);
     if (!group) {
       group = [clip];
@@ -64,8 +65,8 @@ export class ClipDraft {
   patches(): readonly ClipPatch[] {
     const patches: ClipPatch[] = [];
     for (const [index, group] of this.groups) {
-      const original = this.clips[index]!;
-      if (sameFields(original, group[0]!)) group[0] = original;
+      const original = defined(this.clips[index], "original clip");
+      if (sameFields(original, defined(group[0], "group head"))) group[0] = original;
       if (group.length !== 1 || group[0] !== original)
         patches.push(splice(index, [original], group));
     }
@@ -88,29 +89,28 @@ export function rebase(
 ): readonly ClipPatch[] {
   let changed = false;
   const result = patches.map((patch) => {
-    const index = positions.get(patch.before[0]!.id);
-    if (index === undefined) conflict(patch.before[0]!.id, "History target is missing");
+    const expected = defined(patch.before[0], "patch target");
+    const desired = defined(patch.after[0], "patch result");
+    const index = positions.get(expected.id);
+    if (index === undefined) conflict(expected.id, "History target is missing");
     const before = clips.slice(index, index + patch.before.length);
-    for (const [i, expected] of patch.before.entries()) {
-      if (before[i]?.id !== expected.id)
-        conflict(expected.id, "Clip structure changed since this edit");
-      if (i > 0 && !sameFields(before[i], expected))
-        conflict(expected.id, "Undo would remove a modified split child");
+    for (const [i, target] of patch.before.entries()) {
+      const found = before[i];
+      if (found?.id !== target.id) conflict(target.id, "Clip structure changed since this edit");
+      if (i > 0 && !sameFields(found, target))
+        conflict(target.id, "Undo would remove a modified split child");
     }
-    const expected = patch.before[0]!;
-    const desired = patch.after[0]!;
     let head = desired;
-    if (before[0] !== expected) {
-      const current = before[0]!;
-      const merged: { [field: string]: unknown } = { ...current };
+    const current = defined(before[0], "current target");
+    if (current !== expected) {
+      const merged: { -readonly [K in keyof Clip]: Clip[K] } = { ...current };
       for (const key of Object.keys(desired)) {
         if (Object.is(expected[key], desired[key])) continue;
         if (!Object.is(current[key], expected[key]))
           conflict(expected.id, "History field changed: " + key);
         merged[key] = desired[key];
       }
-      // The merge starts from a complete clip and only replaces its fields.
-      head = Object.freeze(merged) as Clip;
+      head = Object.freeze(merged);
     }
     const after = [head, ...patch.after.slice(1)];
     for (const child of after.slice(1)) {

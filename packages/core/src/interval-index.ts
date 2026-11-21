@@ -1,3 +1,4 @@
+import { defined } from "./invariant.ts";
 import type { Clip, Tick } from "./types.ts";
 
 // A balanced tree over the editor's start-ordered track array. The midpoint of
@@ -12,7 +13,7 @@ function indexFor(clips: readonly Clip[]): Float64Array {
   function build(lo: number, hi: number): number {
     if (lo >= hi) return -Infinity;
     const mid = Math.floor((lo + hi) / 2);
-    const clip = clips[mid]!;
+    const clip = defined(clips[mid], "indexed clip");
     ends[mid] = Math.max(clip.start + clip.duration, build(lo, mid), build(mid + 1, hi));
     return ends[mid];
   }
@@ -35,9 +36,13 @@ export function visitRange(
     if (lo >= hi) return;
     const mid = Math.floor((lo + hi) / 2);
     visited++;
-    if (ends[mid]! <= start || clips[lo]!.start >= end) return;
+    if (
+      defined(ends[mid], "subtree end") <= start ||
+      defined(clips[lo], "subtree head").start >= end
+    )
+      return;
     walk(lo, mid);
-    const clip = clips[mid]!;
+    const clip = defined(clips[mid], "subtree root");
     if (clip.start >= end) return;
     if (clip.start + clip.duration > start) emit(clip);
     walk(mid + 1, hi);

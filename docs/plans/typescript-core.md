@@ -38,6 +38,11 @@ Before writing this plan, we tried each tool on scratch copies of the repository
 5. **Pin compilers in pairs.** Pin `tsrs` and `typescript` to the same TypeScript version, without a caret. CI uses tsrs default mode and never `--fast`, which tsrs documents can change diagnostics. Upgrade both together in a dedicated PR that runs the parity job.
 6. **Source and dist are selected by a scoped condition.** `@lumen-timeline/source` maps exports to `src/*.ts` for tests and type-checking. Without the condition, Node, browsers and bundlers get `dist/`. A scoped name can't collide with a consumer's own `source` condition.
 7. **Formatting follows the oxfmt defaults.** The output is Prettier-compatible with `printWidth` 100. There is no style to debate and no options to migrate when oxfmt changes. The config only adds the schema reference and excludes recorded measurement data.
+8. **No assertions.** Sources and tests use no `as` assertions except `as const`, and no non-null `!`, definite assignment or non-optional `declare` fields.
+   - **Enforcement.** Oxlint rejects the first two with `consistent-type-assertions` (`assertionStyle: "never"`) and `no-non-null-assertion`. Review covers the rest.
+   - **JSON boundary.** Loading parses JSON into new typed records. It checks every typed field, including track names, mute, solo and gain, and clip names, take and continuity IDs and extensions, so a snapshot's types describe its contents.
+   - **Invariants.** A value that internal code guarantees goes through a `defined()` invariant check instead of `!`.
+   - **Host globals.** The core reads `crypto.randomUUID`, `reportError` and `queueMicrotask` through `Reflect.get` and `typeof` checks.
 
 ## Target layout
 

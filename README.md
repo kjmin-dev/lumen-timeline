@@ -18,7 +18,7 @@ The core will own editing commands, time and history. A shared browser view will
 
 ## Development
 
-`@lumen-timeline/core` is written in strict TypeScript. [tsrs](https://github.com/oxc-project/tsrs) type-checks it and emits `packages/core/dist`, which browsers and Node load by default. `npm install` builds it. `npm run build` rebuilds it, and `npm test` runs the suite directly against the TypeScript sources on Node 26. [oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) formats the repository with its default configuration. [Oxlint](https://oxc.rs/docs/guide/usage/linter.html) enforces correctness rules, package boundaries and type-aware rules that keep `any` out of the core.
+`@lumen-timeline/core` is written in strict TypeScript. [tsrs](https://github.com/oxc-project/tsrs) type-checks it and emits `packages/core/dist`, which browsers and Node load by default. `npm install` builds it. `npm run build` rebuilds it, and `npm test` runs the suite directly against the TypeScript sources on Node 26. [oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) formats the repository with its default configuration. [Oxlint](https://oxc.rs/docs/guide/usage/linter.html) enforces correctness rules, package boundaries and type-aware rules that keep `any` out of the core. It also bans `as` and non-null `!` assertions, so the compiler checks every type.
 
 Run `npm run check` before committing. It runs:
 

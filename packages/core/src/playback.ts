@@ -1,4 +1,4 @@
-import { validId } from "./document.ts";
+import { validId } from "./validation.ts";
 import { sourceWindow, ticksToUnits, unitsToTicks } from "./time.ts";
 import type {
   AudioPlan,
@@ -15,7 +15,7 @@ import type {
 } from "./types.ts";
 
 const validVersion = (value: unknown): value is Version =>
-  validId(value) || (Number.isSafeInteger(value) && (value as number) >= 0);
+  validId(value) || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0);
 
 function nativeRange(
   start: Tick,

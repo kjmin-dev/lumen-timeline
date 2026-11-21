@@ -5,7 +5,14 @@
     "correctness": "error"
   },
   "rules": {
-    "import/no-cycle": "error"
+    "import/no-cycle": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/consistent-type-assertions": [
+      "error",
+      {
+        "assertionStyle": "never"
+      }
+    ]
   },
   "overrides": [
     {

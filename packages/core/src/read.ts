@@ -1,4 +1,5 @@
-import { isArray, requireEdit } from "./document.ts";
+import { defined } from "./invariant.ts";
+import { isArray, requireEdit } from "./validation.ts";
 import { visitRange } from "./interval-index.ts";
 import { planAudio } from "./playback.ts";
 import type {
@@ -41,38 +42,37 @@ export function readRegistry(tracks: readonly Track[]): ReadRegistry {
     read(snapshot) {
       const layout = layouts.get(snapshot);
       requireEdit(layout, "foreign-snapshot", null, "Read requires a snapshot from this editor");
-      if (!handles.has(snapshot)) {
-        handles.set(
-          snapshot,
-          Object.freeze({
-            revision: snapshot.revision,
-            clipsIn(range: TickRange, { trackIds }: ClipQueryOptions = {}): readonly Clip[] {
-              validate(range);
-              const found: Clip[] = [];
-              const visit = (id: string): number =>
-                visitRange(layout.get(id), range.start, range.end, (clip) => found.push(clip));
-              if (trackIds === undefined) {
-                for (const track of tracks) visit(track.id);
-              } else {
-                requireEdit(isArray(trackIds), "invalid-selection", null, "Expected track IDs");
-                const ids = [...new Set(trackIds)];
-                for (const id of ids)
-                  requireEdit(order.has(id), "missing-track", id, "Unknown query track");
-                // Every ID was checked against `order` above.
-                for (const id of ids.sort((a, b) => order.get(a)! - order.get(b)!)) visit(id);
-              }
-              return Object.freeze(found);
-            },
-            planAudio(range: TickRange, catalog: TakeCatalog): AudioPlan {
-              validate(range);
-              return planAudio(snapshot.revision, tracks, range, catalog, (id, emit) =>
-                visitRange(layout.get(id), range.start, range.end, emit),
-              );
-            },
-          }),
-        );
-      }
-      return handles.get(snapshot)!;
+      const cached = handles.get(snapshot);
+      if (cached) return cached;
+      const handle: ReadHandle = Object.freeze({
+        revision: snapshot.revision,
+        clipsIn(range: TickRange, { trackIds }: ClipQueryOptions = {}): readonly Clip[] {
+          validate(range);
+          const found: Clip[] = [];
+          const visit = (id: string): number =>
+            visitRange(layout.get(id), range.start, range.end, (clip) => found.push(clip));
+          if (trackIds === undefined) {
+            for (const track of tracks) visit(track.id);
+          } else {
+            requireEdit(isArray(trackIds), "invalid-selection", null, "Expected track IDs");
+            const ids = [...new Set(trackIds)];
+            for (const id of ids)
+              requireEdit(order.has(id), "missing-track", id, "Unknown query track");
+            // Every ID was checked against `order` above.
+            const rank = (id: string): number => defined(order.get(id), "track order");
+            for (const id of ids.sort((a, b) => rank(a) - rank(b))) visit(id);
+          }
+          return Object.freeze(found);
+        },
+        planAudio(range: TickRange, catalog: TakeCatalog): AudioPlan {
+          validate(range);
+          return planAudio(snapshot.revision, tracks, range, catalog, (id, emit) =>
+            visitRange(layout.get(id), range.start, range.end, emit),
+          );
+        },
+      });
+      handles.set(snapshot, handle);
+      return handle;
     },
   };
 }
