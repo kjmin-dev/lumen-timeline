@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium, firefox, webkit } from "playwright";
 import { verifyEdits } from "./verify-edits.mjs";
+import { verifyMarkers } from "./verify-markers.mjs";
 import { serve } from "./server.mjs";
 
 const server = await serve();
@@ -113,6 +114,8 @@ try {
       await page.getByRole("button", { name: "Pause", exact: true }).click();
       if (process.env.LUMEN_SCREENSHOT)
         await page.screenshot({ path: process.env.LUMEN_SCREENSHOT });
+      await verifyMarkers(page);
+      console.log(engine + ": marker keys, toolbar, undo, playback continuity and reopen passed");
     }
     if (dpr === 2) {
       const layout = await page.evaluate(async () => {
