@@ -71,7 +71,7 @@ export async function measure(moduleBytes) {
     jsPeaks,
     wasmResident: () => peaks(inputPtr, buckets, outputPtr),
     simdResident: () => peaks_simd(inputPtr, buckets, outputPtr),
-    simdWithCopies() {
+    simdWithCopies: () => {
       wasmPcm.set(pcm);
       peaks_simd(inputPtr, buckets, outputPtr);
       copied.set(wasmPairs);
