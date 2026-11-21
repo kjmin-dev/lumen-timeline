@@ -42,7 +42,7 @@
 
 ## PR N — The view and the vanilla example
 
-- **Display.** The ruler draws each marker as a flag with its label, and the clip surface draws a thin line. Marker changes repaint only the ruler and the static clip layer. Steady playback still causes no static repaints.
+- **Display.** The ruler draws each marker as a flag with its label, and the overlay layer draws a thin line across the clips. Marker changes repaint only the ruler and the overlay layer. Steady playback still causes no static repaints.
 - **Keyboard and controls.**
   - On the ruler or the clip surface, `]` and `[` seek to the next or previous marker, and `M` adds a marker at the playhead.
   - A marker navigator lists markers in order and seeks to the chosen one.

@@ -29,6 +29,8 @@ export interface SnapOptions {
     readonly neighbors?: boolean;
     /** Snap to the playhead. Defaults to true. */
     readonly playhead?: boolean;
+    /** Snap to saved markers. Defaults to true. */
+    readonly markers?: boolean;
 }
 /** Snap options with their defaults applied. */
 export interface SnapConfig extends SnapOptions {

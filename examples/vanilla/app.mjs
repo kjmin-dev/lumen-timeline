@@ -45,6 +45,10 @@ const videoProject = {
       activeTakeId: "bed",
     },
   ],
+  markers: [
+    { id: "marker-line", start: 12 * hz, label: "Tidal line" },
+    { id: "marker-return", start: 19 * hz, label: "Return" },
+  ],
 };
 const audioProject = {
   schemaVersion: 1,
@@ -52,6 +56,10 @@ const audioProject = {
   clips: [
     { ...videoProject.clips[0], name: "Field narration", start: 2 * hz },
     { ...videoProject.clips[2], name: "Low water bed" },
+  ],
+  markers: [
+    { id: "marker-narration", start: 2 * hz, label: "Narration" },
+    { id: "marker-fade", start: 20 * hz, label: "Fade" },
   ],
 };
 export const project = video ? videoProject : audioProject;

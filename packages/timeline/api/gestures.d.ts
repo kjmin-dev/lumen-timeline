@@ -13,6 +13,9 @@ export interface SnapHold {
 /** The read handle members snapping needs. */
 export interface SnapRead {
     clipsIn(range: TickRange, options?: ClipQueryOptions): readonly Span[];
+    markersIn(range: TickRange): readonly {
+        readonly start: Tick;
+    }[];
 }
 /** A clip being dragged: its placement and track. */
 export type DragClip = Span & {
@@ -42,7 +45,7 @@ export declare function handleAt(box: {
     readonly left: number;
     readonly right: number;
 }, x: number, width: number): Edge;
-export declare function snapDelta(delta: number, clips: readonly DragClip[], edge: Edge, dest: string | undefined, { gridTicks, tolerancePx, neighbors, playhead: snapToPlayhead }: SnapConfig, view: Pick<Viewport, "pixelsPerSecond">, read: SnapRead, playhead: Tick, held?: SnapHold | null): {
+export declare function snapDelta(delta: number, clips: readonly DragClip[], edge: Edge, dest: string | undefined, { gridTicks, tolerancePx, neighbors, playhead: snapToPlayhead, markers, }: SnapConfig, view: Pick<Viewport, "pixelsPerSecond">, read: SnapRead, playhead: Tick, held?: SnapHold | null): {
     readonly delta: number;
     readonly held?: SnapHold;
 };
