@@ -9,6 +9,9 @@
     },
     {
       "path": "packages/media"
+    },
+    {
+      "path": "packages/media/test"
     }
   ]
 }

@@ -6,10 +6,14 @@ import {
   sequenceDuration,
   TICKS_PER_SECOND as hz,
 } from "@lumen-timeline/core";
+import type { Clip, TakeCatalog } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
+import type { AudioBufferLike, ResolveBuffer } from "@lumen-timeline/media";
+import type { TestContext } from "node:test";
+import { FakeContext, sink } from "./fakes.ts";
 
-const sec = (n) => Math.round(n * hz);
-const clip = (id, start, duration, contentIn = 0) => ({
+const sec = (n: number): number => Math.round(n * hz);
+const clip = (id: string, start: number, duration: number, contentIn = 0): Clip => ({
   id,
   trackId: id,
   activeTakeId: id,
@@ -18,44 +22,15 @@ const clip = (id, start, duration, contentIn = 0) => ({
   duration: sec(duration),
   contentIn: sec(contentIn),
 });
-function clock(rate, state = "running") {
-  return Object.assign(new EventTarget(), {
-    currentTime: 0,
-    outputTime: 0,
-    state,
-    sampleRate: rate,
-    nodes: [],
-    getOutputTimestamp() {
-      return { contextTime: this.outputTime, performanceTime: 1000 };
-    },
-    setState(next) {
-      this.state = next;
-      this.dispatchEvent(new Event("statechange"));
-    },
-    resume() {
-      this.setState("running");
-      return Promise.resolve();
-    },
-    createBufferSource() {
-      const node = {
-        playbackRate: { value: 1 },
-        stops: [],
-        connect() {},
-        disconnect() {},
-        start(when, offset) {
-          this.when = when;
-          this.offset = offset;
-        },
-        stop(when) {
-          this.stops.push(when);
-        },
-      };
-      this.nodes.push(node);
-      return node;
-    },
-  });
+const clock = (rate: number, state: AudioContextState = "running"): FakeContext =>
+  new FakeContext(rate, state);
+interface FixtureOptions {
+  readonly context?: FakeContext;
+  readonly clips?: Clip[];
+  readonly duration?: number;
+  readonly resolveBuffer?: ResolveBuffer;
 }
-function fixture(t, options = {}) {
+function fixture(t: TestContext, options: FixtureOptions = {}) {
   const context = options.context ?? clock(48000);
   const clips = options.clips ?? [clip("music", 0, 8), clip("dialogue", 2, 4, 1)];
   const editor = createEditor({
@@ -67,7 +42,7 @@ function fixture(t, options = {}) {
     },
   });
   const rate = context.sampleRate;
-  const catalog = {
+  const catalog: TakeCatalog = {
     version: 1,
     takes: Object.fromEntries(
       clips.map((c) => [
@@ -87,7 +62,7 @@ function fixture(t, options = {}) {
   const transport = createAudioTransport({
     editor,
     context,
-    output: {},
+    output: sink,
     catalog,
     resolveBuffer: options.resolveBuffer ?? (() => ({ sampleRate: rate, length: 10 * rate })),
   });
@@ -99,15 +74,21 @@ function fixture(t, options = {}) {
     editor,
     context,
     transport,
-    at: (renderTime, outputTime = renderTime) => {
+    at: (renderTime: number, outputTime = renderTime) => {
       context.currentTime = renderTime;
       context.outputTime = outputTime;
       t.mock.timers.tick(25);
     },
   };
 }
-function timers(t) {
+function timers(t: TestContext): void {
   t.mock.timers.enable({ apis: ["setInterval"] });
+}
+/** The most recently created item, which the test expects to exist. */
+function last<T>(items: readonly T[]): T {
+  const item = items.at(-1);
+  assert.ok(item !== undefined, "Expected at least one item");
+  return item;
 }
 
 test("overlapping voices keep native offsets and the music reservation across move, undo and redo", async (t) => {
@@ -120,7 +101,7 @@ test("overlapping voices keep native offsets and the music reservation across mo
     const first = context.nodes[0].when;
     at(first);
     const bed = transport.diagnostics("music");
-    const offset = () => Math.round(context.nodes.at(-1).offset * rate);
+    const offset = () => Math.round(last(context.nodes).offset * rate);
     assert.equal(Math.round(context.nodes[0].offset * rate), 3.25 * rate);
     assert.equal(offset(), 2.25 * rate);
     assert.ok(editor.dispatch(commands.moveClips({ clipIds: ["dialogue"], delta: hz })).ok);
@@ -153,9 +134,9 @@ test("presentation uses output time, freezes on pause and labels an estimated fa
 
 test("a paused seek, pause or disposal supersedes a pending resume immediately", async (t) => {
   timers(t);
-  for (const action of ["seek", "pause", "dispose"]) {
+  for (const action of ["seek", "pause", "dispose"] as const) {
     const context = clock(48000, "suspended");
-    let resume;
+    let resume: (() => void) | undefined;
     context.resume = () =>
       new Promise((yes) => {
         resume = yes;
@@ -168,6 +149,7 @@ test("a paused seek, pause or disposal supersedes a pending resume immediately",
     if (action === "dispose") await assert.rejects(start, /disposed/);
     else assert.equal(await start, "superseded");
     context.setState("running");
+    assert.ok(resume);
     resume();
     await Promise.resolve();
     assert.equal(context.nodes.length, 0);
@@ -188,7 +170,7 @@ test("rapid playing seeks acknowledge only the newest audible mapping", async (t
   assert.equal(context.nodes.length, 3); // original music plus two final voices
   at(1.1, 1);
   assert.equal(transport.snapshot().status, "seeking");
-  const boundary = context.nodes.at(-1).when;
+  const boundary = last(context.nodes).when;
   at(1.1, boundary);
   const results = await Promise.all(requests);
   assert.equal(results.filter((x) => x === "superseded").length, 99);
@@ -230,7 +212,7 @@ test("interruption recovers only the latest play intent and keeps a borrowed con
 test("gaps advance, natural end fires once and replay starts at zero", async (t) => {
   timers(t);
   const { transport, context, at } = fixture(t, { clips: [clip("line", 2, 1)], duration: 4 });
-  const ended = [];
+  const ended: number[] = [];
   transport.subscribe((s) => {
     if (s.status === "ended") ended.push(s.presentedTick);
   });
@@ -272,12 +254,13 @@ test("extent follows clip edits and undo; a shortened sequence clamps and an emp
 
 test("disposed transport discards deferred buffers and settles pending seek", async (t) => {
   timers(t);
-  let complete, signal;
+  let complete: ((buffer: AudioBufferLike) => void) | undefined;
+  let signal: AbortSignal | undefined;
   const { transport, context } = fixture(t, {
     clips: [clip("music", 0, 8)],
     resolveBuffer: (_, s) => {
       signal = s;
-      return new Promise((yes) => {
+      return new Promise<AudioBufferLike>((yes) => {
         complete = yes;
       });
     },
@@ -287,7 +270,8 @@ test("disposed transport discards deferred buffers and settles pending seek", as
   await Promise.resolve();
   transport.dispose();
   await assert.rejects(seeking, /disposed/);
-  assert.ok(signal.aborted);
+  assert.ok(signal?.aborted);
+  assert.ok(complete);
   complete({ sampleRate: 48000, length: 480000 });
   await Promise.resolve();
   assert.equal(context.nodes.length, 0);
@@ -309,10 +293,13 @@ test("pausing a forward seek before device arrival freezes the last presented po
 
 test("a late superseded buffer never starts, even when its replacement is already scheduled", async (t) => {
   timers(t);
-  const loads = [];
+  const loads: { resolve: (buffer: AudioBufferLike) => void; signal: AbortSignal }[] = [];
   const { transport, context, at } = fixture(t, {
     clips: [clip("music", 0, 8)],
-    resolveBuffer: (_, signal) => new Promise((resolve) => loads.push({ resolve, signal })),
+    resolveBuffer: (_, signal) =>
+      new Promise<AudioBufferLike>((resolve) => {
+        loads.push({ resolve, signal });
+      }),
   });
   await transport.play();
   at(1);
