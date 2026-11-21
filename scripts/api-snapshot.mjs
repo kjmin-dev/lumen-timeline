@@ -4,7 +4,10 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const packages = [{ dir: "packages/core", entries: ["index.d.ts", "internal.d.ts"] }];
+const packages = [
+  { dir: "packages/core", entries: ["index.d.ts", "internal.d.ts"] },
+  { dir: "packages/media", entries: ["index.d.ts", "internal.d.ts"] },
+];
 const update = process.argv.includes("--update");
 const failures = [];
 
