@@ -22,7 +22,7 @@ const probe = pcmOnly
     ? "soak(" + soakSeconds + ")"
     : "run(" + (control ? 0.1 : 0) + ")";
 const pageHtml = `<video muted playsinline width="160" height="64"></video><button>Run</button>
-<script type="importmap">{"imports":{"@lumen-timeline/media":"/packages/media/index.mjs","@lumen-timeline/core":"/packages/core/dist/index.js","@lumen-timeline/core/internal":"/packages/core/dist/internal.js"}}</script>
+<script type="importmap">{"imports":{"@lumen-timeline/media":"/packages/media/dist/index.js","@lumen-timeline/media/internal":"/packages/media/dist/internal.js","@lumen-timeline/core":"/packages/core/dist/index.js","@lumen-timeline/core/internal":"/packages/core/dist/internal.js"}}</script>
 <script type="module">
 import {run} from '/experiments/sync/browser.mjs'
 import {soak} from '/experiments/sync/soak.mjs'
@@ -33,11 +33,6 @@ const modules = new Set([
   "/experiments/sync/browser.mjs",
   "/experiments/sync/probe.js",
   "/experiments/sync/audio-only-pcm.mjs",
-  "/packages/media/index.mjs",
-  "/packages/media/video.mjs",
-  "/packages/media/audio.mjs",
-  "/packages/media/video-driver.mjs",
-  "/packages/media/voice-scheduler.mjs",
   "/experiments/sync/transport.mjs",
   "/experiments/sync/buffer-fixture.mjs",
   "/experiments/sync/continuous-edits.mjs",
@@ -51,7 +46,7 @@ const server = http.createServer(async (req, res) => {
       res.end(pageHtml);
       return;
     }
-    if (modules.has(req.url) || /^\/packages\/core\/dist\/[a-z-]+\.js$/.test(req.url)) {
+    if (modules.has(req.url) || /^\/packages\/(core|media)\/dist\/[a-z-]+\.js$/.test(req.url)) {
       res.setHeader("Content-Type", "text/javascript");
       res.end(await readFile(join(root, req.url)));
       return;

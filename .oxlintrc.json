@@ -48,7 +48,7 @@
       }
     },
     {
-      "files": ["packages/core/src/**"],
+      "files": ["packages/*/src/**"],
       "rules": {
         "typescript/ban-ts-comment": "error",
         "typescript/no-explicit-any": "error",

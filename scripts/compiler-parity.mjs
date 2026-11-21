@@ -9,6 +9,8 @@ import { join, relative } from "node:path";
 const projects = [
   { path: "packages/core", emit: true },
   { path: "packages/core/test", emit: false },
+  { path: "packages/media", emit: true },
+  { path: "packages/media/test", emit: false },
 ];
 const compilers = ["tsrs", "tsc"];
 const windows = process.platform === "win32";

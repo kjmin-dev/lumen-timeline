@@ -1,16 +1,80 @@
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
+import type {
+  AudioSpan,
+  EditCommit,
+  Editor,
+  PlanIssue,
+  ProjectSnapshot,
+  ReadHandle,
+  TakeCatalog,
+  Tick,
+  TickRange,
+} from "@lumen-timeline/core";
+import { defined } from "./invariant.ts";
+import type {
+  AudioBufferLike,
+  AudioContextLike,
+  AudioNodeLike,
+  BufferSourceLike,
+  GainNodeLike,
+  MediaErrorHandler,
+  ResolveBuffer,
+  TransportDiagnostics,
+} from "./types.ts";
+
+/** A project tick paired with the audio-context time at which it plays. */
+export interface Anchor {
+  readonly tick: Tick;
+  readonly audio: number;
+  readonly earliestTick: number;
+}
+
+/** One planned clip's resolution and reservation state. */
+export interface Voice {
+  readonly span: AudioSpan;
+  readonly generation: number;
+  readonly abort: AbortController;
+  buffer?: AudioBufferLike;
+  node?: BufferSourceLike;
+  gainNode?: GainNodeLike | null;
+  ended?: boolean;
+  failed?: boolean;
+  bookedStart?: Tick;
+  token?: object;
+  predecessorToken?: object | undefined;
+  startSample?: number;
+  endSample?: number;
+}
+
+export interface VoiceSchedulerOptions {
+  readonly context: AudioContextLike;
+  readonly output?: AudioNodeLike | undefined;
+  readonly editor: Editor;
+  readonly catalog: TakeCatalog;
+  readonly resolveBuffer: ResolveBuffer;
+  readonly onError?: MediaErrorHandler | undefined;
+  readonly onWake?: (() => void) | undefined;
+}
+
+/** The part of a span that `scheduleWindow` books. */
+export interface ScheduledWindow {
+  readonly start: Tick;
+  readonly end: Tick;
+  readonly sourceStart?: Tick;
+}
 
 // Quantize both endpoints on the same absolute output grid. A relative duration
 // can round up independently and double the sample at a split in Web Audio.
 export function scheduleWindow(
-  node,
-  window,
-  audioAtProjectZero,
-  outputRate,
-  sharedStartSample,
-  sourceSeconds = window.sourceStart / hz,
-) {
-  const sample = (tick) => Math.round((audioAtProjectZero + tick / hz) * outputRate);
+  node: BufferSourceLike,
+  window: ScheduledWindow,
+  audioAtProjectZero: number,
+  outputRate: number,
+  sharedStartSample?: number,
+  // A missing sourceStart reads as NaN, exactly as undefined did in arithmetic.
+  sourceSeconds: number = (window.sourceStart ?? NaN) / hz,
+): number {
+  const sample = (tick: Tick): number => Math.round((audioAtProjectZero + tick / hz) * outputRate);
   const start = sharedStartSample ?? sample(window.start);
   let end = sample(window.end);
   if (sharedStartSample !== undefined) {
@@ -29,6 +93,19 @@ export function scheduleWindow(
 }
 
 export class VoiceScheduler {
+  readonly context: AudioContextLike;
+  readonly output: AudioNodeLike;
+  read: ReadHandle;
+  catalog: TakeCatalog;
+  readonly resolveBuffer: ResolveBuffer;
+  readonly onError: MediaErrorHandler;
+  generation: number;
+  readonly voices: Map<string, Voice>;
+  issues: readonly PlanIssue[];
+  anchor: Anchor | null;
+  readonly unsubscribe: () => boolean;
+  readonly timer: ReturnType<typeof setInterval>;
+
   constructor({
     context,
     output = context.destination,
@@ -37,7 +114,7 @@ export class VoiceScheduler {
     resolveBuffer,
     onError = () => {},
     onWake,
-  }) {
+  }: VoiceSchedulerOptions) {
     this.context = context;
     this.output = output;
     this.read = editor.read();
@@ -50,12 +127,13 @@ export class VoiceScheduler {
     this.issues = [];
     this.anchor = null;
     this.unsubscribe = editor.subscribe(
-      (s) => s,
-      (snapshot, change) => {
+      (s: ProjectSnapshot) => s,
+      (snapshot: ProjectSnapshot, change: EditCommit) => {
         this.read = editor.read(snapshot);
         if (!this.anchor || !change.changedIds.length) return;
         const range = this.range();
-        const intersects = (edge) => edge.start < range.end && edge.end > range.start;
+        const intersects = (edge: TickRange): boolean =>
+          edge.start < range.end && edge.end > range.start;
         if (
           change.changedIds.some((id) => this.voices.has(id)) ||
           change.affected.before.some(intersects) ||
@@ -71,19 +149,20 @@ export class VoiceScheduler {
     }, 25);
   }
 
-  setAnchor(tick, audio, earliestTick = -Infinity) {
+  setAnchor(tick: Tick, audio: number, earliestTick: number = -Infinity): void {
     this.anchor = { tick, audio, earliestTick };
     this.fill();
   }
 
-  range() {
-    const projected =
-      this.anchor.tick + Math.ceil((this.context.currentTime - this.anchor.audio) * hz);
-    const start = Math.max(this.anchor.earliestTick, projected);
+  // Callers check that an anchor is set.
+  range(): TickRange {
+    const anchor = defined(this.anchor ?? undefined, "playback anchor");
+    const projected = anchor.tick + Math.ceil((this.context.currentTime - anchor.audio) * hz);
+    const start = Math.max(anchor.earliestTick, projected);
     return { start, end: start + hz / 10 };
   }
 
-  fill(changed) {
+  fill(changed?: ReadonlySet<string> | true): void {
     if (!this.anchor) return;
     const range = this.range();
     const read = this.read;
@@ -104,11 +183,11 @@ export class VoiceScheduler {
     for (const span of plan.spans) {
       if (this.read !== read || this.catalog !== catalog || this.generation !== generation) return;
       if (this.voices.has(span.clipId)) continue;
-      const voice = { span, generation, abort: new AbortController() };
+      const voice: Voice = { span, generation, abort: new AbortController() };
       this.voices.set(span.clipId, voice);
       try {
         const buffer = this.resolveBuffer(span, voice.abort.signal);
-        if (typeof buffer?.then === "function") {
+        if (isThenable(buffer)) {
           Promise.resolve(buffer)
             .then((value) => this.ready(voice, value))
             .catch((error) => this.fail(voice, error));
@@ -127,11 +206,11 @@ export class VoiceScheduler {
     }
   }
 
-  current(voice) {
+  current(voice: Voice): boolean {
     return this.generation === voice.generation && this.voices.get(voice.span.clipId) === voice;
   }
 
-  ready(voice, buffer) {
+  ready(voice: Voice, buffer: AudioBufferLike): void {
     if (!this.current(voice) || !this.anchor) return;
     const { spans } = this.read.planAudio(this.range(), this.catalog);
     const span = spans.find((s) => s.clipId === voice.span.clipId);
@@ -140,7 +219,8 @@ export class VoiceScheduler {
     this.scheduleReady(spans);
   }
 
-  acceptBuffer(voice, buffer) {
+  // JavaScript hosts are unchecked, so verify what the scheduler relies on.
+  acceptBuffer(voice: Voice, buffer: AudioBufferLike): void {
     if (
       buffer?.sampleRate !== voice.span.sampleRate ||
       !(buffer.length >= voice.span.audible.sourceEnd)
@@ -150,14 +230,15 @@ export class VoiceScheduler {
     voice.buffer = buffer;
   }
 
-  predecessor(span, spans, start) {
-    const sameChain = (other) => span.trackId === other.trackId && span.chainId === other.chainId;
+  predecessor(span: AudioSpan, spans: readonly AudioSpan[], start: Tick): Voice | undefined {
+    const sameChain = (other: AudioSpan): boolean =>
+      span.trackId === other.trackId && span.chainId === other.chainId;
     if (
       start !== span.audible.start ||
       spans.some((s) => s.clipId !== span.clipId && sameChain(s) && s.audible.start === start)
     )
       return;
-    let match;
+    let match: Voice | undefined;
     for (const other of this.voices.values()) {
       if (
         other.endSample === undefined ||
@@ -172,11 +253,13 @@ export class VoiceScheduler {
     return match;
   }
 
-  scheduleReady(spans) {
+  scheduleReady(spans: readonly AudioSpan[]): void {
     const nowSample = this.context.currentTime * this.context.sampleRate;
     const upcoming = spans.filter((span) => {
       const v = this.voices.get(span.clipId);
-      return v?.buffer && !v.failed && (!v.node || v.startSample > nowSample);
+      return (
+        v?.buffer && !v.failed && (!v.node || defined(v.startSample, "booked start") > nowSample)
+      );
     });
     // Availability may delay the audible start inside its placement. Book seams
     // in audible order, including futures booked before a predecessor decoded.
@@ -187,7 +270,8 @@ export class VoiceScheduler {
       const predecessor = this.predecessor(span, spans, voice.bookedStart ?? span.window.start);
       if (voice.node) {
         if (voice.predecessorToken === predecessor?.token) continue;
-        if (voice.startSample === predecessor?.endSample) {
+        // A booked voice has a start sample, so only a real predecessor can match it.
+        if (predecessor && voice.startSample === predecessor.endSample) {
           voice.predecessorToken = predecessor.token;
           continue;
         }
@@ -201,7 +285,8 @@ export class VoiceScheduler {
     }
   }
 
-  book(voice, span, predecessor) {
+  // Called only while an anchor is set.
+  book(voice: Voice, span: AudioSpan, predecessor: Voice | undefined): void {
     const node = this.context.createBufferSource();
     voice.node = node;
     voice.ended = false;
@@ -212,13 +297,14 @@ export class VoiceScheduler {
       gain?.disconnect();
       if (voice.node === node) voice.ended = true;
     };
-    node.buffer = voice.buffer;
+    node.buffer = defined(voice.buffer, "accepted buffer");
     if (gain) {
       gain.gain.value = span.gain;
       gain.connect(this.output);
     }
     node.connect(gain ?? this.output);
-    const origin = this.anchor.audio - this.anchor.tick / hz;
+    const anchor = defined(this.anchor ?? undefined, "playback anchor");
+    const origin = anchor.audio - anchor.tick / hz;
     const rate = this.context.sampleRate;
     const start = span.window.start;
     const shared = predecessor?.endSample;
@@ -236,7 +322,7 @@ export class VoiceScheduler {
     );
   }
 
-  fail(voice, error) {
+  fail(voice: Voice, error: unknown): void {
     if (!this.current(voice)) return;
     voice.node?.disconnect();
     voice.gainNode?.disconnect();
@@ -244,15 +330,18 @@ export class VoiceScheduler {
     this.onError(error, voice.span);
   }
 
-  cancel(voice, disconnect = false) {
+  cancel(voice: Voice, disconnect: boolean = false): void {
     if (this.voices.get(voice.span.clipId) !== voice) return;
     this.voices.delete(voice.span.clipId);
     voice.abort.abort();
     if (
       !voice.ended &&
       !voice.failed &&
+      voice.node &&
+      voice.endSample !== undefined &&
       voice.endSample > this.context.currentTime * this.context.sampleRate
     ) {
+      // A voice has an end sample only after its node is booked.
       voice.node.stop(this.context.currentTime);
     }
     if (disconnect) {
@@ -261,19 +350,19 @@ export class VoiceScheduler {
     }
   }
 
-  invalidate(disconnect = false) {
+  invalidate(disconnect: boolean = false): void {
     this.generation++;
     this.anchor = null;
     for (const voice of this.voices.values()) this.cancel(voice, disconnect);
   }
 
-  setCatalog(catalog) {
+  setCatalog(catalog: TakeCatalog): void {
     this.read.planAudio({ start: 0, end: 0 }, catalog);
     this.catalog = catalog;
     this.fill(true);
   }
 
-  diagnostics(clipId) {
+  diagnostics(clipId: string): TransportDiagnostics {
     const voice = this.voices.get(clipId);
     return Object.freeze({
       generation: this.generation,
@@ -283,14 +372,24 @@ export class VoiceScheduler {
     });
   }
 
-  dispose() {
+  dispose(): void {
     clearInterval(this.timer);
     this.unsubscribe();
     this.invalidate(true);
   }
 }
 
-function sameVoice(a, b) {
+// A thenable is any object or function with a callable `then`, as for `await`.
+function isThenable(
+  value: AudioBufferLike | PromiseLike<AudioBufferLike>,
+): value is PromiseLike<AudioBufferLike> {
+  return (
+    ((typeof value === "object" && value !== null) || typeof value === "function") &&
+    typeof Reflect.get(value, "then") === "function"
+  );
+}
+
+function sameVoice(a: AudioSpan, b: AudioSpan | undefined): boolean {
   return (
     b !== undefined &&
     a.clipId === b.clipId &&

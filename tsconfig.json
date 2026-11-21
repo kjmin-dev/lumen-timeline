@@ -1,4 +1,17 @@
 {
   "files": [],
-  "references": [{ "path": "packages/core" }, { "path": "packages/core/test" }]
+  "references": [
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/core/test"
+    },
+    {
+      "path": "packages/media"
+    },
+    {
+      "path": "packages/media/test"
+    }
+  ]
 }

@@ -1,23 +1,39 @@
 import { TICKS_PER_SECOND as hz, sequenceDuration } from "@lumen-timeline/core";
-import { VoiceScheduler } from "./voice-scheduler.mjs";
+import type { Tick } from "@lumen-timeline/core";
+import { VoiceScheduler } from "./voice-scheduler.ts";
+import type {
+  AudioContextLike,
+  AudioTransport,
+  AudioTransportState,
+  AudioTransportStatus,
+  ClockPrecision,
+  MediaOptions,
+  SeekResult,
+} from "./types.ts";
 
-function request() {
-  let resolve, reject;
-  const promise = new Promise((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
+interface Request<T> {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (error: unknown) => void;
+}
+
+type PlayResult = "playing" | "empty" | "superseded";
+
+function request<T>(): Request<T> {
+  const { promise, resolve, reject } = Promise.withResolvers<T>();
   return { promise, resolve, reject };
 }
 
 // Scheduling uses graph time. Presentation follows the sample heard at the
 // output device, which can be behind the graph when the output pipeline is full.
-function outputClock(context) {
+function outputClock(context: AudioContextLike): { time: number; precision: ClockPrecision } {
   const stamp = context.getOutputTimestamp?.();
   if (
     Number.isFinite(stamp?.performanceTime) &&
+    typeof stamp?.performanceTime === "number" &&
     stamp.performanceTime > 0 &&
     Number.isFinite(stamp.contextTime) &&
+    typeof stamp.contextTime === "number" &&
     stamp.contextTime >= 0 &&
     stamp.contextTime <= context.currentTime
   ) {
@@ -33,22 +49,22 @@ export function createAudioTransport({
   catalog,
   resolveBuffer,
   onError,
-}) {
+}: MediaOptions): AudioTransport {
   let end = sequenceDuration(editor.getSnapshot());
   let position = 0;
   let wantPlay = false;
   let disposed = false;
-  let starting = null;
-  let seeking = null;
-  let frame = null;
-  let state = Object.freeze({
+  let starting: Request<PlayResult> | null = null;
+  let seeking: (Request<SeekResult> & { readonly tick: Tick }) | null = null;
+  let frame: number | null = null;
+  let state: AudioTransportState = Object.freeze({
     status: "paused",
     playing: false,
     presentedTick: 0,
     requestedTick: null,
     precision: "exact",
   });
-  const listeners = new Set();
+  const listeners = new Set<(state: AudioTransportState) => void>();
   const scheduler = new VoiceScheduler({
     editor,
     context,
@@ -73,7 +89,11 @@ export function createAudioTransport({
   });
   context.addEventListener("statechange", contextChanged);
 
-  function publish(status, requestedTick = null, precision = "exact") {
+  function publish(
+    status: AudioTransportStatus,
+    requestedTick: Tick | null = null,
+    precision: ClockPrecision = "exact",
+  ): void {
     if (
       disposed ||
       (state.status === status &&
@@ -106,7 +126,7 @@ export function createAudioTransport({
       }
     }
   }
-  function currentTick(time = outputClock(context).time) {
+  function currentTick(time: number = outputClock(context).time): Tick {
     const anchor = scheduler.anchor;
     if (!anchor || (seeking && time < anchor.audio)) return Math.min(position, end);
     return Math.min(
@@ -114,11 +134,11 @@ export function createAudioTransport({
       Math.max(seeking?.tick ?? position, anchor.tick + Math.round((time - anchor.audio) * hz)),
     );
   }
-  function cancelFrame() {
+  function cancelFrame(): void {
     if (frame !== null) globalThis.cancelAnimationFrame(frame);
     frame = null;
   }
-  function frames() {
+  function frames(): void {
     if (frame !== null || !listeners.size || !scheduler.anchor || !globalThis.requestAnimationFrame)
       return;
     frame = globalThis.requestAnimationFrame(() => {
@@ -127,13 +147,13 @@ export function createAudioTransport({
       frames();
     });
   }
-  function supersede() {
+  function supersede(): void {
     starting?.resolve("superseded");
     seeking?.resolve("superseded");
     starting = null;
     seeking = null;
   }
-  function stop(tick, status) {
+  function stop(tick: Tick, status: AudioTransportStatus): void {
     wantPlay = false;
     supersede();
     cancelFrame();
@@ -141,13 +161,13 @@ export function createAudioTransport({
     position = tick;
     publish(status);
   }
-  function anchorAt(tick) {
+  function anchorAt(tick: Tick): void {
     // Give the first reservation one nominal render quantum to reach the graph.
     const sample = Math.ceil(context.currentTime * context.sampleRate) + 128;
     scheduler.setAnchor(tick, sample / context.sampleRate, tick);
     frames();
   }
-  function observe() {
+  function observe(): void {
     if (disposed || !scheduler.anchor || context.state !== "running") return;
     const clock = outputClock(context);
     if (seeking && clock.time < scheduler.anchor.audio) return;
@@ -160,7 +180,7 @@ export function createAudioTransport({
     if (position >= end) stop(end, end ? "ended" : "paused");
     else publish("playing", null, clock.precision);
   }
-  function contextChanged() {
+  function contextChanged(): void {
     if (disposed) return;
     if (context.state === "closed") {
       const error = new Error("Audio context closed");
@@ -199,14 +219,14 @@ export function createAudioTransport({
         if (!listeners.size) cancelFrame();
       };
     },
-    play() {
+    play(): Promise<PlayResult> {
       if (disposed || context.state === "closed")
         return Promise.reject(new Error("Transport unavailable"));
       if (!end) return Promise.resolve("empty");
       if (starting) return starting.promise;
       if (scheduler.anchor || seeking) return Promise.resolve("playing");
       if (position === end) position = 0;
-      const op = (starting = request());
+      const op = (starting = request<PlayResult>());
       wantPlay = true;
       publish("starting");
       const start = () => {
@@ -218,7 +238,7 @@ export function createAudioTransport({
         op.resolve("playing");
         observe();
       };
-      const failed = (error) => {
+      const failed = (error: unknown): void => {
         if (starting !== op) return;
         starting = null;
         op.reject(error);
@@ -237,7 +257,7 @@ export function createAudioTransport({
     pause() {
       if (!disposed && context.state !== "closed") stop(currentTick(), "paused");
     },
-    seek(tick) {
+    seek(tick: Tick): Promise<SeekResult> {
       if (disposed || context.state === "closed")
         return Promise.reject(new Error("Transport unavailable"));
       if (!Number.isSafeInteger(tick) || tick < 0 || tick > end)
@@ -254,7 +274,7 @@ export function createAudioTransport({
         publish(wantPlay ? "interrupted" : tick === end && end ? "ended" : "paused");
         return Promise.resolve("arrived");
       }
-      const op = (seeking = { ...request(), tick });
+      const op = (seeking = { ...request<SeekResult>(), tick });
       position = lastPresented;
       publish("seeking", tick, state.precision);
       queueMicrotask(() => {

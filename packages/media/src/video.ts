@@ -1,5 +1,12 @@
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
-import { VideoTransport } from "./video-driver.mjs";
+import type { Tick } from "@lumen-timeline/core";
+import { VideoTransport as VideoDriver } from "./video-driver.ts";
+import type {
+  SeekResult,
+  VideoTransport,
+  VideoTransportOptions,
+  VideoTransportState,
+} from "./types.ts";
 
 export function createVideoTransport({
   video,
@@ -9,21 +16,21 @@ export function createVideoTransport({
   catalog,
   resolveBuffer,
   onError,
-}) {
-  const listeners = new Set();
+}: VideoTransportOptions): VideoTransport {
+  const listeners = new Set<(state: VideoTransportState) => void>();
   const events = new AbortController();
-  let state = Object.freeze({
+  let state: VideoTransportState = Object.freeze({
     playing: !video.paused && !video.ended,
     presentedTick: Math.round(video.currentTime * hz),
     requestedTick: null,
   });
   let request = 0;
   let playIntent = 0;
-  function update(delta) {
+  function update(delta: Partial<VideoTransportState>): void {
     state = Object.freeze({ ...state, ...delta });
     for (const listener of listeners) listener(state);
   }
-  const driver = new VideoTransport(video, context, output, {
+  const driver = new VideoDriver(video, context, output, {
     editor,
     catalog,
     resolveBuffer,
@@ -50,7 +57,7 @@ export function createVideoTransport({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async play() {
+    async play(): Promise<void> {
       if (events.signal.aborted) throw new Error("Transport disposed");
       const intent = ++playIntent;
       await context.resume();
@@ -62,7 +69,7 @@ export function createVideoTransport({
         video.pause();
       }
     },
-    async seek(tick) {
+    async seek(tick: Tick): Promise<SeekResult> {
       if (events.signal.aborted) throw new Error("Transport disposed");
       if (!Number.isSafeInteger(tick) || tick < 0) throw new RangeError("Invalid project tick");
       const token = ++request;

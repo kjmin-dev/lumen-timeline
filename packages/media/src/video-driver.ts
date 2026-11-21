@@ -1,23 +1,65 @@
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
-import { VoiceScheduler } from "./voice-scheduler.mjs";
+import type { Editor, PlanIssue, TakeCatalog } from "@lumen-timeline/core";
+import { VoiceScheduler } from "./voice-scheduler.ts";
+import type { Anchor, Voice } from "./voice-scheduler.ts";
+import type {
+  AudioContextLike,
+  AudioNodeLike,
+  MediaErrorHandler,
+  ResolveBuffer,
+  SeekResult,
+  TimedAudioContext,
+  VideoElementLike,
+} from "./types.ts";
+
+function reportsOutputTime(context: AudioContextLike): context is TimedAudioContext {
+  return typeof context.getOutputTimestamp === "function";
+}
+
+export interface VideoDriverOptions {
+  readonly editor: Editor;
+  readonly catalog: TakeCatalog;
+  readonly resolveBuffer: ResolveBuffer;
+  readonly onError?: MediaErrorHandler | undefined;
+  readonly onFrame?: ((seconds: number) => void) | undefined;
+}
+
+interface PendingSeek {
+  readonly target: number;
+  readonly resolve: (result: SeekResult) => void;
+  readonly reject: (error: unknown) => void;
+}
 
 // A frame timestamp must belong to the callback's performance time origin.
-export function presentationTime(now, expected) {
-  return Number.isFinite(expected) && Math.abs(expected - now) < 500 ? expected : now;
+export function presentationTime(now: number, expected: number | undefined): number {
+  return Number.isFinite(expected) && typeof expected === "number" && Math.abs(expected - now) < 500
+    ? expected
+    : now;
 }
 
 // Unit-speed experiment. The video is the clock; Web Audio owns sample delivery.
 export class VideoTransport {
+  readonly video: VideoElementLike;
+  readonly context: TimedAudioContext;
+  readonly scheduler: VoiceScheduler;
+  readonly onFrame: (seconds: number) => void;
+  phaseResets: number;
+  phaseExcursion: { readonly sign: number; readonly since: number } | null;
+  running: boolean;
+  readonly listeners: AbortController;
+  // Replaced by observe() before the constructor returns.
+  frame = 0;
+  // Created by the first seek, as before.
+  declare seekInFlight?: boolean;
+  declare pending?: PendingSeek | null;
+
   constructor(
-    video,
-    context,
-    output,
-    { editor, catalog, resolveBuffer, onError = () => {}, onFrame = () => {} },
+    video: VideoElementLike,
+    context: AudioContextLike,
+    output: AudioNodeLike,
+    { editor, catalog, resolveBuffer, onError = () => {}, onFrame = () => {} }: VideoDriverOptions,
   ) {
-    if (
-      typeof video.requestVideoFrameCallback !== "function" ||
-      typeof context.getOutputTimestamp !== "function"
-    ) {
+    if (typeof video.requestVideoFrameCallback !== "function" || !reportsOutputTime(context)) {
       throw new Error(
         "This clock probe requires video frame callbacks and audio output timestamps",
       );
@@ -37,7 +79,7 @@ export class VideoTransport {
     this.phaseExcursion = null;
     this.running = !video.paused && !video.ended && video.readyState >= 3;
     this.listeners = new AbortController();
-    const listen = (type, fn) =>
+    const listen = (type: string, fn: () => void): void =>
       video.addEventListener(type, fn, { signal: this.listeners.signal });
     for (const type of ["waiting", "seeking", "pause", "ended"]) {
       listen(type, () => {
@@ -51,40 +93,42 @@ export class VideoTransport {
     this.observe();
   }
 
-  get generation() {
+  get generation(): number {
     return this.scheduler.generation;
   }
-  get anchor() {
+  get anchor(): Anchor | null {
     return this.scheduler.anchor;
   }
-  get voices() {
+  get voices(): Map<string, Voice> {
     return this.scheduler.voices;
   }
-  get issues() {
+  get issues(): readonly PlanIssue[] {
     return this.scheduler.issues;
   }
-  get catalog() {
+  get catalog(): TakeCatalog {
     return this.scheduler.catalog;
   }
-  setCatalog(catalog) {
+  setCatalog(catalog: TakeCatalog): void {
     this.scheduler.setCatalog(catalog);
   }
-  fill() {
+  fill(): void {
     this.scheduler.fill();
   }
 
-  observe() {
+  observe(): void {
     const generation = this.generation;
     this.frame = this.video.requestVideoFrameCallback((now, frame) => {
       this.observe();
       if (generation !== this.generation || this.video.seeking || this.seekInFlight) return;
       if (this.video.paused || this.running) this.onFrame(frame.mediaTime);
       if (this.video.paused || !this.running) return;
+      // Missing timestamp fields read as NaN, exactly as undefined did in arithmetic.
       const stamp = this.context.getOutputTimestamp();
-      if (!(stamp.performanceTime > 0)) return;
+      const performanceTime = stamp.performanceTime ?? NaN;
+      if (!(performanceTime > 0)) return;
       const audio =
-        stamp.contextTime +
-        (presentationTime(now, frame.expectedDisplayTime) - stamp.performanceTime) / 1000;
+        (stamp.contextTime ?? NaN) +
+        (presentationTime(now, frame.expectedDisplayTime) - performanceTime) / 1000;
       if (
         this.anchor &&
         Math.abs(this.anchor.tick / hz + audio - this.anchor.audio - frame.mediaTime) > 0.075
@@ -98,22 +142,26 @@ export class VideoTransport {
     });
   }
 
-  lostLock(media, audio) {
+  lostLock(media: number, audio: number): boolean {
     // Consecutive video observations can agree with one another while a long
     // source booked against an older anchor slips further from the output clock.
     const tick = media * hz;
     let worst = 0;
     for (const voice of this.voices.values()) {
+      // A voice with an end sample was booked, so its start fields are set too.
+      const { bookedStart, startSample, endSample } = voice;
       if (
-        voice.endSample === undefined ||
+        endSample === undefined ||
+        bookedStart === undefined ||
+        startSample === undefined ||
         voice.ended ||
         voice.failed ||
-        tick < voice.bookedStart ||
+        tick < bookedStart ||
         tick >= voice.span.audible.end
       )
         continue;
-      const fraction = (tick - voice.bookedStart) / (voice.span.audible.end - voice.bookedStart);
-      const sample = voice.startSample + fraction * (voice.endSample - voice.startSample);
+      const fraction = (tick - bookedStart) / (voice.span.audible.end - bookedStart);
+      const sample = startSample + fraction * (endSample - startSample);
       const error = sample / this.context.sampleRate - audio;
       if (Math.abs(error) > Math.abs(worst)) worst = error;
     }
@@ -126,25 +174,25 @@ export class VideoTransport {
     return audio - this.phaseExcursion.since >= 0.2;
   }
 
-  invalidate() {
+  invalidate(): void {
     this.phaseExcursion = null;
     this.scheduler.invalidate();
   }
 
-  seek(target) {
+  seek(target: number): Promise<SeekResult> {
     if (this.listeners.signal.aborted) return Promise.reject(new Error("Transport disposed"));
     if (!Number.isFinite(target) || target < 0 || target > this.video.duration) {
       return Promise.reject(new RangeError("Target outside media range"));
     }
     if (this.pending) this.pending.resolve("superseded");
-    const result = new Promise((resolve, reject) => {
+    const result = new Promise<SeekResult>((resolve, reject) => {
       this.pending = { target, resolve, reject };
     });
     if (!this.seekInFlight) void this.drainSeeks();
     return result;
   }
 
-  async drainSeeks() {
+  async drainSeeks(): Promise<void> {
     this.seekInFlight = true;
     this.invalidate();
     try {
@@ -175,10 +223,10 @@ export class VideoTransport {
     }
   }
 
-  nativeSeek(target) {
-    return new Promise((resolve, reject) => {
+  nativeSeek(target: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       const events = new AbortController();
-      const finish = (error) => {
+      const finish = (error?: unknown): void => {
         events.abort();
         clearTimeout(timeout);
         if (error) reject(error);
@@ -209,7 +257,7 @@ export class VideoTransport {
     });
   }
 
-  dispose() {
+  dispose(): void {
     this.pending?.reject(new Error("Transport disposed"));
     this.pending = null;
     this.listeners.abort();
