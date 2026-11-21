@@ -181,7 +181,8 @@ export class VideoTransport {
       const finish = (error) => {
         events.abort();
         clearTimeout(timeout);
-        error ? reject(error) : resolve();
+        if (error) reject(error);
+        else resolve();
       };
       const timeout = setTimeout(() => finish(new Error("Native seek timed out")), 5000);
       this.video.addEventListener(

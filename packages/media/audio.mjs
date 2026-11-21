@@ -90,6 +90,7 @@ export function createAudioTransport({
       precision,
     });
     state = next;
+    // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may unsubscribe or issue commands during delivery, so iterate a snapshot.
     for (const listener of [...listeners]) {
       if (state !== next) break; // A listener issued a newer command.
       if (listeners.has(listener)) {
