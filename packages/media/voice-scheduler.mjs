@@ -22,7 +22,7 @@ export function scheduleWindow(node, window, audioAtProjectZero, outputRate, sha
 }
 
 export class VoiceScheduler {
-  constructor({ context, output = context.destination, editor, catalog, resolveBuffer, onError = () => {} }) {
+  constructor({ context, output = context.destination, editor, catalog, resolveBuffer, onError = () => {}, onWake }) {
     this.context = context
     this.output = output
     this.read = editor.read()
@@ -44,16 +44,17 @@ export class VoiceScheduler {
         this.fill(new Set(change.changedIds))
       }
     })
-    this.timer = setInterval(() => this.fill(), 25)
+    this.timer = setInterval(() => { onWake?.(); this.fill() }, 25)
   }
 
-  setAnchor(tick, audio) {
-    this.anchor = { tick, audio }
+  setAnchor(tick, audio, earliestTick = -Infinity) {
+    this.anchor = { tick, audio, earliestTick }
     this.fill()
   }
 
   range() {
-    const start = this.anchor.tick + Math.ceil((this.context.currentTime - this.anchor.audio) * hz)
+    const projected = this.anchor.tick + Math.ceil((this.context.currentTime - this.anchor.audio) * hz)
+    const start = Math.max(this.anchor.earliestTick, projected)
     return { start, end: start + hz / 10 }
   }
 

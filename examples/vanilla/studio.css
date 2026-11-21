@@ -26,3 +26,10 @@ dt { color:#aebbbd; } dd { text-align:right; }
 .project-actions { display:flex; gap:8px; }
 .project-actions button { color:#e4e9e3; background:#253034; border:1px solid #445257; border-radius:5px; padding:6px 10px; cursor:pointer; }
 .project-actions button:disabled { opacity:.45; cursor:default; }
+
+header a { color:#c7e2d7; font-size:13px; text-underline-offset:4px; }
+.audio-panel { border:1px solid #3a4548; border-radius:10px; background:#1b2326; overflow:hidden; }
+.source-row,.clock-row { display:flex; flex-wrap:wrap; gap:12px; padding:15px 16px; align-items:baseline; border-top:1px solid #364045; }
+.source-row strong { flex:1; font-size:15px; font-weight:550; }
+.source-row span,.clock-row { font-size:13px; color:#aebbbd; }
+.clock-row output { color:#b3dfce; margin-left:auto; }

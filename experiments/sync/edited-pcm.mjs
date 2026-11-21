@@ -1,4 +1,5 @@
 import { commands, createEditor, unitsToTicks } from '../../packages/core/index.mjs'
+import { verifyAudioOnlyPcm } from './audio-only-pcm.mjs'
 import { verifyContinuousEdits } from './continuous-edits.mjs'
 import { bufferCatalog } from './buffer-fixture.mjs'
 import { scheduleWindow } from './transport.mjs'
@@ -109,6 +110,8 @@ export async function verifyEditedPcm() {
   }
   let continuousSamples = 0
   for (const rate of rates) continuousSamples += await verifyContinuousEdits(rate)
-  return { rates, renders: renders + rates.length, continuousSamples,
-    samplesCompared: renders * renderLength + continuousSamples, passed: true }
+  let audioOnlySamples = 0
+  for (const rate of rates) audioOnlySamples += await verifyAudioOnlyPcm(rate)
+  return { rates, renders: renders + 2 * rates.length, continuousSamples, audioOnlySamples,
+    samplesCompared: renders * renderLength + continuousSamples + audioOnlySamples, passed: true }
 }

@@ -1,5 +1,5 @@
 import { bindEditing, snapConfig } from './gestures.mjs'
-import { TICKS_PER_SECOND as hz } from '@lumen-timeline/core'
+import { TICKS_PER_SECOND as hz, sequenceDuration } from '@lumen-timeline/core'
 import { formatTime, hit, laneHeight, rowInset, pack, pixelAt, rectangle, tickAt, viewport, zoomAt } from './geometry.mjs'
 
 const maxTick = 7 * 86400 * hz
@@ -49,21 +49,18 @@ export function mountTimeline(container, { editor, transport, pixelsPerSecond = 
 
   function rebuildRows(dirty) {
     totalHeight = 0
-    let extent = 0
     rows = snapshot.tracks.map((track, index) => {
       if (!packed.has(track.id) || dirty?.has(track.id)) {
         const clips = read.clipsIn({ start: 0, end: maxTick }, { trackIds: [track.id] })
         const p = pack(clips)
-        p.end = clips.reduce((end, clip) => Math.max(end, clip.start + clip.duration), 0)
         packed.set(track.id, p)
       }
       const p = packed.get(track.id)
-      extent = Math.max(extent, p.end)
       const row = { track, index, top: totalHeight, ...p }
       totalHeight += p.height
       return row
     })
-    duration = snapshot.duration ?? extent
+    duration = sequenceDuration(snapshot)
   }
 
   function setup(canvas, w, h) {

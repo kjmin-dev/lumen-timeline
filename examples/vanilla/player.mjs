@@ -1,4 +1,4 @@
-import { createVideoTransport } from '@lumen-timeline/media'
+import { createAudioTransport, createVideoTransport } from '@lumen-timeline/media'
 import { createDemoAssets } from './assets.mjs'
 
 export async function attachPlayer(video, editor, onError) {
@@ -6,9 +6,10 @@ export async function attachPlayer(video, editor, onError) {
   let assets
   try {
     assets = createDemoAssets(context)
-    const player = createVideoTransport({ video, editor, context, ...assets, onError })
+    const options = { editor, context, ...assets, onError }
+    const player = video ? createVideoTransport({ ...options, video }) : createAudioTransport(options)
     return { transport: player,
-      dispose() { player.dispose(); assets.dispose(); video.pause(); return context.close() },
+      dispose() { player.dispose(); assets.dispose(); video?.pause(); return context.close() },
     }
   } catch (error) { assets?.dispose(); await context.close(); throw error }
 }

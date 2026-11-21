@@ -1,9 +1,9 @@
-import { createEditor, TICKS_PER_SECOND as hz } from '@lumen-timeline/core'
+import { createEditor, sequenceDuration, TICKS_PER_SECOND as hz } from '@lumen-timeline/core'
 import { mountTimeline } from '@lumen-timeline/timeline'
 import { attachPlayer } from './player.mjs'
 
 const video = document.querySelector('video')
-export const project = { schemaVersion: 1, duration: 24 * hz,
+const videoProject = { schemaVersion: 1, duration: 24 * hz,
   tracks: [{ id: 'dialogue', name: 'Dialogue', overlap: 'exclusive' }, { id: 'music', name: 'Music', locked: true }],
   clips: [
     { id: 'line', name: 'Tidal contours', trackId: 'dialogue', kind: 'audio', start: 12 * hz,
@@ -14,12 +14,20 @@ export const project = { schemaVersion: 1, duration: 24 * hz,
       duration: 24 * hz, contentIn: 0, contentBounds: { start: 0, end: 24 * hz }, activeTakeId: 'bed' },
   ],
 }
+const audioProject = { schemaVersion: 1, tracks: videoProject.tracks,
+  clips: [
+    { ...videoProject.clips[0], name: 'Field narration', start: 2 * hz },
+    { ...videoProject.clips[2], name: 'Low water bed' },
+  ],
+}
+export const project = video ? videoProject : audioProject
+
 export async function openProject(data) {
   const editor = createEditor({ project: data })
   const playback = await attachPlayer(video, editor, error => { document.querySelector('#status').textContent = error.message })
   const { transport } = playback
   const view = mountTimeline(document.querySelector('#timeline'), { editor, transport, snap: { gridTicks: hz / 10 },
-    pixelsPerSecond: Math.max(20, (document.querySelector('#timeline').clientWidth - 160) / 24) })
+    pixelsPerSecond: Math.max(20, (document.querySelector('#timeline').clientWidth - 160) / Math.max(1, sequenceDuration(editor.getSnapshot()) / hz)) })
   function inspector() {
     const snapshot = editor.getSnapshot()
     const c = snapshot.clips.find(clip => clip.id === editor.session.getSelection().at(-1))
@@ -38,15 +46,23 @@ export async function openProject(data) {
   }
   const deselect = editor.session.subscribeSelection(bindInspector)
   bindInspector()
+  const clockLabel = document.querySelector('#clock-mode')
+  function showClock(state) {
+    if (!clockLabel) return
+    const label = { output: 'Output timestamp', estimated: 'Rendering clock estimate', exact: 'Stopped position' }[state.precision]
+    if (label && clockLabel.textContent !== label) clockLabel.textContent = label
+  }
+  const offClock = clockLabel ? transport.subscribe(showClock) : () => {}
+  showClock(transport.snapshot())
   return { editor, view, transport, async dispose() {
-    off(); deselect(); view.dispose(); await playback.dispose(); editor.dispose()
+    off(); deselect(); offClock(); view.dispose(); await playback.dispose(); editor.dispose()
   } }
 }
 export let studio
 try { studio = await openProject(project) }
 catch (error) { document.querySelector('#status').textContent = error.message; throw error }
 
-const storageKey = 'lumen-timeline:vanilla:project:v1'
+const storageKey = video ? 'lumen-timeline:vanilla:project:v1' : 'lumen-timeline:audio:project:v1'
 const save = document.querySelector('#save'), reopen = document.querySelector('#reopen')
 const status = document.querySelector('#status')
 try { reopen.disabled = !localStorage.getItem(storageKey) } catch { reopen.disabled = true }

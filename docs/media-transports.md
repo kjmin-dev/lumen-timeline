@@ -13,3 +13,28 @@ The video driver observes presented frames and handles native seeking, buffering
 The public video factory accepts seeks in integer project ticks. Use `snapshot()`, `subscribe(listener)`, `play()`, `pause()`, `seek(tick)`, `setCatalog(catalog)` and `dispose()`. `diagnostics(clipId)` reports the generation, sample rate and an opaque reservation identity and end sample for that clip. The experiment's seconds-based API remains available to its original probes.
 
 The host owns the editor, video element, AudioContext, output and asset cache. Disposing the factory detaches the driver and cancels its work; the host decides when to pause the element or close its context. [Scheduling behavior and probes](incremental-playback.md)
+
+## Audio-only editing
+
+Run `npm run example:vanilla` and follow **Audio workspace**. The route uses the same timeline mount, selection, clip inspector, edit commands and JSON save/reopen controls. It has its own storage key and loads no video. Its playhead clock display identifies the timing source in use.
+
+```js
+import { createAudioTransport } from '@lumen-timeline/media'
+
+const transport = createAudioTransport({ editor, context, output: context.destination, catalog, resolveBuffer })
+const view = mountTimeline(element, { editor, transport })
+```
+
+The audio driver supports 1× playback. On play or an active seek, it anchors the project tick to an absolute output sample one nominal 128-frame quantum ahead of the rendering clock. The shared scheduler fills from the target tick, including sources already in progress. It also advances the transport through silence and stops at the exclusive sequence end. A fixed project duration sets the end. With an implicit duration, the ruler and transport both use the last clip end, including after undo and redo.
+
+- **Presentation.** Snapshots include `playing`, `presentedTick`, `requestedTick`, `status` and `precision`. While running, the driver's `output` precision uses the audio output timestamp's context time. A missing or unusable timestamp falls back to rendering time with `estimated` precision. A stationary editing position reports `exact`. A view can unsubscribe or skip an animation frame without changing the audio schedule. [Web Audio output time](https://www.w3.org/TR/2021/REC-webaudio-20210617/#dom-audiocontext-getoutputtimestamp)
+- **Play and pause.** Call `play()` on a user gesture. An empty sequence stays paused. Replay from the current end begins at zero. A pause freezes the presented position and cancels this driver's voices. A denied resume rejects its promise so the UI can offer another play action.
+- **Seek.** Use safe integer project ticks within the extent. A paused seek returns `arrived` immediately. A playing seek exposes the requested tick and coalesces same-turn requests. The latest request returns `arrived` when the presentation clock reaches its anchor; earlier requests return `superseded`. Seeking directly to the end stops there. Pause or seek during a pending start supersedes that start. A stale completion cannot book a voice.
+- **Interruption.** When the context stops running, freeze the playhead, invalidate reservations and retain the latest play intent. Recovery uses a fresh anchor. A user pause while interrupted keeps the transport paused after recovery. If editing shrinks the extent behind playback, clamp to the new end and stop.
+- **Ownership.** Pass a host-owned context, editor, output node and asset resolver. Pause and disposal leave other users of the context running. Disposal cancels pending loads and rejects pending transport operations, clears callbacks and releases this driver's reservations. Samples already in the device output pipeline may still drain.
+
+### Reproduce the audio-only checks
+
+Run `npm test` for clock races, interruption/recovery, source offsets, shared context isolation, gaps, end/replay and extent changes. `npm run verify:pcm` exercises both drivers using native OfflineAudioContext graphs at 44.1 and 48 kHz. The audio-only fixture checks 2,304 samples across adjoining voice windows, silence, overlapping music and dialogue edited while scheduled. The combined fixture covers 6,144 samples.
+
+Run `npm run verify:audio` for the Chromium audio-only route. With Playwright browsers installed, run `node examples/vanilla/verify-audio.mjs firefox` or `node examples/vanilla/verify-audio.mjs webkit` for the other engines. The trace checks ten seconds of playhead progress at a fixed viewport, zero additional static paints or history entries, 100 rapid seeks, pointer/keyboard edits, music continuity and a fresh editor loaded from JSON. It exercises the normal output timestamp and forces the estimated-clock fallback in a second page.

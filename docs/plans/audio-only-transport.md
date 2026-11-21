@@ -41,3 +41,5 @@ Use music at `[0,8)` s from source zero and dialogue at `[2,6)` s with a 1 s con
 | Regression and CI | Run the shared deterministic suite for both clock modes, the Chromium PCM job and both vanilla browser workflows. Repeat the audio-only visible trace locally in Firefox and WebKit. Record output-timestamp availability and any fallback in test results. |
 
 PR F depends on PR E. After both merge, the next remaining milestone 2 interaction is creating and navigating saved timeline markers. [Milestone 2](../../ROADMAP.md#milestones)
+
+The shared driver contracts, host example and verification commands are in the [media guide](../media-transports.md).
