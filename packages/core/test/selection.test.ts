@@ -10,7 +10,7 @@ test("shared selection publishes once, prunes a removed child, and leaves projec
       clips: [{ id: "a", trackId: "t", kind: "audio", start: 0, duration: 10, contentIn: 0 }],
     },
   });
-  const seen = [];
+  const seen: (readonly string[])[] = [];
   const off = e.session.subscribeSelection((ids) => seen.push(ids));
   e.session.select(["a", "a"]);
   e.session.select(["a"]);

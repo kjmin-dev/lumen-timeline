@@ -172,8 +172,9 @@ pre-commit:
 
 ## PR J — Typed tests and a locked API surface
 
-- Move core tests to `packages/core/test/*.test.ts`. Import through `@lumen-timeline/core` and `./internal` only, so the same suite runs on `src/` and `dist/`. Each malformed-command test keeps its runtime assertion and adds `@ts-expect-error`. Each such case then proves both guards.
-- Add `api:check`, which strips source-map comments from `dist/*.d.ts` and diffs them against `packages/core/api/`. `api:update` regenerates the snapshot. An intended API change shows up as a reviewed declaration diff in the same PR.
+- Move core tests to `packages/core/test/*.test.ts`. Import through `@lumen-timeline/core` and `./internal` only, so the same suite runs on `src/` and `dist/`. Each malformed-command test keeps its runtime assertion and adds `@ts-expect-error`. Each such case then proves both guards. Tests keep the strict base options except `noUncheckedIndexedAccess` and `noPropertyAccessFromIndexSignature`, because their assertions index fixtures directly.
+- Add `api:check`, which follows imports from each entry point's `dist/*.d.ts`, strips source-map comments and compares the result with `packages/core/api/`. `api:update` regenerates the snapshot. An intended API change shows up as a reviewed declaration diff in the same PR.
+- Two ill-typed fixtures still type-check, and the tests keep them as runtime-only rejections. `schemaVersion++` passes because TypeScript does not check increments against literal types. A `Map` stored in an unknown project field passes because unknown fields are typed `unknown`.
 
 ## Merge gates
 
