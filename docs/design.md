@@ -91,7 +91,7 @@ For a unit-speed clip, first compute `contentTime = contentIn + (projectTime - s
 - A mixing track sums overlaps and assigns visual subrows. An exclusive track rejects overlaps with a reason. Adjacent half-open intervals are valid. Ordinary move and trim keep neighboring clips in place.
 - Snap candidates include markers, playhead, adjacent boundaries and the frame or sample grid. Use a CSS-pixel tolerance and resolve ties by candidate priority and stable ID. A slightly wider release distance prevents jitter. Provide a temporary bypass and exact numeric inputs.
 - A drag captures the base revision and previews the same command a keyboard or inspector would issue. On release, revalidate and commit one transaction. Escape and pointer cancellation discard the preview.
-- Each successful command returns a revision, changed IDs, patches, inverse patches and affected time ranges. Include generated IDs and plugin edits in history so redo restores the same objects. A rejected command reports its code, target and reason. Seeking and selecting affect the session or transport.
+- An atomic transaction accepts one or more commands with a shared recording policy. Each changing transaction returns a revision, changed IDs, patches, inverse patches and affected time ranges. Include generated IDs and plugin edits in history so redo restores the same objects. A rejected command reports its code, target and reason. Seeking and selecting affect the session or transport.
 
 ## Playback and synchronization
 

@@ -20,7 +20,7 @@ export function validId(id) {
 }
 
 // Document payloads are JSON data. Cloning before freezing preserves host ownership.
-function freezeJson(value, ancestors) {
+export function freezeJson(value, ancestors = new Set()) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean' || Number.isFinite(value)) return value
   requireEdit(value && typeof value === 'object', 'invalid-project', null, 'Expected JSON project data')
   const prototype = Object.getPrototypeOf(value)

@@ -25,7 +25,8 @@ document.querySelector('button').onclick = () => { window.result = ${probe}; win
 </script>`
 const modules = new Set(['/experiments/sync/browser.mjs', '/experiments/sync/probe.js',
   '/experiments/sync/transport.mjs', '/experiments/sync/soak.mjs', '/experiments/sync/edited-pcm.mjs',
-  '/packages/core/index.mjs', '/packages/core/editor.mjs', '/packages/core/document.mjs', '/packages/core/time.mjs'])
+  '/packages/core/index.mjs', '/packages/core/editor.mjs', '/packages/core/document.mjs',
+  '/packages/core/clip-patches.mjs', '/packages/core/entity-data.mjs', '/packages/core/history.mjs', '/packages/core/time.mjs'])
 const server = http.createServer(async (req, res) => {
   try {
     if (req.url === '/') { res.setHeader('Content-Type', 'text/html'); res.end(pageHtml); return }
