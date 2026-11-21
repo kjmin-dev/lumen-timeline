@@ -197,6 +197,16 @@ export async function verifyEdits(browser, url) {
     await page.keyboard.up('Shift')
     assert.deepEqual((await state()).selected, ['line', 'return'])
     await page.keyboard.down('Alt')
+    const trace = await surface.evaluateHandle(el => {
+      const events = []
+      for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) {
+        el.addEventListener(type, e => {
+          const rect = el.getBoundingClientRect()
+          events.push([type, e.clientX - rect.left, e.clientY - rect.top, e.button, e.pointerId])
+        })
+      }
+      return events
+    })
     await drag(16, 15)
     let grouped = await state()
     assert.deepEqual(

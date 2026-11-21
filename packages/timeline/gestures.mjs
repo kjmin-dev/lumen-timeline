@@ -206,6 +206,9 @@ export function bindEditing({
 
   listen(surface, 'pointerdown', e => {
     if (e.button !== 0 || drag) return
+    // Shift-click is an editor selection gesture. Native text selection can
+    // otherwise start an HTML drag and cancel the next captured pointer.
+    e.preventDefault()
     surface.focus({ preventScroll: true })
     const p = point(e),
       b = p.box

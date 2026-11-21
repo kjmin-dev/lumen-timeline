@@ -30,7 +30,7 @@
 
 .lt button[data-play]:hover { background: #efb792; color: #251710; }
 
-.lt-surface { touch-action: none; }
+.lt-surface { touch-action: none; user-select: none; -webkit-user-select: none; }
 .lt-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid #384247; }
 .lt-edit label { display: inline-flex; align-items: center; gap: 6px; color: #bdc8c7; }
 .lt-edit input { width: 7em; }
