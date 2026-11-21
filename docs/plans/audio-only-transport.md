@@ -18,8 +18,8 @@ At `9bc5fed`, the timeline already consumes a small tick-based transport interfa
 Proposed host code:
 
 ```js
-const transport = createAudioTransport({ editor, context, output, catalog, resolveBuffer })
-const view = mountTimeline(element, { editor, transport })
+const transport = createAudioTransport({ editor, context, output, catalog, resolveBuffer });
+const view = mountTimeline(element, { editor, transport });
 ```
 
 - **Clock and presentation.** Start playback from a sample-aligned pair of project tick and context time. At 1×, map context time `C` to `anchorTick + round((C - anchorContextTime) * ticksPerSecond)`. Schedule from the context's rendering clock. For the playhead, use the context time reported for the audio output and label the rendering-clock fallback as estimated. Animation-frame callbacks publish a current observation while playing; callback count and timer cadence never determine project position. [Web Audio output timestamps](https://www.w3.org/TR/2021/REC-webaudio-20210617/#dom-audiocontext-getoutputtimestamp)
@@ -32,13 +32,13 @@ const view = mountTimeline(element, { editor, transport })
 
 Use music at `[0,8)` s from source zero and dialogue at `[2,6)` s with a 1 s content offset. At project 3.25 s, dialogue reads source 2.25 s. After moving the dialogue one second later, the same playhead reads 1.25 s. Music continues at source 3.25 s throughout.
 
-| Verification | Pass condition |
-| --- | --- |
-| Exact source mapping | At 44.1 kHz the dialogue samples before and after the move are 99,225 and 55,125. At 48 kHz they are 108,000 and 60,000. Undo and redo recover those values. The music source index and reservation stay independent of the edit. |
-| Fake clock and lifecycle | Cover seek during pending play, pause before resume completes, 100 rapid seek requests, context interruption, gaps, end/replay, duration shrink and disposal with a buffer in flight. Old-generation callbacks produce zero new starts. |
-| Actual mix | Compare native OfflineAudioContext output with an independent source-index oracle at both rates. Cover overlaps, exact shared edges and a segment of silence. Count missing, duplicate and unexpected nonzero samples. |
-| Visible workflow | In Playwright, assert that no video element exists. Play for ten seconds on a longer fixture with a fixed viewport. The playhead advances with zero additional static paints, document revisions or history entries. Pause, seek, edit by pointer and keyboard, undo, save and reopen. |
-| Regression and CI | Run the shared deterministic suite for both clock modes, the Chromium PCM job and both vanilla browser workflows. Repeat the audio-only visible trace locally in Firefox and WebKit. Record output-timestamp availability and any fallback in test results. |
+| Verification             | Pass condition                                                                                                                                                                                                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exact source mapping     | At 44.1 kHz the dialogue samples before and after the move are 99,225 and 55,125. At 48 kHz they are 108,000 and 60,000. Undo and redo recover those values. The music source index and reservation stay independent of the edit.                                                      |
+| Fake clock and lifecycle | Cover seek during pending play, pause before resume completes, 100 rapid seek requests, context interruption, gaps, end/replay, duration shrink and disposal with a buffer in flight. Old-generation callbacks produce zero new starts.                                                |
+| Actual mix               | Compare native OfflineAudioContext output with an independent source-index oracle at both rates. Cover overlaps, exact shared edges and a segment of silence. Count missing, duplicate and unexpected nonzero samples.                                                                 |
+| Visible workflow         | In Playwright, assert that no video element exists. Play for ten seconds on a longer fixture with a fixed viewport. The playhead advances with zero additional static paints, document revisions or history entries. Pause, seek, edit by pointer and keyboard, undo, save and reopen. |
+| Regression and CI        | Run the shared deterministic suite for both clock modes, the Chromium PCM job and both vanilla browser workflows. Repeat the audio-only visible trace locally in Firefox and WebKit. Record output-timestamp availability and any fallback in test results.                            |
 
 PR F depends on PR E. After both merge, the next remaining milestone 2 interaction is creating and navigating saved timeline markers. [Milestone 2](../../ROADMAP.md#milestones)
 

@@ -1,51 +1,67 @@
-import { TICKS_PER_SECOND as hz } from '@lumen-timeline/core'
+import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
 
-export const laneHeight = 34
-export const rowInset = 6
-export const tickAt = (x, view) => view.startTick + Math.round(x * hz / view.pixelsPerSecond)
-export const pixelAt = (tick, view) => (tick - view.startTick) / hz * view.pixelsPerSecond
+export const laneHeight = 34;
+export const rowInset = 6;
+export const tickAt = (x, view) => view.startTick + Math.round((x * hz) / view.pixelsPerSecond);
+export const pixelAt = (tick, view) => ((tick - view.startTick) / hz) * view.pixelsPerSecond;
 
 export function viewport(startTick, pixelsPerSecond, width, duration) {
-  if (!Number.isSafeInteger(startTick) || !Number.isFinite(pixelsPerSecond) || pixelsPerSecond <= 0) {
-    throw new RangeError('Expected a safe tick and positive zoom')
+  if (
+    !Number.isSafeInteger(startTick) ||
+    !Number.isFinite(pixelsPerSecond) ||
+    pixelsPerSecond <= 0
+  ) {
+    throw new RangeError("Expected a safe tick and positive zoom");
   }
-  const scale = Math.max(0.01, Math.min(pixelsPerSecond, hz))
-  const maxStart = Math.max(0, duration - Math.ceil(width * hz / scale))
-  return { startTick: Math.max(0, Math.min(startTick, maxStart)), pixelsPerSecond: scale }
+  const scale = Math.max(0.01, Math.min(pixelsPerSecond, hz));
+  const maxStart = Math.max(0, duration - Math.ceil((width * hz) / scale));
+  return { startTick: Math.max(0, Math.min(startTick, maxStart)), pixelsPerSecond: scale };
 }
 
 export function zoomAt(view, x, factor, width, duration) {
-  const scale = viewport(0, view.pixelsPerSecond * factor, width, duration).pixelsPerSecond
-  return viewport(tickAt(x, view) - Math.round(x * hz / scale), scale, width, duration)
+  const scale = viewport(0, view.pixelsPerSecond * factor, width, duration).pixelsPerSecond;
+  return viewport(tickAt(x, view) - Math.round((x * hz) / scale), scale, width, duration);
 }
 
 // clipsIn supplies a stable start/ID order for the whole track. Horizontal pans
 // reuse these assignments even when an overlapping predecessor is offscreen.
 export function pack(clips) {
-  const lanes = new Map()
-  const ends = []
+  const lanes = new Map();
+  const ends = [];
   for (const clip of clips) {
-    let index = ends.findIndex(end => end <= clip.start)
-    if (index < 0) index = ends.length
-    ends[index] = clip.start + clip.duration
-    lanes.set(clip.id, index)
+    let index = ends.findIndex((end) => end <= clip.start);
+    if (index < 0) index = ends.length;
+    ends[index] = clip.start + clip.duration;
+    lanes.set(clip.id, index);
   }
-  return { lanes, height: Math.max(1, ends.length) * laneHeight + rowInset * 2 }
+  return { lanes, height: Math.max(1, ends.length) * laneHeight + rowInset * 2 };
 }
 
 export function rectangle(clip, lane, rowTop, view, width) {
-  const left = pixelAt(clip.start, view)
-  const right = pixelAt(clip.start + clip.duration, view)
-  return { clip, left, right, x: Math.max(0, left), endX: Math.min(width, right),
-    y: rowTop + rowInset + laneHeight * lane, height: laneHeight - 3 }
+  const left = pixelAt(clip.start, view);
+  const right = pixelAt(clip.start + clip.duration, view);
+  return {
+    clip,
+    left,
+    right,
+    x: Math.max(0, left),
+    endX: Math.min(width, right),
+    y: rowTop + rowInset + laneHeight * lane,
+    height: laneHeight - 3,
+  };
 }
 
 export function hit(boxes, x, y) {
-  return boxes.find(b => b.x <= x && x < b.endX && b.y <= y && y < b.y + b.height)
+  return boxes.find((b) => b.x <= x && x < b.endX && b.y <= y && y < b.y + b.height);
 }
 
 export function formatTime(tick) {
-  const ms = Math.round(Math.max(0, tick) / hz * 1000)
-  return String(Math.floor(ms / 60000)).padStart(2, '0') + ':' +
-    String(Math.floor(ms / 1000) % 60).padStart(2, '0') + '.' + String(ms % 1000).padStart(3, '0')
+  const ms = Math.round((Math.max(0, tick) / hz) * 1000);
+  return (
+    String(Math.floor(ms / 60000)).padStart(2, "0") +
+    ":" +
+    String(Math.floor(ms / 1000) % 60).padStart(2, "0") +
+    "." +
+    String(ms % 1000).padStart(3, "0")
+  );
 }

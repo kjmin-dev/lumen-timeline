@@ -1,22 +1,69 @@
 <!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Low water · Lumen Timeline</title>
-<link rel="stylesheet" href="/packages/timeline/style.css"><link rel="stylesheet" href="./studio.css">
-<script type="importmap">{"imports":{"@lumen-timeline/media":"/packages/media/index.mjs","@lumen-timeline/core":"/packages/core/index.mjs","@lumen-timeline/timeline":"/packages/timeline/index.mjs"}}</script>
-</head><body>
-<header><div class="brand"><i aria-hidden="true"></i>Lumen <b>Timeline</b></div><a href="./index.html">Video workspace</a></header>
-<main>
-<div class="title"><h1>Low water</h1><div class="project-actions"><button id="save" type="button">Save project</button><button id="reopen" type="button">Reopen saved</button></div></div>
-<section class="workspace" aria-label="Audio sources and clip inspector">
-<div class="audio-panel"><div class="panel-head">Session sources <small>Audio only</small></div>
-<div class="source-row"><strong>Field narration</strong><span>Dialogue recording</span><small>8 s</small></div>
-<div class="source-row"><strong>Low water bed</strong><span>Synthesized music</span><small>24 s</small></div>
-<div class="clock-row">Playhead clock <output id="clock-mode">Stopped position</output></div></div>
-<aside><div class="panel-head">Clip inspector</div><h2 id="clip-name">No selection</h2>
-<dl><dt>Track</dt><dd id="track">—</dd><dt>Timeline range</dt><dd id="range">—</dd><dt>Source offset</dt><dd id="offset">—</dd><dt>Active take</dt><dd id="take">—</dd></dl></aside>
-</section>
-<div class="title timeline-title"><h2>Timeline</h2><span>2 audio tracks</span></div>
-<div id="timeline"></div><p id="status" role="status"></p>
-</main><script type="module" src="./app.mjs"></script>
-</body></html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Low water · Lumen Timeline</title>
+    <link rel="stylesheet" href="/packages/timeline/style.css" />
+    <link rel="stylesheet" href="./studio.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@lumen-timeline/media": "/packages/media/index.mjs",
+          "@lumen-timeline/core": "/packages/core/index.mjs",
+          "@lumen-timeline/timeline": "/packages/timeline/index.mjs"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <div class="brand"><i aria-hidden="true"></i>Lumen <b>Timeline</b></div>
+      <a href="./index.html">Video workspace</a>
+    </header>
+    <main>
+      <div class="title">
+        <h1>Low water</h1>
+        <div class="project-actions">
+          <button id="save" type="button">Save project</button
+          ><button id="reopen" type="button">Reopen saved</button>
+        </div>
+      </div>
+      <section class="workspace" aria-label="Audio sources and clip inspector">
+        <div class="audio-panel">
+          <div class="panel-head">Session sources <small>Audio only</small></div>
+          <div class="source-row">
+            <strong>Field narration</strong><span>Dialogue recording</span><small>8 s</small>
+          </div>
+          <div class="source-row">
+            <strong>Low water bed</strong><span>Synthesized music</span><small>24 s</small>
+          </div>
+          <div class="clock-row">
+            Playhead clock <output id="clock-mode">Stopped position</output>
+          </div>
+        </div>
+        <aside>
+          <div class="panel-head">Clip inspector</div>
+          <h2 id="clip-name">No selection</h2>
+          <dl>
+            <dt>Track</dt>
+            <dd id="track">—</dd>
+            <dt>Timeline range</dt>
+            <dd id="range">—</dd>
+            <dt>Source offset</dt>
+            <dd id="offset">—</dd>
+            <dt>Active take</dt>
+            <dd id="take">—</dd>
+          </dl>
+        </aside>
+      </section>
+      <div class="title timeline-title">
+        <h2>Timeline</h2>
+        <span>2 audio tracks</span>
+      </div>
+      <div id="timeline"></div>
+      <p id="status" role="status"></p>
+    </main>
+    <script type="module" src="./app.mjs"></script>
+  </body>
+</html>

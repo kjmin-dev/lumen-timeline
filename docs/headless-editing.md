@@ -3,27 +3,36 @@
 The `@lumen-timeline/core` workspace exposes synchronous move, trim and split commands and transaction history. Run `npm ci` at the repository root to link the workspace. The same JavaScript entry point runs in Node or a browser.
 
 ```js
-import { commands, createEditor, unitsToTicks } from '@lumen-timeline/core'
+import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
 
-const seconds = value => unitsToTicks(value, 1)
-const editor = createEditor({ project: {
-  schemaVersion: 1,
-  duration: seconds(30),
-  tracks: [{ id: 'voice', overlap: 'exclusive', accepts: ['audio'] }],
-  clips: [{
-    id: 'line', trackId: 'voice', kind: 'audio',
-    start: seconds(12), duration: seconds(4), contentIn: seconds(1),
-    takeSetId: 'recordings', activeTakeId: 'take-a',
-  }],
-} })
+const seconds = (value) => unitsToTicks(value, 1);
+const editor = createEditor({
+  project: {
+    schemaVersion: 1,
+    duration: seconds(30),
+    tracks: [{ id: "voice", overlap: "exclusive", accepts: ["audio"] }],
+    clips: [
+      {
+        id: "line",
+        trackId: "voice",
+        kind: "audio",
+        start: seconds(12),
+        duration: seconds(4),
+        contentIn: seconds(1),
+        takeSetId: "recordings",
+        activeTakeId: "take-a",
+      },
+    ],
+  },
+});
 
-const cut = editor.dispatch(commands.splitClip({ clipId: 'line', at: seconds(14) }))
+const cut = editor.dispatch(commands.splitClip({ clipId: "line", at: seconds(14) }));
 if (cut.ok) {
-  const [rightId] = cut.createdIds
-  editor.dispatch(commands.trimClip({ clipId: rightId, edge: 'left', delta: seconds(1) }))
-  editor.dispatch(commands.moveClips({ clipIds: [rightId], delta: seconds(2) }))
-  editor.history.undo()
-  editor.history.redo()
+  const [rightId] = cut.createdIds;
+  editor.dispatch(commands.trimClip({ clipId: rightId, edge: "left", delta: seconds(1) }));
+  editor.dispatch(commands.moveClips({ clipIds: [rightId], delta: seconds(2) }));
+  editor.history.undo();
+  editor.history.redo();
 }
 ```
 

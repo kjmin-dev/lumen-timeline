@@ -33,20 +33,20 @@ The second reference application is a podcast editor. It uses the audio output c
 
 Core APIs are implemented as pure JavaScript ES modules. Optional type declarations support typed consumers. The headless core runs in Node with a fake clock. Browser resources are acquired by explicitly mounting a view or attaching media.
 
-| Proposed package | Responsibility |
-| --- | --- |
-| `@lumen-timeline/core` | Project model, time conversions, track queries, commands, history, editor session, transport state and pure playback planning. |
-| `@lumen-timeline/media` | HTML media adapters, playback plan execution, Web Audio scheduling and mixing, asset resolution and waveform workers. |
-| `@lumen-timeline/timeline` | Shared DOM mount, timeline layout, hit testing, accessibility, interaction tools and rendering backends. |
-| `@lumen-timeline/react`, `@lumen-timeline/svelte`, `@lumen-timeline/solid`, `@lumen-timeline/vue` | Framework lifecycle, editor handles, selection subscriptions and panel composition around the same mounted view. |
-| Dubbing and podcast examples | App-specific layouts, fields, actions, fixtures and persistence adapters. |
+| Proposed package                                                                                  | Responsibility                                                                                                                 |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `@lumen-timeline/core`                                                                            | Project model, time conversions, track queries, commands, history, editor session, transport state and pure playback planning. |
+| `@lumen-timeline/media`                                                                           | HTML media adapters, playback plan execution, Web Audio scheduling and mixing, asset resolution and waveform workers.          |
+| `@lumen-timeline/timeline`                                                                        | Shared DOM mount, timeline layout, hit testing, accessibility, interaction tools and rendering backends.                       |
+| `@lumen-timeline/react`, `@lumen-timeline/svelte`, `@lumen-timeline/solid`, `@lumen-timeline/vue` | Framework lifecycle, editor handles, selection subscriptions and panel composition around the same mounted view.               |
+| Dubbing and podcast examples                                                                      | App-specific layouts, fields, actions, fixtures and persistence adapters.                                                      |
 
-| State | Owner and lifetime |
-| --- | --- |
+| State            | Owner and lifetime                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Project document | Tracks, placements, asset references, active takes, mix settings, saved markers and extension data. A committed edit increments the document revision. |
-| Editor session | Selected clip IDs, focused tool, viewport, snapping, panel sizes and drag previews. A host may save per-user preferences separately. |
-| Transport | Playback intent, actual state, requested position, presented position, playback rate, loop range and clock generation. |
-| Derived data | Visible geometry, active clips, waveform tiles, decoded samples and GPU buffers. Rebuild from the document, session and asset versions. |
+| Editor session   | Selected clip IDs, focused tool, viewport, snapping, panel sizes and drag previews. A host may save per-user preferences separately.                   |
+| Transport        | Playback intent, actual state, requested position, presented position, playback rate, loop range and clock generation.                                 |
+| Derived data     | Visible geometry, active clips, waveform tiles, decoded samples and GPU buffers. Rebuild from the document, session and asset versions.                |
 
 ### Framework wrapper contract
 
@@ -62,29 +62,29 @@ The view subscribes directly to the transport for frame updates and owns pointer
 - Clips and regions use half-open intervals `[start, end)` with positive duration. A reference-video sequence ends at the video duration. An audio-only sequence can derive its extent from the last clip, marker or region. A point marker may sit at the end.
 - The ruler is computed from the viewport, the playhead belongs to the transport, and user markers and regions belong to the document. Continuous forward playback emits crossed markers in `(previous, current]` order. A seek recomputes active regions at the destination.
 
-| Record | Contents |
-| --- | --- |
+| Record               | Contents                                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Project and sequence | Schema version, ID, time base, display rate, track order, optional reference video, assets, take sets, markers and extension entities. One sequence per project in the first release. |
-| Track | ID, kind, accepted clip kinds, overlap policy, lock, name, gain, mute and solo. |
-| Clip | ID, track ID, kind, start, duration, content offset (`contentIn`), optional take set and active take, extension data. |
-| Take set and take | Candidate IDs, asset and stream IDs, source position at content time zero and available source range. Multiple clips can share candidates. |
-| Asset | Stable ID, content version, host locator, streams, duration and original time units. Resolve signed URLs, blobs and decoded buffers at runtime. |
-| Marker and region | Stable ID, point or interval, label, color and optional extension data. |
-| Extension | `extensions[namespace] = { version, data }` on the entity that owns the field. A text or review cue can exist without a take. |
+| Track                | ID, kind, accepted clip kinds, overlap policy, lock, name, gain, mute and solo.                                                                                                       |
+| Clip                 | ID, track ID, kind, start, duration, content offset (`contentIn`), optional take set and active take, extension data.                                                                 |
+| Take set and take    | Candidate IDs, asset and stream IDs, source position at content time zero and available source range. Multiple clips can share candidates.                                            |
+| Asset                | Stable ID, content version, host locator, streams, duration and original time units. Resolve signed URLs, blobs and decoded buffers at runtime.                                       |
+| Marker and region    | Stable ID, point or interval, label, color and optional extension data.                                                                                                               |
+| Extension            | `extensions[namespace] = { version, data }` on the entity that owns the field. A text or review cue can exist without a take.                                                         |
 
 For a unit-speed clip, first compute `contentTime = contentIn + (projectTime - start)`. Then convert content time into source units and add the active take's `sourceAtContentZero`. Only the intersection with the take's available samples plays. Short takes leave silence, long takes end at the clip boundary, and a negative source origin can delay the first audible sample. [OpenTimelineIO time ranges](https://opentimelineio.readthedocs.io/en/latest/tutorials/time-ranges.html)
 
 ## Editing commands
 
-| Command | Result |
-| --- | --- |
-| Move | Change start and optionally track. Preserve content offset and duration. Validate destination kind, locks, overlap and sequence bounds for the whole selection before committing. |
-| Trim left by Δ | Add Δ to start and content offset. Subtract Δ from duration. The end and the mapping of the retained audio stay fixed. |
-| Trim right by Δ | Add Δ to duration. Respect the minimum edit unit. Plain media can extend to its available source handles. Dialogue slots may extend into silence within sequence bounds. |
-| Split | Keep the left ID, allocate a right ID and add the left duration to the right content offset. Both sides initially reference the same take set and active take. Reject a cut at either endpoint. |
-| Select take | Change the clip's active take and invalidate its waveform and audio plan. Resizing the slot to a take is a separate command. |
-| Set properties or mix | Commit metadata, name, gain, mute or solo. When any track is soloed, only unmuted solo tracks are audible. |
-| Add, remove or reorder | Use stable IDs. Removing a track and its clips is one transaction. Shared assets have an independent lifetime. |
+| Command                | Result                                                                                                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Move                   | Change start and optionally track. Preserve content offset and duration. Validate destination kind, locks, overlap and sequence bounds for the whole selection before committing.               |
+| Trim left by Δ         | Add Δ to start and content offset. Subtract Δ from duration. The end and the mapping of the retained audio stay fixed.                                                                          |
+| Trim right by Δ        | Add Δ to duration. Respect the minimum edit unit. Plain media can extend to its available source handles. Dialogue slots may extend into silence within sequence bounds.                        |
+| Split                  | Keep the left ID, allocate a right ID and add the left duration to the right content offset. Both sides initially reference the same take set and active take. Reject a cut at either endpoint. |
+| Select take            | Change the clip's active take and invalidate its waveform and audio plan. Resizing the slot to a take is a separate command.                                                                    |
+| Set properties or mix  | Commit metadata, name, gain, mute or solo. When any track is soloed, only unmuted solo tracks are audible.                                                                                      |
+| Add, remove or reorder | Use stable IDs. Removing a track and its clips is one transaction. Shared assets have an independent lifetime.                                                                                  |
 
 **Worked edit.** A line occupies `[12, 16)` seconds with `contentIn = 1`. Take B has source origin −1.5 s and available audio `[0, 2)`. It is audible over `[12.5, 14.5)`. Splitting at 14 s gives the right clip a content offset of 3 s and half a second of audible B. Moving that clip to 20 s plays the same audio over `[20, 20.5)`.
 
@@ -95,24 +95,24 @@ For a unit-speed clip, first compute `contentTime = contentIn + (projectTime - s
 
 ## Playback and synchronization
 
-| Mode | Clock and behavior |
-| --- | --- |
-| Reference video with dubbing | The video element supplies the clock. Observe displayed frames and schedule dubbed audio against corresponding Web Audio output times. |
-| Audio-only mix | Anchor project time to the audio output clock and schedule overlapping sources at absolute audio times. |
-| External player | Consume position, monotonic observation time, rate, playback state and precision. Enable controls and mixing according to the adapter's capabilities and measured sync accuracy. |
+| Mode                         | Clock and behavior                                                                                                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reference video with dubbing | The video element supplies the clock. Observe displayed frames and schedule dubbed audio against corresponding Web Audio output times.                                           |
+| Audio-only mix               | Anchor project time to the audio output clock and schedule overlapping sources at absolute audio times.                                                                          |
+| External player              | Consume position, monotonic observation time, rate, playback state and precision. Enable controls and mixing according to the adapter's capabilities and measured sync accuracy. |
 
 For video, pair `mediaTime` with `expectedDisplayTime` from the frame callback. Use `AudioContext.getOutputTimestamp()` to map the display time to the audio clock. Interpolate the playhead between observations with `requestAnimationFrame`. Where the observations are unavailable, sample the media element's current time and report estimated precision. Route guide audio or separated stems explicitly so a source is heard once. Cross-origin media can have different playback, analysis and mixing capabilities. [Video frame callbacks](https://wicg.github.io/video-rvfc/) · [Web Audio output timestamps](https://www.w3.org/TR/2021/REC-webaudio-20210617/#dom-audiocontext-getoutputtimestamp) · [Media element audio and cross-origin resources](https://www.w3.org/TR/2021/REC-webaudio-20210617/#MediaElementAudioSourceNode-security)
 
 Start by scheduling a 100 ms lookahead every 25 ms, then tune from measurements. Adjacent spans share an absolute output sample and use bounded phase correction at the far edge. The timer fills the schedule and the audio node controls sample onset. Include clips already in progress and start them at their mapped source offset. Route source through clip gain, track gain and master output. At a new playback rate, update both the time conversion and source consumption rate. Ordinary resampling changes pitch. [Transport and audio scheduling](core-architecture.md#transport-and-audio-scheduling)
 
-| Event | Required behavior |
-| --- | --- |
-| Play or pause | Track intent separately from actual playback. Resume the audio context on user interaction and surface a rejected play request. |
-| Scrub or seek | Move the requested playhead immediately. Keep one native seek in flight and only the newest waiting target. A native completion event has no request ID. Confirm arrival and presented time where available, handle cancellation or timeout, then resume the latest schedule. |
-| Stall, background interruption or rate change | Stop stale nodes, invalidate pending work and re-anchor to the current clock on recovery. Apply small drift corrections to future scheduling. Account for samples already submitted to the output device. |
-| Loop or range end | Stop or seek to the loop start at the half-open boundary. Reschedule spanning clips at their source offsets. |
-| Edit during playback | Rebuild the affected interval, stop removed or replaced sources with a short gain ramp and keep unaffected audio running. |
-| Missing media | Preserve clip identity and placement. Wait for a required reference, explain unavailable audition sources and relink assets by ID. |
+| Event                                         | Required behavior                                                                                                                                                                                                                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Play or pause                                 | Track intent separately from actual playback. Resume the audio context on user interaction and surface a rejected play request.                                                                                                                                               |
+| Scrub or seek                                 | Move the requested playhead immediately. Keep one native seek in flight and only the newest waiting target. A native completion event has no request ID. Confirm arrival and presented time where available, handle cancellation or timeout, then resume the latest schedule. |
+| Stall, background interruption or rate change | Stop stale nodes, invalidate pending work and re-anchor to the current clock on recovery. Apply small drift corrections to future scheduling. Account for samples already submitted to the output device.                                                                     |
+| Loop or range end                             | Stop or seek to the loop start at the half-open boundary. Reschedule spanning clips at their source offsets.                                                                                                                                                                  |
+| Edit during playback                          | Rebuild the affected interval, stop removed or replaced sources with a short gain ramp and keep unaffected audio running.                                                                                                                                                     |
+| Missing media                                 | Preserve clip identity and placement. Wait for a required reference, explain unavailable audition sources and relink assets by ID.                                                                                                                                            |
 
 A player adapter exposes `snapshot()`, `subscribe()` and `dispose()`, plus supported controls such as `play()`, `pause()` and `seek()`. A native player action updates transport state directly. A user command invokes the adapter once. Native seek completion provides the initial preview contract. Frame-addressable decoding would also require demuxing, a PTS/keyframe index and decoding up to the requested frame. [HTML media seeking](https://html.spec.whatwg.org/multipage/media.html#seeking) · [WebCodecs](https://www.w3.org/TR/webcodecs/)
 
@@ -133,25 +133,25 @@ The engine uses a shared CPU layout for rendering and hit testing. Like Lumen Ch
 A vanilla application supplies its media element, assets and project. The same editor handle can be passed to a framework wrapper.
 
 ```js
-import { commands, createEditor, time } from '@lumen-timeline/core'
-import { createBrowserMedia, fromVideoElement } from '@lumen-timeline/media'
-import { mountTimeline } from '@lumen-timeline/timeline'
+import { commands, createEditor, time } from "@lumen-timeline/core";
+import { createBrowserMedia, fromVideoElement } from "@lumen-timeline/media";
+import { mountTimeline } from "@lumen-timeline/timeline";
 
 const media = createBrowserMedia({
   reference: fromVideoElement(videoElement),
   assets: projectAssets,
-})
-const editor = createEditor({ project, media })
-const view = mountTimeline(timelineElement, { editor, renderer: 'webgpu' })
+});
+const editor = createEditor({ project, media });
+const view = mountTimeline(timelineElement, { editor, renderer: "webgpu" });
 
-editor.session.select(['clip-12'])
-await editor.transport.seek(time.seconds(12))
-editor.dispatch(commands.splitClip({ clipId: 'clip-12', at: time.seconds(14) }))
-editor.dispatch(commands.selectTake({ clipId: 'clip-12', takeId: 'take-b' }))
-editor.history.undo()
+editor.session.select(["clip-12"]);
+await editor.transport.seek(time.seconds(12));
+editor.dispatch(commands.splitClip({ clipId: "clip-12", at: time.seconds(14) }));
+editor.dispatch(commands.selectTake({ clipId: "clip-12", takeId: "take-b" }));
+editor.history.undo();
 
-view.dispose()
-editor.dispose()
+view.dispose();
+editor.dispose();
 ```
 
 A host can subscribe to stable field snapshots with `editor.subscribe(selector, listener)`. The timeline renderer uses the separate read-only `transport.onFrame(listener)` channel. Disposing the editor detaches its listeners and nodes. The host retains ownership of the supplied video element.
@@ -164,18 +164,18 @@ For example, a dubbing team can make both halves of a split line require review.
 
 ```js
 const review = definePlugin({
-  namespace: 'studio.review',
+  namespace: "studio.review",
   version: 1,
   clipFields: {
     status: {
-      type: 'enum',
-      values: ['pending', 'approved'],
-      default: 'pending',
-      onSplit: () => ({ left: 'pending', right: 'pending' }),
+      type: "enum",
+      values: ["pending", "approved"],
+      default: "pending",
+      onSplit: () => ({ left: "pending", right: "pending" }),
     },
   },
-})
-const editor = createEditor({ project, media, plugins: [review] })
+});
+const editor = createEditor({ project, media, plugins: [review] });
 ```
 
 - The dubbing host opens a document per work and target language. Documents can share the reference video and original line IDs. Translations, candidate takes and active choices belong to the target-language document. Restore the playhead using the common video time.
