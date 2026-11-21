@@ -8,7 +8,7 @@ Load `@lumen-timeline/timeline/style.css` and call `mountTimeline(element, { edi
 
 The ruler and static clips are cached separately from selection and the moving playhead. Track subrows are assigned from complete track intervals and retained across horizontal pans. Painting and picking use CSS pixels; the backing canvas follows device pixel ratio. `view.getDiagnostics()` returns paint and layout counts. `view.dispose()` releases that mount's observers, subscriptions and DOM. The host owns its editor and transport.
 
-Run `npm test` and `npm run verify:timeline` for geometry, session and real-browser checks. Install the test browser with `npx playwright install chromium`. The ten-second playback trace asserts zero extra layout or static paint operations at a fixed viewport.
+Run `npm test` and `npm run verify:timeline` for geometry, session and real-browser checks. `npm run verify:milestone` runs the milestone 2 acceptance session across both workspaces and a headless replay; pass `firefox` or `webkit` to `node examples/vanilla/verify-milestone.mjs` for the other engines. Install the test browser with `npx playwright install chromium`. The ten-second playback trace asserts zero extra layout or static paint operations at a fixed viewport.
 
 ## Markers
 
