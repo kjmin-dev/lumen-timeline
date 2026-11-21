@@ -26,7 +26,8 @@
     "verify:pcm": "node experiments/sync/run.mjs chromium --pcm",
     "example:vanilla": "node examples/vanilla/server.mjs",
     "verify:timeline": "node examples/vanilla/verify.mjs",
-    "verify:audio": "node examples/vanilla/verify-audio.mjs"
+    "verify:audio": "node examples/vanilla/verify-audio.mjs",
+    "verify:milestone": "node examples/vanilla/verify-milestone.mjs"
   },
   "devDependencies": {
     "@types/node": "26.6.6",

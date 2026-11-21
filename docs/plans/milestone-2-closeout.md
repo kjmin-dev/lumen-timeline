@@ -1,6 +1,6 @@
 # Close milestone 2
 
-**Status.** In progress.
+**Status.** Delivered: PR P in [#22](https://github.com/kjmin-dev/lumen-timeline/pull/22) and PR Q in [#23](https://github.com/kjmin-dev/lumen-timeline/pull/23).
 
 **User outcome.** In the audio workspace, play across the narration and fade markers and watch each one announced as playback crosses it. Seeking past a marker announces nothing. A single browser trace then walks every milestone 2 exit criterion end to end, and the roadmap records the milestone as complete. [Design](../design.md#time-and-project-format) · [Milestone 2](../../ROADMAP.md#milestones)
 
@@ -35,6 +35,7 @@ Each exit criterion has a check, but the checks are spread across separate trace
   - save and reopen, with the same clips, active takes and markers;
   - the same commands replayed headlessly in Node to the same snapshot;
   - an audio-only project played through silence to a marker at its end.
+- **Engines.** Every gesture lands on a whole CSS pixel, so engines that round pointer positions reach the same document. The trace passes in Chromium, Firefox and WebKit.
 - **Roadmap.** Milestone 2 is marked complete with a link to the trace. The ROADMAP and README status lines name what milestone 3 starts from.
 
 ## Merge gates
