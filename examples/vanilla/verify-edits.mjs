@@ -198,20 +198,23 @@ export async function verifyEdits(browser, url) {
     assert.deepEqual((await state()).selected, ['line', 'return'])
     await page.keyboard.down('Alt')
     const trace = await surface.evaluateHandle(el => {
-      const events = []
+      const events = [], controller = new AbortController()
       for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) {
-        el.addEventListener(type, e => {
+        document.addEventListener(type, e => {
           const rect = el.getBoundingClientRect()
-          events.push([type, e.clientX - rect.left, e.clientY - rect.top, e.button, e.pointerId])
-        })
+          events.push([type, e.target.className, e.clientX - rect.left, e.clientY - rect.top, e.pointerId])
+        }, { capture: true, signal: controller.signal })
       }
-      return events
+      return { events, stop: () => controller.abort() }
     })
     await drag(16, 15)
-    let grouped = await state()
+    const grouped = await state()
+    const groupEvents = await trace.evaluate(t => { t.stop(); return t.events })
+    await trace.dispose()
     assert.deepEqual(
       [clip(grouped).start / hz, grouped.clips.find(c => c.id === 'return').start / hz, grouped.undo],
       [14, 18, 1],
+      JSON.stringify({ message: grouped.message, selection: grouped.selected, events: groupEvents }),
     )
     await button('Undo').click()
     await drag(18 - 2 / 100, 17 - 2 / 100)
