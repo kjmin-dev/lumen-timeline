@@ -29,7 +29,7 @@ Drag a clip body to move the selection. Drag a visible endpoint to trim it. Shif
 
 The dashed overlay previews a candidate move or trim. Release commits one transaction. Escape, pointer cancellation, lost capture and view disposal discard the gesture. A change to a selected placement cancels the drag. Independent metadata writes can advance the revision while the gesture continues. On release the view validates the absolute intent against the latest sequence and track constraints.
 
-Configure snapping with `snap: { gridTicks, tolerancePx, neighbors, playhead }` in the mount options. The nearest target within the CSS-pixel tolerance wins. Ties prefer the playhead, then a neighboring boundary, then the grid. Hold Alt to bypass snapping. Set the grid interval or the tolerance to zero to disable the grid or all snapping, respectively.
+Configure snapping with `snap: { gridTicks, tolerancePx, neighbors, playhead, markers }` in the mount options. The nearest target within the CSS-pixel tolerance wins. Ties prefer the playhead, then a marker, then a neighboring boundary, then the grid. Hold Alt to bypass snapping. Set the grid interval or the tolerance to zero to disable the grid or all snapping, respectively.
 
 The clip navigator and numeric edit controls support keyboard operation. Choose Move, Trim start or Trim end; enter a signed delta in seconds and activate Apply. With the clip surface focused, Left/Right nudges by one grid interval and S splits at the playhead. Undo uses Ctrl/Command-Z and redo uses Ctrl/Command-Shift-Z or Ctrl-Y. Text entry and IME composition retain their native shortcuts. The split selects the new right-hand clip.
 

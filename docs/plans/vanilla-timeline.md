@@ -1,5 +1,7 @@
 # First interactive vanilla timeline
 
+**Status.** Delivered: PR C in [#7](https://github.com/kjmin-dev/lumen-timeline/pull/7) and PR D in [#8](https://github.com/kjmin-dev/lumen-timeline/pull/8).
+
 **User outcome.** Open a two-track example, play a guide video, select a dialogue clip, seek on the ruler, move or trim the dialogue and undo the edit while the music keeps playing. Deliver this in two independently reviewable PRs.
 
 At `501e200`, the core can query a pinned revision and commit clip commands. The browser probe preserves unaffected audio reservations. The missing link is a mounted view that translates time into pixels and gestures back into those same commands. [Read API](../playback-read-api.md) · [Incremental playback](../incremental-playback.md) · [Headless editing](../headless-editing.md)

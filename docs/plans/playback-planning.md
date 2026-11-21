@@ -1,8 +1,10 @@
-# Next milestone 2 slice: turn timeline edits into a playback plan
+# Turn timeline edits into a playback plan
+
+**Status.** Delivered: PR A in [#5](https://github.com/kjmin-dev/lumen-timeline/pull/5) and PR B in [#6](https://github.com/kjmin-dev/lumen-timeline/pull/6).
 
 **User outcome.** In a dubbing session, moving a line or undoing its trim should change the dialogue at the playhead while the background music continues from the same sample. The same range query should tell a future timeline view which clips to draw.
 
-**Starting point.** At `6db9f29`, the editor already commits immutable revisions, maintains sorted clip arrays for affected tracks and reports old and new intervals. The browser experiment scans every clip on a scheduler wakeup. Its `replace(clips)` invalidates the clock anchor and stops every scheduled node. The offline experiment also assembles its source windows directly. This leaves the view, playback and export without a shared way to read one revision. [Editor commit path](../../packages/core/editor.mjs) · [Experimental scheduler](../../experiments/sync/transport.mjs) · [Existing time conversion](../../packages/core/time.mjs)
+**Starting point.** At `6db9f29`, the editor already commits immutable revisions, maintains sorted clip arrays for affected tracks and reports old and new intervals. The browser experiment scans every clip on a scheduler wakeup. Its `replace(clips)` invalidates the clock anchor and stops every scheduled node. The offline experiment also assembles its source windows directly. This leaves the view, playback and export without a shared way to read one revision. [Editor commit path](https://github.com/kjmin-dev/lumen-timeline/blob/6db9f29/packages/core/editor.mjs) · [Experimental scheduler](../../experiments/sync/transport.mjs) · [Existing time conversion](https://github.com/kjmin-dev/lumen-timeline/blob/6db9f29/packages/core/time.mjs)
 
 ## PR A — A headless read API
 
