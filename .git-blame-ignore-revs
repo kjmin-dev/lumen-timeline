@@ -1,5 +1,8 @@
 # Formatting-only commits. GitHub skips these in blame views automatically.
 # Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# List each commit as it landed on main. After a squash merge, that is the squash commit.
 
-# Format the repository with oxfmt
-588d92d4dea5456db8954d40af14160c8540facf
+# Format the repository with oxfmt (#11, squash-merged). The squash also adds the
+# oxfmt, lefthook and CI setup, so blame for a few of those new lines in existing
+# files can point at a neighboring older commit.
+efd71b2e1153bdc4fc6388cbe8bb015623508b03
