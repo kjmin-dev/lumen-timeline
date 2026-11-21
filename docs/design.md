@@ -1,6 +1,6 @@
 # Lumen Timeline design
 
-Lumen Timeline gives applications a common time axis for media playback, clip editing and time-based metadata. A developer can mount the timeline below an existing player or assemble a complete editing workspace. The first release targets one reference video with multiple audio tracks, and audio-only sequences. API names and performance budgets in this document are proposals.
+Lumen Timeline gives applications a common time axis for media playback, clip editing and time-based metadata. A developer can mount the timeline below an existing player or assemble a complete editing workspace. The first release targets one reference video with multiple audio tracks, and audio-only sequences. The [core implementation architecture](core-architecture.md) fixes module ownership, transaction and scheduling contracts for v1. The example API names and performance budgets remain proposals.
 
 ## Reference workflows
 
@@ -35,8 +35,8 @@ Core APIs are implemented as pure JavaScript ES modules. Optional type declarati
 
 | Proposed package | Responsibility |
 | --- | --- |
-| `@lumen-timeline/core` | Project model, time conversions, track queries, commands, validation, history, editor session and transport interfaces. |
-| `@lumen-timeline/media` | HTML media adapters, playback plans, Web Audio scheduling and mixing, asset resolution and waveform providers. |
+| `@lumen-timeline/core` | Project model, time conversions, track queries, commands, history, editor session, transport state and pure playback planning. |
+| `@lumen-timeline/media` | HTML media adapters, playback plan execution, Web Audio scheduling and mixing, asset resolution and waveform workers. |
 | `@lumen-timeline/timeline` | Shared DOM mount, timeline layout, hit testing, accessibility, interaction tools and rendering backends. |
 | `@lumen-timeline/react`, `@lumen-timeline/svelte`, `@lumen-timeline/solid`, `@lumen-timeline/vue` | Framework lifecycle, editor handles, selection subscriptions and panel composition around the same mounted view. |
 | Dubbing and podcast examples | App-specific layouts, fields, actions, fixtures and persistence adapters. |
@@ -103,7 +103,7 @@ For a unit-speed clip, first compute `contentTime = contentIn + (projectTime - s
 
 For video, pair `mediaTime` with `expectedDisplayTime` from the frame callback. Use `AudioContext.getOutputTimestamp()` to map the display time to the audio clock. Interpolate the playhead between observations with `requestAnimationFrame`. Where the observations are unavailable, sample the media element's current time and report estimated precision. Route guide audio or separated stems explicitly so a source is heard once. Cross-origin media can have different playback, analysis and mixing capabilities. [Video frame callbacks](https://wicg.github.io/video-rvfc/) · [Web Audio output timestamps](https://www.w3.org/TR/2021/REC-webaudio-20210617/#dom-audiocontext-getoutputtimestamp) · [Media element audio and cross-origin resources](https://www.w3.org/TR/2021/REC-webaudio-20210617/#MediaElementAudioSourceNode-security)
 
-Start by scheduling a 100 ms lookahead every 25 ms, then tune from measurements. The timer fills the schedule and the audio node controls sample onset. Include clips already in progress and start them at their mapped source offset. Route source through clip gain, track gain and master output. At a new playback rate, update both the time conversion and source consumption rate. Ordinary resampling changes pitch.
+Start by scheduling a 100 ms lookahead every 25 ms, then tune from measurements. Adjacent spans share an absolute output sample and use bounded phase correction at the far edge. The timer fills the schedule and the audio node controls sample onset. Include clips already in progress and start them at their mapped source offset. Route source through clip gain, track gain and master output. At a new playback rate, update both the time conversion and source consumption rate. Ordinary resampling changes pitch. [Transport and audio scheduling](core-architecture.md#transport-and-audio-scheduling)
 
 | Event | Required behavior |
 | --- | --- |
