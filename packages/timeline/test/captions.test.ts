@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { commands, createEditor } from "@lumen-timeline/core";
 import type { Clip } from "@lumen-timeline/core";
-import { captionWords, takeCaption } from "@lumen-timeline/timeline/internal";
+import { activeTake, captionWords, takeCaption } from "@lumen-timeline/timeline/internal";
 
 test("a caption names the active candidate and counts the list in the host's words", () => {
   const editor = createEditor({
@@ -32,7 +32,7 @@ test("a caption names the active candidate and counts the list in the host's wor
     const read = editor.read();
     const clip = editor.getSnapshot().clips.find((c: Clip) => c.id === id);
     assert.ok(clip);
-    return takeCaption(clip, (clipId) => read.takesOf(clipId), words);
+    return takeCaption(clip, activeTake(clip, read.takesOf(clip.id)), words);
   };
   assert.equal(caption("line"), "Keeper · 2 takes");
   assert.equal(caption("bare"), undefined);

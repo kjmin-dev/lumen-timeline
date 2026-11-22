@@ -91,6 +91,9 @@ function setup(gl: WebGL2RenderingContext): Resources {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  // The atlas is the program's only texture, on unit 0 from here on.
+  gl.useProgram(program);
+  gl.uniform1i(gl.getUniformLocation(program, "atlas"), 0);
   return {
     program,
     vao,
@@ -239,7 +242,6 @@ export function createWebGL2Renderer(
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.bindVertexArray(r.vao);
-      gl.uniform1i(gl.getUniformLocation(r.program, "atlas"), 0);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
       gl.bindVertexArray(null);
     },

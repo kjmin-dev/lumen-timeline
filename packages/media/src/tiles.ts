@@ -214,44 +214,48 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
     const base = summarised
       ? (summaryAt[overview ? 2 : level - summaryLevel] ?? 0)
       : (levelOffsets[level] ?? 0);
-    let cached = -1;
-    let tile: Float32Array | undefined;
+    // Bucket and tile sizes are powers of two, so their reciprocals are exact.
+    const perInverse = 1 / per;
+    const tileInverse = 1 / perTile;
+    const summary = summarised ? stream.summary : null;
+    // The tile whose buckets run from `first` up to `beyond`, and where its
+    // pairs of this level start, less `first`. Columns only move forward.
+    let index = 0;
+    let first = 0;
+    let beyond = 0;
+    let at = 0;
+    let pairs: Float32Array | undefined;
     for (let column = 0; column < buckets; column++) {
       const x0 = Math.max(0, from + column * width);
       const x1 = Math.min(length, from + (column + 1) * width);
       if (x1 <= x0) continue;
-      const last = Math.ceil(x1 / per) - 1;
+      const last = Math.ceil(x1 * perInverse) - 1;
       let lo = Infinity;
       let hi = -Infinity;
       let ready = true;
-      for (let bucket = Math.floor(x0 / per); bucket <= last; bucket++) {
-        let a: number;
-        let b: number;
-        const index = Math.floor(bucket / perTile);
-        if (summarised) {
-          const at = 2 * (index * summaryPairs + base + bucket - index * perTile);
-          a = stream.summary[at] ?? NaN;
-          b = stream.summary[at + 1] ?? NaN;
-          if (Number.isNaN(a)) {
-            ready = false;
-            want(stream, index, true);
-            continue;
-          }
-        } else {
-          if (index !== cached) {
-            cached = index;
-            tile = tileOf(stream, index);
-          }
-          if (!tile) {
-            ready = false;
-            continue;
-          }
-          const at = 2 * (base + bucket - index * perTile);
-          a = tile[at] ?? NaN;
-          b = tile[at + 1] ?? NaN;
+      for (let bucket = Math.floor(x0 * perInverse); bucket <= last;) {
+        if (bucket >= beyond) {
+          index = Math.floor(bucket * tileInverse);
+          first = index * perTile;
+          beyond = first + perTile;
+          at = (summary ? index * summaryPairs : 0) + base - first;
+          pairs = summary ?? tileOf(stream, index);
         }
-        if (a < lo) lo = a;
-        if (b > hi) hi = b;
+        const end = Math.min(last, beyond - 1);
+        // A summary holds NaN for a tile that is not built yet.
+        const missing = summary ? Number.isNaN(summary[2 * (at + bucket)]) : !pairs;
+        if (!pairs || missing) {
+          if (summary) want(stream, index, true);
+          ready = false;
+          bucket = end + 1;
+          continue;
+        }
+        for (; bucket <= end; bucket++) {
+          const a = pairs[2 * (at + bucket)] ?? NaN;
+          const b = pairs[2 * (at + bucket) + 1] ?? NaN;
+          if (a < lo) lo = a;
+          if (b > hi) hi = b;
+        }
       }
       // An empty column, +Infinity over -Infinity, has no finite sample.
       if (ready && lo <= hi) {

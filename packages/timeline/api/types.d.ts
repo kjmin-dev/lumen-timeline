@@ -108,8 +108,8 @@ export interface TimelineDiagnostics {
     /** Why `backend` is not the one asked for, such as a lost device, or `null`. */
     readonly fallback: string | null;
     /**
-     * Geometry uploads to the GPU since the view mounted: one per frame the
-     * layout changed. A fixed viewport and project during playback adds none.
+     * Geometry uploads to the GPU since the view mounted: one for each layout a
+     * GPU backend drew. A fixed viewport and project during playback adds none.
      */
     readonly staticUploads: number;
     /** Lost WebGL2 contexts and WebGPU devices since the view mounted. */

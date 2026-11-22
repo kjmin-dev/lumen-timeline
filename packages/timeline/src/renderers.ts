@@ -34,6 +34,11 @@ const gpuRetries = 3;
  * a fresh canvas in place and asks the view to `redraw` from its CPU layout.
  * WebGPU starts asynchronously; until its device is ready, and after a loss,
  * the next backend draws.
+ *
+ * A GPU backend draws a task's first paint at once, so the clips reach the
+ * screen in the same frame as the ruler, the overlay and the playhead that
+ * the paint drew. Further paints of that task draw once more when it ends,
+ * the latest layout only, so a run of paints costs two frames of GPU work.
  */
 export function createRendererHost(
   initial: HTMLCanvasElement,
@@ -127,12 +132,13 @@ export function createRendererHost(
     }, retry);
   }
 
-  const view = doc.defaultView ?? window;
   let pending: Frame | null = null;
   let last: Frame | null = null;
-  let scheduled = 0;
-  function submit(): void {
-    scheduled = 0;
+  // Whether a GPU backend has drawn in the task that is running.
+  let drawn = false;
+  // Runs as a microtask, once the task that painted has returned.
+  function settle(): void {
+    drawn = false;
     const frame = pending;
     pending = null;
     if (frame && !disposed) current.draw(frame);
@@ -173,18 +179,21 @@ export function createRendererHost(
     },
     draw(frame: Frame): void {
       last = frame;
-      // Canvas 2D draws at once. A GPU backend submits once per animation
-      // frame, the latest layout, however many paints came before it.
+      // Canvas 2D draws every paint at once.
       if (current.backend === "canvas2d") {
         pending = null;
         return current.draw(frame);
       }
-      pending = frame;
-      if (!scheduled) scheduled = view.requestAnimationFrame(submit);
+      if (drawn) {
+        pending = frame;
+        return;
+      }
+      drawn = true;
+      current.draw(frame);
+      queueMicrotask(settle);
     },
     dispose(): void {
       disposed = true;
-      if (scheduled) view.cancelAnimationFrame(scheduled);
       pending = null;
       current.dispose();
       for (const r of parked) r.dispose();

@@ -51,6 +51,8 @@ export interface RowLayout {
     readonly takesOf: (clipId: string) => readonly Take[];
     peaks?: ((request: WaveformRequest) => ArrayLike<number> | null) | undefined;
     readonly label: LabelSource;
+    /** Collects the assets whose waveforms the row asked for. */
+    readonly assets?: Set<string> | undefined;
 }
 /** Where a label starts after its clip's left edge, and its top below the clip's. */
 export declare const labelInset = 9;

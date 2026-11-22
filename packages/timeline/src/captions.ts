@@ -17,19 +17,26 @@ export function captionWords(labels: TimelineLabels = {}): CaptionWords {
   };
 }
 
+/** The take a clip plays, among the takes it lists. */
+export function activeTake(clip: Clip, takes: readonly Take[]): Take | undefined {
+  const id = clip.activeTakeId;
+  if (typeof id !== "string") return undefined;
+  for (const take of takes) if (take.id === id) return take;
+  return undefined;
+}
+
 /**
- * The caption of a clip that lists candidates: the active take's label, or the
- * word for none, and the candidate count. `undefined` for a clip without any.
+ * The caption of a clip that lists candidates: the label of `active`, its
+ * active take, or the word for none, and the candidate count. `undefined` for
+ * a clip without any.
  */
 export function takeCaption(
   clip: Clip,
-  takesOf: (clipId: string) => readonly Take[],
+  active: Take | undefined,
   words: CaptionWords,
 ): string | undefined {
   const count = clip.takeIds?.length ?? 0;
   if (!count) return undefined;
-  const active = clip.activeTakeId ?? null;
-  const take = active === null ? undefined : takesOf(clip.id).find((t) => t.id === active);
-  const name = take ? (take.label ?? take.id) : words.none;
+  const name = active ? (active.label ?? active.id) : words.none;
   return name + " · " + count + " " + (count === 1 ? words.take : words.takes);
 }
