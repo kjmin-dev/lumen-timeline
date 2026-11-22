@@ -11,22 +11,18 @@ function randomActor(): string {
   return token.slice(0, 12);
 }
 
-/** The largest counter the project already uses under `<actor>-<n>`. */
-function lastCounter(actor: string, project: ProjectSnapshot): number {
-  const prefix = actor + "-";
+type Records = readonly { readonly id: string }[] | undefined;
+
+/** The largest counter a list of records already uses under `<actor>-<n>`. */
+function lastCounter(prefix: string, items: Records): number {
   let last = 0;
-  const visit = (items: readonly { readonly id: string }[] | undefined): void => {
-    for (const { id } of items ?? []) {
-      if (!id.startsWith(prefix)) continue;
-      const digits = id.slice(prefix.length);
-      const counter = Number(digits);
-      if (Number.isSafeInteger(counter) && String(counter) === digits && counter > last)
-        last = counter;
-    }
-  };
-  visit(project.clips);
-  visit(project.markers);
-  visit(project.takes);
+  for (const { id } of items ?? []) {
+    if (!id.startsWith(prefix)) continue;
+    const digits = id.slice(prefix.length);
+    const counter = Number(digits);
+    if (Number.isSafeInteger(counter) && String(counter) === digits && counter > last)
+      last = counter;
+  }
   return last;
 }
 
@@ -45,7 +41,22 @@ export interface IdAllocator {
  */
 export function idAllocator(actor: string | undefined, project: ProjectSnapshot): IdAllocator {
   const name = actor ?? randomActor();
-  let counter = lastCounter(name, project);
+  const prefix = name + "-";
+  let counter = 0;
+  // The lists the counter is already past. Snapshots share the lists an edit
+  // left alone, and reading one again would find nothing new.
+  const read = new WeakSet<object>();
+  function pass(items: Records): void {
+    if (!items || read.has(items)) return;
+    read.add(items);
+    counter = Math.max(counter, lastCounter(prefix, items));
+  }
+  function advance(next: ProjectSnapshot): void {
+    pass(next.clips);
+    pass(next.markers);
+    pass(next.takes);
+  }
+  advance(project);
   return {
     next(taken) {
       let id;
@@ -54,8 +65,6 @@ export function idAllocator(actor: string | undefined, project: ProjectSnapshot)
       } while (taken(id));
       return id;
     },
-    advance(next) {
-      counter = Math.max(counter, lastCounter(name, next));
-    },
+    advance,
   };
 }

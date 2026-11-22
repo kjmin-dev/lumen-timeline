@@ -34,6 +34,43 @@ test("a session starts from the sequencer's snapshot and sends its edits as they
   assert.equal(bedOf(ben), 0);
 });
 
+test("a session parses its snapshot once, and its two editors share what neither changed", () => {
+  const net = network({ size: 2 });
+  net.settle();
+  const [ana, ben] = net.peers;
+  assert.ok(ana && ben);
+  const confirmed = () => {
+    const state = ben.session.state();
+    assert.ok(state && "clips" in state.project);
+    return state.project;
+  };
+  const shared = () =>
+    editorOf(ben)
+      .getSnapshot()
+      .clips.map((clip, index) => clip === confirmed().clips[index]);
+  // The visible editor opened the confirmed editor's snapshot, not a second parse of the message.
+  assert.deepEqual(shared(), [true, true, true]);
+  assert.equal(editorOf(ben).getSnapshot().takes, confirmed().takes);
+
+  // Another's edit replaces one clip in the visible document and leaves the rest shared.
+  editorOf(ana).dispatch(move(10));
+  net.settle();
+  assert.equal(bedOf(ben), 10);
+  assert.deepEqual(shared(), [true, true, true]);
+  // Its own unanswered edit is the only clip the two documents do not share.
+  editorOf(ben).dispatch(commands.moveClips({ clipIds: ["next"], delta: 5 }));
+  editorOf(ana).dispatch(move(10));
+  for (const peer of [ana, ana, ben]) peer.link.flush();
+  assert.equal(bedOf(ben), 20);
+  assert.equal(ben.session.pending, 1);
+  assert.deepEqual(shared(), [true, false, true]);
+  net.settle();
+  assert.deepEqual(
+    documentOf(editorOf(ben).getSnapshot()),
+    documentOf(net.sequencer.getSnapshot()),
+  );
+});
+
 test("under queue, edits made while disconnected are sent after reconnecting", () => {
   const net = network({ size: 2, policy: "queue" });
   net.settle();
@@ -126,6 +163,31 @@ test("under confirmed, an edit is held until accepted and enters history then", 
   net.clock.advance(600);
   assert.ok(ana.reports.filter((r) => r.type === "discarded").length === 2);
   assert.equal(ana.session.pending, 0);
+});
+
+test("under confirmed, an accepted undo that the editor's own history answers differently is put right at once", () => {
+  const net = network({ size: 2, policy: "confirmed" });
+  net.settle();
+  const [ana, ben] = net.peers;
+  assert.ok(ana && ben);
+  const editor = editorOf(ana);
+  const nextOf = () => editor.getSnapshot().clips.find((clip) => clip.id === "next")?.start;
+  editor.dispatch(move(10));
+  net.settle();
+  // Both are held. The undo names the bed's move, the only entry there is yet.
+  editor.dispatch(commands.moveClips({ clipIds: ["next"], delta: 7 }));
+  editor.history.undo();
+  assert.equal(ana.session.pending, 2);
+  // To the sequencer and back to Ana alone: nothing of Ben's helps her document along.
+  ana.link.flush();
+  ana.link.flush();
+  assert.equal(ana.session.pending, 0);
+  // Her history undid its newest entry, the second move, where the sequencer
+  // undid the first. The visible document follows the sequencer.
+  assert.deepEqual([bedOf(ana), nextOf()], [0, 607]);
+  assert.deepEqual(documentOf(editor.getSnapshot()), documentOf(net.sequencer.getSnapshot()));
+  net.settle();
+  assert.deepEqual([bedOf(ben), bedOf(ana), nextOf()], [0, 0, 607]);
 });
 
 test("a transaction that no longer fits is dropped or rejected and leaves the author's document", () => {

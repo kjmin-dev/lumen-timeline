@@ -71,6 +71,41 @@ function cost(tracks: number, edit: (e: Editor, i: number) => EditCommand): numb
   return best;
 }
 
+// The median of some times, in milliseconds.
+const median = (times: number[]): number =>
+  times.toSorted((a, b) => a - b)[Math.floor(times.length / 2)] ?? Infinity;
+
+// An editor that follows another takes the records of the snapshot it is
+// handed. A copy of that snapshot is parsed, validated and frozen again, clip
+// by clip: at this size some hundred times the work, of which a tenth
+// leaves room for the machine's noise.
+test("replacing by another editor's snapshot does not parse it", () => {
+  const confirmed = createEditor({ project: project(32) });
+  const handed = createEditor({ project: confirmed.getSnapshot() });
+  const copied = createEditor({ project: confirmed.getSnapshot() });
+  const times = { handed: [0], copied: [0] };
+  for (let i = 0; i < 12; i++) {
+    const delta = (i % 2 ? -1 : 1) * hz;
+    commit(confirmed.dispatch(commands.moveClips({ clipIds: ["c0-" + (i % 300)], delta })));
+    const target = confirmed.getSnapshot();
+    const copy: Project = JSON.parse(JSON.stringify(target));
+    let start = performance.now();
+    commit(handed.replace(target));
+    handed.read().takesOf("c0-" + (i % 300));
+    times.handed[i] = performance.now() - start;
+    start = performance.now();
+    commit(copied.replace(copy));
+    copied.read().takesOf("c0-" + (i % 300));
+    times.copied[i] = performance.now() - start;
+  }
+  assert.deepEqual(handed.getSnapshot(), copied.getSnapshot());
+  const [snapshot, copy] = [median(times.handed), median(times.copied)];
+  assert.ok(
+    snapshot * 10 < copy,
+    `${snapshot.toFixed(3)} ms for the snapshot against ${copy.toFixed(3)} ms for a copy of it`,
+  );
+});
+
 // Such an edit copies the list it changes as a block, microseconds at this
 // size, and looks up only the records it names. A map or a scan of every clip,
 // take or marker per commit would make the large project cost near sixteen

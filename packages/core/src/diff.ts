@@ -20,9 +20,30 @@ const own = <T>(object: Dictionary<T> | undefined, key: string): T | undefined =
 const keys = (...objects: (object | undefined)[]): Set<string> =>
   new Set(objects.flatMap((object) => Object.keys(object ?? {})));
 
+const none: readonly never[] = Object.freeze([]);
+
+// The same clips in the same places, as after any edit that adds and removes
+// none: the clips that changed, in order, or `null` when the lists differ in
+// more than that. Clips the two snapshots share are told apart by identity.
+function updates(from: readonly Clip[], to: readonly Clip[]): readonly ClipPatch[] | null {
+  if (from.length !== to.length) return null;
+  const patches: ClipPatch[] = [];
+  for (let index = 0; index < from.length; index++) {
+    const before = from[index];
+    const after = to[index];
+    if (after === before) continue;
+    if (!before || after?.id !== before.id) return null;
+    if (!sameFields(before, after)) patches.push(Object.freeze({ id: after.id, before, after }));
+  }
+  return Object.freeze(patches);
+}
+
 // Removals first, then each clip of `to` in order: a new one follows the clip
 // before it, a changed one is an update.
 function clips(from: readonly Clip[], to: readonly Clip[]): readonly ClipPatch[] {
+  if (from === to) return none;
+  const changed = updates(from, to);
+  if (changed) return changed;
   const was = new Map(from.map((clip) => [clip.id, clip]));
   const kept = new Set(to.map((clip) => clip.id));
   const patches: ClipPatch[] = from
@@ -55,6 +76,7 @@ function records<T extends Marker | Take>(
   readonly before: T | undefined;
   readonly after: T | undefined;
 }[] {
+  if (from === to) return none;
   const staged = new Map<string, T | undefined>(
     (from ?? []).map((record) => [record.id, undefined]),
   );
@@ -64,13 +86,16 @@ function records<T extends Marker | Take>(
 }
 
 function data(from: EntityData | undefined, to: EntityData | undefined): readonly DataPatch[] {
+  if (from === to) return none;
   const patches: DataPatch[] = [];
   for (const scope of keys(from, to)) {
     const a = own(from, scope);
     const b = own(to, scope);
+    if (a === b) continue;
     for (const id of keys(a, b)) {
       const fieldsA = own(a, id);
       const fieldsB = own(b, id);
+      if (fieldsA === fieldsB) continue;
       for (const key of keys(fieldsA, fieldsB)) {
         const before: JsonValue | undefined = own(fieldsA, key);
         const after: JsonValue | undefined = own(fieldsB, key);

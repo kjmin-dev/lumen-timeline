@@ -25,6 +25,7 @@
     "verify:sync": "node experiments/sync/run.mjs",
     "bench:wasm": "node experiments/wasm/run.mjs",
     "bench:commit": "node experiments/commit/run.mjs",
+    "bench:session": "node experiments/session/run.mjs",
     "bench:render": "node examples/bench/run.mjs",
     "wasm:build": "node scripts/wasm.mjs",
     "wasm:check": "node scripts/wasm.mjs --check",

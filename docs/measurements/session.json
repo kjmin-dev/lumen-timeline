@@ -1,0 +1,49 @@
+{
+  "recorded": "2026-11-22T18:03:53.769Z",
+  "machine": {
+    "platform": "Darwin 25.5.0 arm64",
+    "cpu": "Apple M1",
+    "load": [
+      4.57373046875,
+      7.01513671875,
+      9.6796875
+    ]
+  },
+  "node": "v26.13.1",
+  "fixture": {
+    "tracks": 40,
+    "clips": 20000,
+    "takes": 20000,
+    "markers": 2000
+  },
+  "milliseconds": {
+    "replace by an editor's snapshot, one clip moved": {
+      "p50": 0.3562080000001515,
+      "p95": 1.2321249999999964
+    },
+    "replace by a JSON copy of that snapshot": {
+      "p50": 75.25741700000026,
+      "p95": 89.09008399999993
+    },
+    "session: join, from the snapshot message": {
+      "p50": 63.572832999999264,
+      "p95": 78.15045800000007
+    },
+    "session: another's move accepted": {
+      "p50": 0.3963340000000244,
+      "p95": 0.5434999999997672
+    },
+    "session: another's move, one of its own unanswered": {
+      "p50": 0.43937499999992724,
+      "p95": 0.6992920000002414
+    },
+    "session: its own move accepted": {
+      "p50": 0.04958299999998417,
+      "p95": 0.08829199999945558
+    },
+    "session, confirmed policy: its own move accepted": {
+      "p50": 0.3421250000001237,
+      "p95": 0.4366669999999431
+    }
+  }
+}
