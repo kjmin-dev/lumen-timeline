@@ -18,6 +18,12 @@
     },
     {
       "path": "packages/timeline/test"
+    },
+    {
+      "path": "packages/sync"
+    },
+    {
+      "path": "packages/sync/test"
     }
   ]
 }
