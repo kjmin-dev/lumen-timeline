@@ -379,7 +379,7 @@ test("update-take remaps every listing clip, and a label alone remaps none", () 
       ["r", 14 * hz, 16 * hz],
     ],
   );
-  assert.deepEqual(moved.patches, []);
+  assert.deepEqual(moved.clipPatches, []);
   const rejected: [EditCommand, string][] = [
     [commands.updateTake({ takeId: "zzz", label: "x" }), "missing-take"],
     [commands.updateTake({ takeId: "a", sourceAtContentZero: 1.5 }), "invalid-take"],

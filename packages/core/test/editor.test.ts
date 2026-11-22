@@ -195,7 +195,7 @@ test("split preserves identity, takes, exact ordering and inverse patches", () =
   ]);
   assert.equal(edited.clips[2], first.clips[1]);
   const undo = commit(e.history.undo());
-  assert.equal(undo.patches, result.inversePatches);
+  assert.equal(undo.clipPatches, result.inverseClipPatches);
   assert.deepEqual(e.getSnapshot().clips, first.clips);
   const redo = commit(e.history.redo());
   assert.deepEqual(redo.createdIds, [rightId]);

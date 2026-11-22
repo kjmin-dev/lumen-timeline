@@ -293,11 +293,41 @@ export interface EditOptions extends RevisionOptions {
     /** `record` (default) adds an undo entry. `ignore` preserves both history stacks. */
     readonly history?: HistoryPolicy | undefined;
 }
-/** A replacement of `before` with `after` at an index of the project's clip array. */
+/** One clip change. `undefined` represents an absent clip. */
 export interface ClipPatch {
-    readonly index: number;
-    readonly before: readonly Clip[];
-    readonly after: readonly Clip[];
+    readonly id: string;
+    readonly before: Clip | undefined;
+    readonly after: Clip | undefined;
+    /**
+     * For a clip the patch adds: the clip it is placed after in the project's
+     * clip array. A split places each new clip after the one it was cut from.
+     * Absent, the clip goes to the end.
+     */
+    readonly follows?: string;
+}
+/** One field's value before and after a change. `undefined` is an absent field. */
+export interface FieldChange<T> {
+    readonly before: T;
+    readonly after: T;
+}
+/**
+ * What a clip patch changed, field by field. Placement is in content space:
+ * `origin` is where content time zero sits on the timeline (`start -
+ * contentIn`), and `in` and `out` are the clip's content edges (`contentIn` and
+ * `contentIn + duration`). A move changes only `origin`, a left trim only `in`,
+ * and a right trim or the left half of a split only `out`. Both maps are empty
+ * for a patch that adds or removes a clip.
+ */
+export interface ClipFieldChanges {
+    readonly placement: {
+        readonly origin?: FieldChange<Tick>;
+        readonly in?: FieldChange<Tick>;
+        readonly out?: FieldChange<Tick>;
+    };
+    /** Every other field that changed, by name. */
+    readonly fields: {
+        readonly [key: string]: FieldChange<unknown>;
+    };
 }
 /** One entity field write. `undefined` represents an absent field. */
 export interface DataPatch {
@@ -331,8 +361,8 @@ export interface EditCommit {
     readonly unchanged?: never;
     readonly revision: number;
     readonly history: CommitHistory;
-    readonly patches: readonly ClipPatch[];
-    readonly inversePatches: readonly ClipPatch[];
+    readonly clipPatches: readonly ClipPatch[];
+    readonly inverseClipPatches: readonly ClipPatch[];
     readonly dataPatches: readonly DataPatch[];
     readonly inverseDataPatches: readonly DataPatch[];
     readonly changedIds: readonly string[];

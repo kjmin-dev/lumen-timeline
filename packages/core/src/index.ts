@@ -7,3 +7,4 @@ export { sequenceDuration } from "./extent.ts";
 export type { SequenceExtent } from "./extent.ts";
 export type * from "./types.ts";
 export { watchMarkerCrossings } from "./crossings.ts";
+export { clipFieldChanges } from "./clip-patches.ts";

@@ -168,9 +168,9 @@ function count(delta: Map<string, number>, clips: readonly Clip[], change: numbe
 /** The change in each take's reference count across clip patches. */
 export function referenceDelta(patches: readonly ClipPatch[]): Map<string, number> {
   const delta = new Map<string, number>();
-  for (const patch of patches) {
-    count(delta, patch.before, -1);
-    count(delta, patch.after, 1);
+  for (const { before, after } of patches) {
+    if (before) count(delta, [before], -1);
+    if (after) count(delta, [after], 1);
   }
   return delta;
 }
