@@ -238,7 +238,12 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
   let gate: DispatchGate | null = null;
   let gating = false;
   // The history entry each commit recorded, or moved by undo or redo.
-  const entries = new WeakMap<EditCommit, HistoryEntry>();
+  // A rebased commit keeps the kind of the commit it replays, so an undo's
+  // entry stays an undo's however many times it is rebased.
+  const entries = new WeakMap<
+    EditCommit,
+    { readonly entry: HistoryEntry; readonly kind: "record" | "undo" | "redo" }
+  >();
 
   // Fills in every ID a command would otherwise leave the editor to generate,
   // so the commands of a commit replay to the same IDs in another editor.
@@ -799,28 +804,27 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       // Validation, conflict checks, staging and the gate finish before any observable write.
       let amended = false;
       if (moving) {
-        history.advance(mode === "undo" ? "undo" : "redo");
-        entries.set(result, moving);
+        const kind = mode === "undo" ? "undo" : "redo";
+        history.advance(kind);
+        entries.set(result, { entry: moving, kind });
       } else if (rebases) {
         // The entry keeps its direction: an undo's entry redoes the inverse.
-        const entry = entries.get(rebases);
-        const kind = rebases.history;
+        const link = entries.get(rebases);
         const stored =
-          entry && (kind === "record" || kind === "undo" || kind === "redo")
-            ? history.amend(
-                entry,
-                kind === "undo"
-                  ? entryOf(staged.backward, staged.forward)
-                  : entryOf(staged.forward, staged.backward),
-              )
-            : undefined;
-        if (stored) {
-          entries.set(result, stored);
+          link &&
+          history.amend(
+            link.entry,
+            link.kind === "undo"
+              ? entryOf(staged.backward, staged.forward)
+              : entryOf(staged.forward, staged.backward),
+          );
+        if (link && stored) {
+          entries.set(result, { entry: stored, kind: link.kind });
           amended = true;
         }
       } else if (policy === "record") {
         const stored = history.record(entryOf(staged.forward, staged.backward));
-        if (stored) entries.set(result, stored);
+        if (stored) entries.set(result, { entry: stored, kind: "record" });
       }
       for (const [id, change] of delta) {
         const count = (takeCounts.get(id) ?? 0) + change;

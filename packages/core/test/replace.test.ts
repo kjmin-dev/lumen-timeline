@@ -165,11 +165,17 @@ test("a replayed edit takes over its history entry, so undo reverses what it did
   assert.equal(replayed.history, "ignore");
   assert.equal(lineOf(ana.getSnapshot())?.start, 125);
   assert.equal(ana.history.undoDepth, 1);
+  // Ben moves it again by 3 before Ana's edit is confirmed: a second rebuild
+  // rebases the rebased commit, whose entry follows again.
+  commit(ben.dispatch(commands.moveClips({ clipIds: ["line"], delta: 3 })));
+  commit(ana.replace(ben.getSnapshot()));
+  const again = commit(ana.dispatch(pending.commands, { rebases: replayed }));
+  assert.equal(lineOf(ana.getSnapshot())?.start, 128);
   // Undo returns to Ben's position, not to where Ana's edit started.
   commit(ana.history.undo());
-  assert.equal(lineOf(ana.getSnapshot())?.start, 105);
+  assert.equal(lineOf(ana.getSnapshot())?.start, 108);
   commit(ana.history.redo());
-  assert.equal(lineOf(ana.getSnapshot())?.start, 125);
+  assert.equal(lineOf(ana.getSnapshot())?.start, 128);
 
   // An edit undone before either was confirmed: both replay, and the entry
   // that the undo moved takes the undo's records, so redo still works.
@@ -179,8 +185,14 @@ test("a replayed edit takes over its history entry, so undo reverses what it did
   const confirmed = createEditor({ project: project(), actor: "seq" });
   commit(confirmed.dispatch(commands.trimClip({ clipId: "bed", edge: "right", delta: -100 })));
   commit(carol.replace(confirmed.getSnapshot()));
-  commit(carol.dispatch(edit.commands, { rebases: edit }));
-  commit(carol.dispatch(undo.commands, { rebases: undo }));
+  let edited = commit(carol.dispatch(edit.commands, { rebases: edit }));
+  let undone = commit(carol.dispatch(undo.commands, { rebases: undo }));
+  // A second rebuild rebases the rebased commits, and each entry keeps its direction.
+  commit(confirmed.dispatch(commands.addMarker({ id: "m", start: 1 })));
+  commit(carol.replace(confirmed.getSnapshot()));
+  edited = commit(carol.dispatch(edit.commands, { rebases: edited }));
+  undone = commit(carol.dispatch(undo.commands, { rebases: undone }));
+  assert.equal(undone.history, "ignore");
   assert.deepEqual(
     [carol.getSnapshot().clips[1]?.start, carol.getSnapshot().clips[1]?.duration],
     [0, 800],
@@ -208,6 +220,6 @@ test("a replayed edit takes over its history entry, so undo reverses what it did
   );
   // An entry that is gone leaves history as it is.
   ana.history.clear();
-  commit(ana.dispatch(commands.moveClips({ clipIds: ["line"], delta: 1 }), { rebases: replayed }));
+  commit(ana.dispatch(commands.moveClips({ clipIds: ["line"], delta: 1 }), { rebases: again }));
   assert.deepEqual([ana.history.undoDepth, ana.history.redoDepth], [0, 0]);
 });
