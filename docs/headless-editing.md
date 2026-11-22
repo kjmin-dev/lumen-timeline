@@ -44,7 +44,7 @@ In the example, the right clip initially starts at 14 s and reads the source at 
 - Supply schema version 1, a tracks array and a clips array. Track and clip IDs are nonempty strings unique within their collection. Every clip has a track ID, kind, start tick, positive duration and integer content offset. The editor clones the input and preserves additional JSON fields.
 - All positions use 282,240,000 ticks per second. An explicit `timebase` must match that value. Project `duration` sets a fixed exclusive end in ticks. If omitted, edits may extend to the seven-day project limit. Optional `minClipDuration` defaults to one tick. A track accepts all kinds by default. Use `accepts`, `locked` and `overlap: 'exclusive'` to constrain edits. Mixing tracks allow overlapping intervals. Two exclusive-track clips may share an edge.
 - A clip with finite source handles can supply `contentBounds: { start, end }` in content ticks. Both ends of its retained content must stay within these handles. A slot without handles can extend into silence. Take IDs and JSON metadata survive edits. Move and trim preserve opaque clip extension data. Splitting a clip with extension-owned fields returns `split-policy-required` until a domain split policy is available.
-- Move accepts distinct clip IDs, a signed delta and an optional destination `trackId`. It checks all selected clips in their final positions together. A left trim shifts start and content offset by the delta and subtracts it from duration. A right trim adds the delta to duration. A split takes an absolute timeline tick strictly inside the clip. Supply an optional unique `rightId` when the host owns IDs. Otherwise read the assigned ID from `createdIds`.
+- Move accepts distinct clip IDs, a signed delta and an optional destination `trackId`. It checks all selected clips in their final positions together. A left trim shifts start and content offset by the delta and subtracts it from duration. A right trim adds the delta to duration. A split takes an absolute timeline tick strictly inside the clip. Supply an optional unique `rightId` when the host owns IDs. Otherwise read the [generated ID](#generated-ids-and-replay) from `createdIds`.
 
 ## Results and history
 
@@ -68,7 +68,7 @@ editor.dispatch(commands.removeMarker({ markerId: "chorus" }));
 ```
 
 - **Combining.** Marker commands combine with clip and entity-data commands in one transaction.
-- **Adding.** Omitting `id` generates one.
+- **Adding.** Omitting `id` [generates one](#generated-ids-and-replay).
 - **Rejections.**
   - `invalid-marker`: a taken or empty ID, or a non-string label or color.
   - `invalid-range`: a position outside the sequence.
@@ -119,6 +119,22 @@ editor.dispatch(commands.pruneTakes());
   - `invalid-expectation`: a malformed expectation.
 - **Commit results.** A commit reports `takePatches` and `inverseTakePatches` as `{ id, before, after }` records. `changedIds` and `affected` also include every clip that lists a take whose source position changed, so playback replans those clips. A label change replans nothing.
 - **Undo and redo.** Clip fields replay field by field and compare by value, so a selection and a reorder do not conflict. Take fields follow the marker rules. A take's presence follows its listings: replay skips adding a take that already exists, and skips removing one that is gone or that another clip lists by then. Replay returns `history-conflict` rather than list a take that was pruned since.
+
+## Generated IDs and replay
+
+A split, a new marker, a new take and a take copy each need an ID. Pass one to control it. Otherwise the editor generates `<actor>-<n>`, where `actor` names the editing session and one counter serves all four.
+
+```js
+const editor = createEditor({ project, actor: "ana.4f2c" });
+const cut = editor.dispatch(commands.splitClip({ clipId: "line", at: seconds(14) }));
+// cut.createdIds is ["ana.4f2c-1"], and cut.commands carries the same ID:
+// [{ type: "split", clipId: "line", at: ..., rightId: "ana.4f2c-1" }]
+otherEditor.dispatch(cut.commands);
+```
+
+- **Actor.** Give every session that edits a project its own actor, such as a user ID joined with a session token. Two sessions that share one can generate the same ID. Without an actor the editor draws twelve random characters.
+- **Counter.** It continues from the largest `n` the project already carries for the actor, across clips, markers and takes, and skips an ID that is taken.
+- **Commit commands.** A commit's `commands` are the transaction as dispatched, with every generated ID written in. Another editor at the same revision replays them to the same snapshot. They share nested values with the commands you dispatched, so treat both as immutable. The list is empty for undo and redo.
 
 ## Canonical order
 

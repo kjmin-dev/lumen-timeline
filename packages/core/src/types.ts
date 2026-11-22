@@ -424,6 +424,13 @@ export interface EditCommit {
    */
   readonly takePatches: readonly TakePatch[];
   readonly inverseTakePatches: readonly TakePatch[];
+  /**
+   * The transaction's commands with every generated ID made explicit, so
+   * another editor at the same revision replays them to the same result. They
+   * share nested values with the dispatched commands. Empty for undo and redo,
+   * which replay recorded changes.
+   */
+  readonly commands: readonly EditCommand[];
 }
 
 export interface EditUnchanged {
@@ -648,4 +655,11 @@ export interface Editor {
 export interface EditorOptions {
   readonly project: Project;
   readonly history?: HistoryLimits | undefined;
+  /**
+   * Names this editing session in the IDs it generates: `<actor>-<n>`, counting
+   * on from the IDs the project already carries for that actor. Give every
+   * session that edits a project its own actor, such as a user ID joined with
+   * a session token. Omitted, the editor draws a random one.
+   */
+  readonly actor?: string | undefined;
 }

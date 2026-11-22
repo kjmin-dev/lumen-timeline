@@ -75,16 +75,10 @@ export class MarkerDraft {
     return this.staged.has(id) ? this.staged.get(id) : this.byId.get(id);
   }
 
-  stage(
-    command: MarkerCommand,
-    rules: Rules,
-    newId: (taken: (id: string) => boolean) => string,
-  ): void {
+  // The editor fills in a missing ID before staging an addition.
+  stage(command: MarkerCommand, rules: Rules): void {
     if (command.type === "add-marker") {
-      const id =
-        command.id === undefined
-          ? newId((candidate) => this.get(candidate) !== undefined)
-          : command.id;
+      const { id } = command;
       requireEdit(
         validId(id) && this.get(id) === undefined,
         "invalid-marker",

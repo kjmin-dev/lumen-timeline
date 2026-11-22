@@ -20,5 +20,5 @@ export interface Commands {
     expectData(args: Arguments<ExpectDataCommand>): ExpectDataCommand;
 }
 export declare const commands: Readonly<Commands>;
-export declare function createEditor({ project, history: limits }: EditorOptions): Editor;
+export declare function createEditor({ project, history: limits, actor }: EditorOptions): Editor;
 export {};

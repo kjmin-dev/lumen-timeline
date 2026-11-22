@@ -194,8 +194,6 @@ export interface TakeStage {
   readonly clips: ClipDraft;
   /** The current version of an existing clip on an unlocked track. */
   editable(id: string): Clip;
-  /** Allocates a take ID that `taken` rejects. */
-  newId(taken: (id: string) => boolean): string;
   /** How many clips list the take at this point in the transaction. */
   listings(id: string): number;
 }
@@ -231,7 +229,7 @@ export class TakeDraft {
         null,
         "Expected a boolean activate flag",
       );
-      const id = this.register(command.take, command.takeId, stage);
+      const id = this.register(command.take, command.takeId);
       for (const clipId of clipIds) {
         const clip = stage.editable(clipId);
         const list = clip.takeIds ?? [];
@@ -292,7 +290,8 @@ export class TakeDraft {
     }
   }
 
-  private register(input: unknown, takeId: unknown, stage: TakeStage): string {
+  // The editor fills in a missing ID before staging a new take or a copy.
+  private register(input: unknown, takeId: unknown): string {
     requireEdit(
       (input === undefined) !== (takeId === undefined),
       "invalid-take",
@@ -309,8 +308,7 @@ export class TakeDraft {
       return takeId;
     }
     const record = typeof input === "object" && input !== null ? input : {};
-    const given: unknown = Reflect.get(record, "id");
-    const id = given === undefined ? this.allocate(stage) : given;
+    const id: unknown = Reflect.get(record, "id");
     requireEdit(
       validId(id) && this.get(id) === undefined,
       "invalid-take",
@@ -345,10 +343,6 @@ export class TakeDraft {
     });
     this.staged.set(id, take);
     return id;
-  }
-
-  private allocate(stage: TakeStage): string {
-    return stage.newId((candidate) => this.get(candidate) !== undefined);
   }
 
   private update(command: UpdateTakeCommand, stage: TakeStage): void {
@@ -397,7 +391,7 @@ export class TakeDraft {
       this.staged.set(take.id, Object.freeze({ ...take, ...changes }));
       return;
     }
-    const id = newId === undefined ? this.allocate(stage) : newId;
+    const id = newId;
     requireEdit(
       validId(id) && this.get(id) === undefined,
       "invalid-take",
