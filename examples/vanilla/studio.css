@@ -196,3 +196,82 @@ header a {
   color: #b3dfce;
   margin-left: auto;
 }
+
+.take-panel {
+  border-top: 1px solid #384347;
+}
+.take-panel .panel-head {
+  border-top: 0;
+}
+.takes-isolate {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  font-weight: 400;
+  color: #aebbbd;
+}
+/* A constant height, so selecting a clip never moves the timeline below. */
+.takes-body {
+  height: 136px;
+  overflow-y: auto;
+}
+.takes {
+  list-style: none;
+  margin: 0;
+  padding: 0 16px;
+}
+.takes li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 0;
+  border-bottom: 1px solid #364045;
+  font-size: 13px;
+}
+.takes li.active .take-name {
+  color: #b3dfce;
+  font-weight: 600;
+}
+.take-name {
+  flex: 1;
+  min-width: 8em;
+}
+.takes small {
+  color: #b3dfce;
+}
+.takes button,
+.takes-stop {
+  color: #e4e9e3;
+  background: #253034;
+  border: 1px solid #445257;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.takes button:disabled,
+.takes-stop:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.takes-empty {
+  margin: 12px 16px;
+  font-size: 13px;
+  color: #aebbbd;
+}
+.takes-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 14px;
+  font-size: 13px;
+  color: #b3dfce;
+}
+.takes-audition {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

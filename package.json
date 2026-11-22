@@ -27,7 +27,8 @@
     "example:vanilla": "node examples/vanilla/server.mjs",
     "verify:timeline": "node examples/vanilla/verify.mjs",
     "verify:audio": "node examples/vanilla/verify-audio.mjs",
-    "verify:milestone": "node examples/vanilla/verify-milestone.mjs"
+    "verify:milestone": "node examples/vanilla/verify-milestone.mjs",
+    "verify:takes": "node examples/vanilla/verify-takes.mjs"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
