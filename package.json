@@ -35,6 +35,7 @@
     "verify:studio": "node examples/vanilla/verify-studio.mjs",
     "verify:lines": "node examples/vanilla/verify-lines.mjs",
     "verify:waveforms": "node examples/vanilla/verify-waveforms.mjs",
+    "verify:peaks": "node examples/vanilla/verify-peaks.mjs",
     "verify:shared": "node examples/sync/verify.mjs"
   },
   "devDependencies": {
