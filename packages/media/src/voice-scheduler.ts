@@ -4,6 +4,7 @@ import type {
   EditCommit,
   Editor,
   PlanIssue,
+  PlanOptions,
   ProjectSnapshot,
   ReadHandle,
   StreamCatalog,
@@ -40,6 +41,8 @@ export interface Voice {
   ended?: boolean;
   failed?: boolean;
   bookedStart?: Tick;
+  /** The tick the booked node stops at: the audible end, or an earlier stop tick. */
+  bookedEnd?: Tick;
   token?: object;
   predecessorToken?: object | undefined;
   startSample?: number;
@@ -97,6 +100,10 @@ export class VoiceScheduler {
   readonly output: AudioNodeLike;
   read: ReadHandle;
   catalog: StreamCatalog;
+  /** Plan options for every fill, as an audition sets them. */
+  options: PlanOptions | undefined;
+  /** No voice plays at or after this tick. */
+  until: Tick;
   readonly resolveBuffer: ResolveBuffer;
   readonly onError: MediaErrorHandler;
   generation: number;
@@ -120,6 +127,8 @@ export class VoiceScheduler {
     this.read = editor.read();
     this.read.planAudio({ start: 0, end: 0 }, catalog);
     this.catalog = catalog;
+    this.options = undefined;
+    this.until = Infinity;
     this.resolveBuffer = resolveBuffer;
     this.onError = onError;
     this.generation = 0;
@@ -159,7 +168,8 @@ export class VoiceScheduler {
     const anchor = defined(this.anchor ?? undefined, "playback anchor");
     const projected = anchor.tick + Math.ceil((this.context.currentTime - anchor.audio) * hz);
     const start = Math.max(anchor.earliestTick, projected);
-    return { start, end: start + hz / 10 };
+    const end = Math.min(start + hz / 10, this.until);
+    return { start: Math.min(start, end), end };
   }
 
   fill(changed?: ReadonlySet<string> | true): void {
@@ -167,7 +177,8 @@ export class VoiceScheduler {
     const range = this.range();
     const read = this.read;
     const catalog = this.catalog;
-    const plan = read.planAudio(range, catalog);
+    const options = this.options;
+    const plan = read.planAudio(range, catalog, options);
     this.issues = plan.issues;
     if (changed) {
       const desired = new Map(plan.spans.map((span) => [span.clipId, span]));
@@ -181,7 +192,7 @@ export class VoiceScheduler {
     }
     const generation = this.generation;
     for (const span of plan.spans) {
-      if (this.read !== read || this.catalog !== catalog || this.generation !== generation) return;
+      if (this.stale(read, catalog, options, generation)) return;
       if (this.voices.has(span.clipId)) continue;
       const voice: Voice = { span, generation, abort: new AbortController() };
       this.voices.set(span.clipId, voice);
@@ -198,12 +209,27 @@ export class VoiceScheduler {
         this.fail(voice, error);
       }
     }
-    if (this.read !== read || this.catalog !== catalog || this.generation !== generation) return;
+    if (this.stale(read, catalog, options, generation)) return;
     this.scheduleReady(plan.spans);
     // Retain a finished edge briefly for a touching successor, then release it.
     for (const voice of this.voices.values()) {
       if (voice.span.audible.end < range.start - hz / 10) this.cancel(voice);
     }
+  }
+
+  // A buffer resolver may edit, swap the catalog or start an audition.
+  stale(
+    read: ReadHandle,
+    catalog: StreamCatalog,
+    options: PlanOptions | undefined,
+    generation: number,
+  ): boolean {
+    return (
+      this.read !== read ||
+      this.catalog !== catalog ||
+      this.options !== options ||
+      this.generation !== generation
+    );
   }
 
   current(voice: Voice): boolean {
@@ -212,7 +238,7 @@ export class VoiceScheduler {
 
   ready(voice: Voice, buffer: AudioBufferLike): void {
     if (!this.current(voice) || !this.anchor) return;
-    const { spans } = this.read.planAudio(this.range(), this.catalog);
+    const { spans } = this.read.planAudio(this.range(), this.catalog, this.options);
     const span = spans.find((s) => s.clipId === voice.span.clipId);
     if (!sameVoice(voice.span, span)) return this.cancel(voice);
     this.acceptBuffer(voice, buffer);
@@ -307,14 +333,16 @@ export class VoiceScheduler {
     const origin = anchor.audio - anchor.tick / hz;
     const rate = this.context.sampleRate;
     const start = span.window.start;
+    const end = Math.min(span.audible.end, this.until);
     const shared = predecessor?.endSample;
     voice.bookedStart = start;
+    voice.bookedEnd = end;
     voice.token = {};
     voice.predecessorToken = predecessor?.token;
     voice.startSample = shared ?? Math.round((origin + start / hz) * rate);
     voice.endSample = scheduleWindow(
       node,
-      { start, end: span.audible.end },
+      { start, end },
       origin,
       rate,
       shared,
@@ -356,8 +384,18 @@ export class VoiceScheduler {
     for (const voice of this.voices.values()) this.cancel(voice, disconnect);
   }
 
+  /**
+   * Plans with these options and stops every voice at `until`. Callers set
+   * them while no anchor is held.
+   */
+  setPlan(options: PlanOptions | undefined, until: Tick = Infinity): void {
+    if (options) this.read.planAudio({ start: 0, end: 0 }, this.catalog, options);
+    this.options = options;
+    this.until = until;
+  }
+
   setCatalog(catalog: StreamCatalog): void {
-    this.read.planAudio({ start: 0, end: 0 }, catalog);
+    this.read.planAudio({ start: 0, end: 0 }, catalog, this.options);
     this.catalog = catalog;
     this.fill(true);
   }

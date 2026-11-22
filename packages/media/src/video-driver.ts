@@ -149,18 +149,19 @@ export class VideoTransport {
     let worst = 0;
     for (const voice of this.voices.values()) {
       // A voice with an end sample was booked, so its start fields are set too.
-      const { bookedStart, startSample, endSample } = voice;
+      const { bookedStart, bookedEnd, startSample, endSample } = voice;
       if (
         endSample === undefined ||
         bookedStart === undefined ||
+        bookedEnd === undefined ||
         startSample === undefined ||
         voice.ended ||
         voice.failed ||
         tick < bookedStart ||
-        tick >= voice.span.audible.end
+        tick >= bookedEnd
       )
         continue;
-      const fraction = (tick - bookedStart) / (voice.span.audible.end - bookedStart);
+      const fraction = (tick - bookedStart) / (bookedEnd - bookedStart);
       const sample = startSample + fraction * (endSample - startSample);
       const error = sample / this.context.sampleRate - audio;
       if (Math.abs(error) > Math.abs(worst)) worst = error;

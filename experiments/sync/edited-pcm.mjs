@@ -1,5 +1,6 @@
 import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { verifyAudioOnlyPcm } from "./audio-only-pcm.mjs";
+import { verifyAuditionPcm } from "./audition-pcm.mjs";
 import { verifyContinuousEdits } from "./continuous-edits.mjs";
 import { bufferCatalog, listTakes } from "./buffer-fixture.mjs";
 import { scheduleWindow } from "./transport.mjs";
@@ -171,12 +172,16 @@ export async function verifyEditedPcm() {
   for (const rate of rates) continuousSamples += await verifyContinuousEdits(rate);
   let audioOnlySamples = 0;
   for (const rate of rates) audioOnlySamples += await verifyAudioOnlyPcm(rate);
+  let auditionSamples = 0;
+  for (const rate of rates) auditionSamples += await verifyAuditionPcm(rate);
   return {
     rates,
-    renders: renders + 2 * rates.length,
+    renders: renders + 4 * rates.length,
     continuousSamples,
     audioOnlySamples,
-    samplesCompared: renders * renderLength + continuousSamples + audioOnlySamples,
+    auditionSamples,
+    samplesCompared:
+      renders * renderLength + continuousSamples + audioOnlySamples + auditionSamples,
     passed: true,
   };
 }

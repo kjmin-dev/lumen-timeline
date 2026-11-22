@@ -535,6 +535,11 @@ export interface PlanOptions {
    * `unresolved-take`.
    */
   readonly takeOverrides?: { readonly [clipId: string]: string | null } | undefined;
+  /**
+   * Plans this clip alone, as if its track were soloed and unmuted. The
+   * track's gain still applies. An unknown clip plans nothing.
+   */
+  readonly isolate?: string | undefined;
 }
 
 /** A project interval and the half-open source sample range it plays. */

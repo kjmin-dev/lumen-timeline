@@ -686,6 +686,51 @@ test("planning plays a listed take through its stream at its tick alignment", ()
   assert.throws(() => read.planAudio(all, { version: 1 }), TypeError);
 });
 
+test("an isolated plan holds one clip, ignoring mute and solo but not gain", () => {
+  const all = { start: 0, end: 60 * hz };
+  const draft = project();
+  draft.tracks = [
+    { id: "voice", overlap: "exclusive", mute: true, gain: 0.5 },
+    { id: "music", locked: true, solo: true },
+  ];
+  const read = editor(draft).read();
+  const ids = (options?: {
+    readonly isolate?: string;
+    readonly takeOverrides?: Record<string, string | null>;
+  }) => read.planAudio(all, catalog, options).spans.map((s) => [s.clipId, s.takeId, s.gain]);
+  // The voice track is muted and the music track soloed.
+  assert.deepEqual(ids(), [["bed", "m", 1]]);
+  assert.deepEqual(ids({ isolate: "line" }), [["line", "a", 0.5]]);
+  assert.deepEqual(ids({ isolate: "line", takeOverrides: { line: "b" } }), [["line", "b", 0.5]]);
+  assert.deepEqual(ids({ isolate: "line", takeOverrides: { line: null } }), []);
+  assert.deepEqual(ids({ isolate: "bed" }), [["bed", "m", 1]]);
+  assert.deepEqual(ids({ isolate: "ghost" }), []);
+  // Only the isolated clip's track can report a gain issue, and a silent track stays silent.
+  draft.tracks = [
+    { id: "voice", overlap: "exclusive", gain: -1 },
+    { id: "music", locked: true, gain: 0 },
+  ];
+  const odd = editor(draft).read();
+  assert.deepEqual(odd.planAudio(all, catalog).issues, [
+    { code: "invalid-gain", trackId: "voice" },
+  ]);
+  assert.deepEqual(odd.planAudio(all, catalog, { isolate: "bed" }), {
+    revision: 0,
+    catalogVersion: 1,
+    spans: [],
+    issues: [],
+  });
+  assert.deepEqual(odd.planAudio(all, catalog, { isolate: "line" }).issues, [
+    { code: "invalid-gain", trackId: "voice" },
+  ]);
+  assert.throws(
+    () =>
+      // @ts-expect-error -- An isolated clip is named by its ID.
+      read.planAudio(all, catalog, { isolate: 3 }),
+    TypeError,
+  );
+});
+
 test("reads list a clip's candidates and the clips that list a take", () => {
   const e = editor();
   commit(e.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz, rightId: "r" })));
