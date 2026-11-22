@@ -13,7 +13,7 @@ The core will own editing commands, time and history. A shared browser view will
 - [Headless clip editing](docs/headless-editing.md) shows the workspace API for transactional trim, split, move and undo/redo.
 - [Timeline reads and audio plans](docs/playback-read-api.md) covers revision-pinned placement queries, stream catalogs and source sample ranges.
 - [Incremental playback](docs/incremental-playback.md) covers edit-time voice reconciliation, buffer resolution and continuous-audio regression tests.
-- [Vanilla timeline example](docs/vanilla-timeline.md) runs a two-track guide with Canvas 2D selection, zoom and playback.
+- [Vanilla timeline example](docs/vanilla-timeline.md) runs a two-track guide with selection, zoom and playback, drawn through WebGL2, WebGPU or Canvas 2D.
 - [Media transports](docs/media-transports.md) describes the video and audio-only clocks, their shared Web Audio scheduler and both runnable workflows.
 - [Waveform tiles](docs/waveforms.md) builds the peaks drawn in clips in a worker, with an optional Rust SIMD kernel and a byte budget.
 - [Sharing a project between editors](docs/sync.md) covers the optional sync package: sessions, the sequencer, confirmation policies and handover, with no server required.

@@ -38,7 +38,8 @@ const rows = (page) =>
       ]),
     );
 const paints = (page) => app(page, () => window.lumenApp.studio.view.getDiagnostics().staticPaints);
-const pixels = (page) => app(page, () => document.querySelector(".lt-clips").toDataURL());
+// What the clip canvas shows, from a screenshot, so any drawing backend compares alike.
+const pixels = async (page) => (await page.locator(".lt-clips").screenshot()).toString("base64");
 const transportState = (page) => app(page, () => window.lumenApp.studio.transport.snapshot());
 
 // Waits for an audition to start and end, and returns the result the panel reported.

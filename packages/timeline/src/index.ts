@@ -3,8 +3,9 @@ import type { LabelAtlas } from "./atlas.ts";
 import { bindEditing, handleAt, snapConfig } from "./gestures.ts";
 import type { PointerInfo } from "./gestures.ts";
 import { layoutRow, palette, QuadList } from "./layout.ts";
-import { createCanvas2DRenderer } from "./renderer.ts";
-import type { Renderer, RowQuads } from "./renderer.ts";
+import type { RowQuads } from "./renderer.ts";
+import { createRendererHost } from "./renderers.ts";
+import { registerReader } from "./probe.ts";
 import { TICKS_PER_SECOND as hz, sequenceDuration } from "@lumen-timeline/core";
 import { commands } from "@lumen-timeline/core";
 import type {
@@ -73,6 +74,7 @@ export function mountTimeline(
     snap,
     labels,
     waveforms,
+    renderer = "auto",
   }: TimelineOptions,
 ): TimelineView {
   const config = snapConfig(snap);
@@ -153,7 +155,10 @@ export function mountTimeline(
   // Each visible row's quads, kept between paints so a backend can draw them all.
   const scenes = new Map<number, QuadList>();
   let atlas: LabelAtlas | null = null;
-  const renderer: Renderer = createCanvas2DRenderer(body);
+  // The clip canvas belongs to the backend, which replaces it when it changes.
+  const renderers = createRendererHost(body, renderer, () => {
+    if (!disposed) paint();
+  });
 
   function rebuildRows(dirty?: ReadonlySet<string>): void {
     totalHeight = 0;
@@ -363,7 +368,7 @@ export function mountTimeline(
         relaying = false;
       }
     }
-    renderer.draw({
+    renderers.draw({
       width,
       height,
       dpr,
@@ -780,7 +785,7 @@ export function mountTimeline(
   updateNavigator();
   updateMarkers();
   onResolution();
-  return {
+  const mounted: TimelineView = {
     setViewport,
     getViewport: () => ({ ...view }),
     reveal,
@@ -788,7 +793,11 @@ export function mountTimeline(
     getDiagnostics: () => ({
       ...diagnostics,
       previewClipCount: ghosts.length,
-      backend: renderer.backend,
+      backend: renderers.backend,
+      renderer,
+      fallback: renderers.fallback,
+      staticUploads: renderers.uploads,
+      deviceLosses: renderers.losses,
       visibleClips: boxes.length,
       labelsRasterized: rasterized + (atlas?.rasterized ?? 0),
     }),
@@ -803,13 +812,15 @@ export function mountTimeline(
       offFrame();
       offWaveforms();
       if (waveFrame) win.cancelAnimationFrame(waveFrame);
-      renderer.dispose();
+      renderers.dispose();
       atlas?.dispose();
       atlas = null;
       scenes.clear();
       root.remove();
     },
   };
+  registerReader(mounted, (rect) => renderers.read(rect));
+  return mounted;
 }
 
 // Shows a rejection's message. Like setting textContent to a missing message,

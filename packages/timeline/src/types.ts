@@ -94,6 +94,15 @@ export interface TimelineOptions {
   readonly labels?: TimelineLabels | undefined;
   /** Draws a waveform in each clip whose active take the provider has peaks for. */
   readonly waveforms?: WaveformProvider | undefined;
+  /**
+   * The drawing backend. `auto`, the default, draws through WebGL2 on a
+   * hardware GPU and through Canvas 2D where WebGL2 is missing or would run on
+   * a software rasterizer. `webgl2` uses WebGL2 wherever it exists. `webgpu`
+   * draws through WebGPU once its device is ready, and through WebGL2 or
+   * Canvas 2D until then and after a lost device. `canvas2d` never touches the
+   * GPU from the view.
+   */
+  readonly renderer?: "auto" | "webgl2" | "webgpu" | "canvas2d" | undefined;
 }
 
 export interface TimelineDiagnostics {
@@ -101,8 +110,19 @@ export interface TimelineDiagnostics {
   readonly staticPaints: number;
   readonly overlayPaints: number;
   readonly previewClipCount: number;
-  /** The backend drawing the clips. */
+  /** The backend drawing the clips now. */
   readonly backend: "webgl2" | "webgpu" | "canvas2d";
+  /** The backend the mount asked for. */
+  readonly renderer: "auto" | "webgl2" | "webgpu" | "canvas2d";
+  /** Why `backend` is not the one asked for, such as a lost device, or `null`. */
+  readonly fallback: string | null;
+  /**
+   * Geometry uploads to the GPU since the view mounted: one per frame the
+   * layout changed. A fixed viewport and project during playback adds none.
+   */
+  readonly staticUploads: number;
+  /** Lost WebGL2 contexts and WebGPU devices since the view mounted. */
+  readonly deviceLosses: number;
   /** Clips in the current layout: the clips of visible rows in the visible range. */
   readonly visibleClips: number;
   /** Labels rasterized into the label atlas since the view mounted. */

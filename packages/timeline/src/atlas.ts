@@ -21,6 +21,12 @@ export interface LabelAtlas {
   readonly full: boolean;
   /** Labels drawn into the atlas since it was made. */
   readonly rasterized: number;
+  /**
+   * The rows of device pixels that changed after `version`: `null` for none,
+   * `"all"` when the atlas was cleared since or the change log no longer
+   * reaches back that far. GPU backends upload only these rows.
+   */
+  changes(version: number): { readonly y0: number; readonly y1: number } | "all" | null;
   slot(name: string, caption: string | undefined, captionColor: string): LabelSlot | null;
   clear(): void;
   dispose(): void;
@@ -36,14 +42,18 @@ export function createLabelAtlas(doc: Document, dpr: number, size = 2048): Label
   const slots = new Map<string, LabelSlot>();
   let x = 0;
   let y = 0;
-  const state = { version: 0, full: false, rasterized: 0 };
+  const state = { version: 0, full: false, rasterized: 0, cleared: 0 };
+  // The rows each version wrote, oldest first.
+  const log: { version: number; y: number }[] = [];
   function clear(): void {
     slots.clear();
+    log.length = 0;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, size, size);
     x = y = 0;
     state.full = false;
     state.version++;
+    state.cleared = state.version;
   }
   return {
     canvas,
@@ -56,6 +66,19 @@ export function createLabelAtlas(doc: Document, dpr: number, size = 2048): Label
     },
     get rasterized() {
       return state.rasterized;
+    },
+    changes(since) {
+      if (since >= state.version) return null;
+      const first = log[0];
+      if (since < state.cleared || !first || first.version > since + 1) return "all";
+      let y0 = Infinity;
+      let y1 = -Infinity;
+      for (const entry of log)
+        if (entry.version > since) {
+          y0 = Math.min(y0, entry.y);
+          y1 = Math.max(y1, entry.y + rowHeight);
+        }
+      return y0 < y1 ? { y0, y1: Math.min(size, y1) } : null;
     },
     slot(name, caption, captionColor) {
       const key = name + "\u0000" + (caption ?? "") + "\u0000" + captionColor;
@@ -105,6 +128,8 @@ export function createLabelAtlas(doc: Document, dpr: number, size = 2048): Label
       x += w;
       state.version++;
       state.rasterized++;
+      log.push({ version: state.version, y });
+      if (log.length > 4096) log.splice(0, 1024);
       return slot;
     },
     clear,

@@ -12,6 +12,8 @@ import { attachPlayer } from "./player.mjs";
 import { mountTakePanel } from "./takes.mjs";
 
 const video = document.querySelector("video");
+// `?renderer=webgpu`, `webgl2` or `canvas2d` picks the timeline's drawing backend.
+const renderer = new URLSearchParams(location.search).get("renderer") ?? undefined;
 const videoProject = {
   schemaVersion: 1,
   duration: 24 * hz,
@@ -171,6 +173,7 @@ export async function openProject(data) {
     snap: { gridTicks: hz / 10 },
     labels: words,
     waveforms,
+    renderer,
     pixelsPerSecond: Math.max(
       20,
       (document.querySelector("#timeline").clientWidth - 160) /
