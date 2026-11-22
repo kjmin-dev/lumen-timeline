@@ -1,8 +1,12 @@
 import { jsKernel, loadWasmKernel, tilePairs, tileSamples } from "./peaks.ts";
 import type { PeakBackend, PeakKernel } from "./peaks.ts";
 
-/** Batches of at least this many samples use WebAssembly by default: one full tile. */
-export const defaultWasmFrom: number = tileSamples;
+/**
+ * Batches of at least this many samples use WebAssembly by default. The
+ * rendering benchmark measured the worker's round trip faster with WASM from
+ * 4,096 samples, the smallest size it measured.
+ */
+export const defaultWasmFrom = 4096;
 
 export interface TileBuilderOptions {
   /** Use the WebAssembly SIMD kernels for large batches. */

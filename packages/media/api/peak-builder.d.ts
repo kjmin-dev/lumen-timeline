@@ -1,6 +1,10 @@
 import type { PeakBackend } from "./peaks.ts";
-/** Batches of at least this many samples use WebAssembly by default: one full tile. */
-export declare const defaultWasmFrom: number;
+/**
+ * Batches of at least this many samples use WebAssembly by default. The
+ * rendering benchmark measured the worker's round trip faster with WASM from
+ * 4,096 samples, the smallest size it measured.
+ */
+export declare const defaultWasmFrom = 4096;
 export interface TileBuilderOptions {
     /** Use the WebAssembly SIMD kernels for large batches. */
     readonly wasm: boolean;

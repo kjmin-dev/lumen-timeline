@@ -42,6 +42,8 @@ export interface Renderer {
   readonly canvas: HTMLCanvasElement;
   /** Geometry buffers uploaded to the GPU. Canvas 2D uploads none. */
   readonly uploads: number;
+  /** Bytes of GPU buffers and textures this backend holds. Canvas 2D holds none. */
+  readonly gpuBytes: number;
   draw(frame: Frame): void;
   /**
    * Draws `frame` again through this backend's own pipeline and reads a region
@@ -109,6 +111,7 @@ export function createCanvas2DRenderer(canvas: HTMLCanvasElement): Renderer {
     backend: "canvas2d",
     canvas,
     uploads: 0,
+    gpuBytes: 0,
     read(frame: Frame, rect: PixelRect): Promise<Pixels> {
       const { x, y, w, h } = devicePixels(canvas, rect, frame.dpr);
       const data = new Uint8Array(ctx.getImageData(x, y, w, h).data.buffer);

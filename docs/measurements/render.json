@@ -1,0 +1,489 @@
+{
+  "recorded": "2026-11-22T12:39:15.821Z",
+  "machine": {
+    "platform": "Darwin 25.5.0 arm64",
+    "cpu": "Apple M1",
+    "cores": 8,
+    "memory": 17179869184,
+    "load": [
+      4.56982421875,
+      5.87255859375,
+      10.45703125
+    ]
+  },
+  "browser": {
+    "name": "Google Chrome",
+    "version": "157.0.8103.79",
+    "headless": true
+  },
+  "environment": {
+    "webgl": "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)",
+    "dpr": 2,
+    "viewport": [
+      1440,
+      900
+    ],
+    "surface": 1278,
+    "rows": 12
+  },
+  "fixture": {
+    "viewport": "1440x900",
+    "dpr": 2,
+    "hours": 2,
+    "tracks": 40,
+    "clips": 20000,
+    "visibleRows": 12,
+    "video": {
+      "width": 1920,
+      "height": 1080
+    },
+    "audibleTracks": 8,
+    "seconds": 60
+  },
+  "worker": {
+    "js": {
+      "4096": {
+        "p50": 0.046875,
+        "p95": 0.0625
+      },
+      "65536": {
+        "p50": 0.12812499701976776,
+        "p95": 0.14375000447034836
+      },
+      "262144": {
+        "p50": 0.4625000059604645,
+        "p95": 0.5999999940395355
+      },
+      "1048576": {
+        "p50": 1.774999976158142,
+        "p95": 2.324999988079071
+      }
+    },
+    "wasm": {
+      "4096": {
+        "p50": 0.03125,
+        "p95": 0.03437500447034836
+      },
+      "65536": {
+        "p50": 0.05937499552965164,
+        "p95": 0.0625
+      },
+      "262144": {
+        "p50": 0.17500001192092896,
+        "p95": 0.1875
+      },
+      "1048576": {
+        "p50": 0.737500011920929,
+        "p95": 2.125
+      }
+    },
+    "crossover": 4096
+  },
+  "backends": {
+    "webgl2": {
+      "trace": {
+        "interval": 16.69999999999709,
+        "frames": 3574,
+        "missed": 27,
+        "missedShare": 0.0075,
+        "missedIn": {
+          "pan": 0,
+          "zoom": 0,
+          "drag": 27,
+          "idle": 0
+        },
+        "work": {
+          "frames": 3550,
+          "p50": 3.4000000476844434,
+          "p95": 5.199999952317739,
+          "p99": 6.30000000000291,
+          "max": 17.19999999999709
+        },
+        "callbackWork": {
+          "frames": 3550,
+          "p50": 2.299999952316284,
+          "p95": 3.9000000953674316,
+          "p99": 4.599999904632568,
+          "max": 10.599999904632568
+        },
+        "phases": {
+          "pan": {
+            "frames": 1200,
+            "p50": 3.9000000953674316,
+            "p95": 5.199999952317739,
+            "p99": 5.799999904633296,
+            "max": 8.600000000000364
+          },
+          "zoom": {
+            "frames": 1200,
+            "p50": 3.700000095370342,
+            "p95": 5.499999952313374,
+            "p99": 7.5,
+            "max": 11.899999904635479
+          },
+          "drag": {
+            "frames": 1150,
+            "p50": 2.000000047686626,
+            "p95": 3.300000095368887,
+            "p99": 8.700000095370342,
+            "max": 17.19999999999709
+          }
+        },
+        "diagnostics": {
+          "layoutBuilds": 2906,
+          "staticPaints": 2906,
+          "overlayPaints": 3446,
+          "previewClipCount": 0,
+          "backend": "webgl2",
+          "renderer": "webgl2",
+          "fallback": null,
+          "staticUploads": 2451,
+          "deviceLosses": 0,
+          "gpuBytes": 17367040,
+          "visibleClips": 36,
+          "labelsRasterized": 4355
+        }
+      },
+      "baseline": {
+        "frames": 601,
+        "missed": 0,
+        "missedShare": 0
+      },
+      "dragged": 18,
+      "seeks": {
+        "regions": 10,
+        "cold": {
+          "tilesAsked": {
+            "p50": 88,
+            "max": 92
+          },
+          "built": {
+            "p50": 10.300000190734863,
+            "max": 27.90000009536743
+          },
+          "drawn": {
+            "p50": 16.700000047683716,
+            "max": 31.5
+          },
+          "seek": {
+            "p50": 16.700000047683716,
+            "max": 31.5
+          }
+        },
+        "warm": {
+          "tilesAsked": {
+            "p50": 0,
+            "max": 0
+          },
+          "built": {
+            "p50": 2.3000001907348633,
+            "max": 2.9000000953674316
+          },
+          "drawn": {
+            "p50": 16.700000047683716,
+            "max": 16.700000047683716
+          },
+          "seek": {
+            "p50": 16.700000047683716,
+            "max": 16.700000047683716
+          }
+        },
+        "tiles": {
+          "compute": "worker",
+          "kernel": "wasm-simd",
+          "batches": {
+            "js": 0,
+            "wasm": 160
+          },
+          "tiles": 1212,
+          "bytes": 54048960,
+          "pending": 0,
+          "evicted": 0,
+          "stale": 0,
+          "fallback": null,
+          "error": null
+        }
+      },
+      "memory": {
+        "jsHeap": 127437831,
+        "tiles": 70064064,
+        "gpu": 17367040
+      },
+      "videoSize": {
+        "width": 1920,
+        "height": 1080
+      },
+      "errors": []
+    },
+    "webgpu": {
+      "trace": {
+        "interval": 16.69999999999709,
+        "frames": 3568,
+        "missed": 33,
+        "missedShare": 0.009166666666666667,
+        "missedIn": {
+          "pan": 0,
+          "zoom": 4,
+          "drag": 29,
+          "idle": 0
+        },
+        "work": {
+          "frames": 3540,
+          "p50": 3.8000000000029104,
+          "p95": 5.69999999999709,
+          "p99": 7.099999904632568,
+          "max": 17.399999809262226
+        },
+        "callbackWork": {
+          "frames": 3540,
+          "p50": 2.299999952316284,
+          "p95": 3.8999998569488525,
+          "p99": 4.700000047683716,
+          "max": 13.299999952316284
+        },
+        "phases": {
+          "pan": {
+            "frames": 1200,
+            "p50": 4.199999952317739,
+            "p95": 5.499999856947397,
+            "p99": 6,
+            "max": 7.600000000000364
+          },
+          "zoom": {
+            "frames": 1196,
+            "p50": 4.299999904629658,
+            "p95": 6.299999904629658,
+            "p99": 7.299999952316284,
+            "max": 15.399999809262226
+          },
+          "drag": {
+            "frames": 1144,
+            "p50": 2.0999999523191946,
+            "p95": 3.6000000000058208,
+            "p99": 8.799999856943032,
+            "max": 17.399999809262226
+          }
+        },
+        "diagnostics": {
+          "layoutBuilds": 2905,
+          "staticPaints": 2905,
+          "overlayPaints": 3445,
+          "previewClipCount": 0,
+          "backend": "webgpu",
+          "renderer": "webgpu",
+          "fallback": null,
+          "staticUploads": 2449,
+          "deviceLosses": 0,
+          "gpuBytes": 17367056,
+          "visibleClips": 36,
+          "labelsRasterized": 4353
+        }
+      },
+      "baseline": {
+        "frames": 601,
+        "missed": 0,
+        "missedShare": 0
+      },
+      "dragged": 18,
+      "seeks": {
+        "regions": 10,
+        "cold": {
+          "tilesAsked": {
+            "p50": 88,
+            "max": 92
+          },
+          "built": {
+            "p50": 12.400000095367432,
+            "max": 26.700000047683716
+          },
+          "drawn": {
+            "p50": 16.700000047683716,
+            "max": 41.5
+          },
+          "seek": {
+            "p50": 16.700000047683716,
+            "max": 41.5
+          }
+        },
+        "warm": {
+          "tilesAsked": {
+            "p50": 0,
+            "max": 0
+          },
+          "built": {
+            "p50": 2.5,
+            "max": 4.099999904632568
+          },
+          "drawn": {
+            "p50": 16.59999990463257,
+            "max": 17.200000047683716
+          },
+          "seek": {
+            "p50": 16.59999990463257,
+            "max": 17.200000047683716
+          }
+        },
+        "tiles": {
+          "compute": "worker",
+          "kernel": "wasm-simd",
+          "batches": {
+            "js": 0,
+            "wasm": 160
+          },
+          "tiles": 1212,
+          "bytes": 54048960,
+          "pending": 0,
+          "evicted": 0,
+          "stale": 0,
+          "fallback": null,
+          "error": null
+        }
+      },
+      "memory": {
+        "jsHeap": 121609259,
+        "tiles": 70064064,
+        "gpu": 17367056
+      },
+      "videoSize": {
+        "width": 1920,
+        "height": 1080
+      },
+      "errors": []
+    },
+    "canvas2d": {
+      "trace": {
+        "interval": 16.69999999999709,
+        "frames": 3576,
+        "missed": 25,
+        "missedShare": 0.006944444444444444,
+        "missedIn": {
+          "pan": 1,
+          "zoom": 1,
+          "drag": 23,
+          "idle": 0
+        },
+        "work": {
+          "frames": 3548,
+          "p50": 4.400000000001455,
+          "p95": 6.399999904631841,
+          "p99": 8.5,
+          "max": 16.80000004768226
+        },
+        "callbackWork": {
+          "frames": 3548,
+          "p50": 3.4000000953674316,
+          "p95": 5.200000047683716,
+          "p99": 6,
+          "max": 13.299999952316284
+        },
+        "phases": {
+          "pan": {
+            "frames": 1199,
+            "p50": 4.799999952316284,
+            "p95": 5.799999856950308,
+            "p99": 6.5,
+            "max": 14.799999999999272
+          },
+          "zoom": {
+            "frames": 1199,
+            "p50": 4.600000047685171,
+            "p95": 6.69999999999709,
+            "p99": 9.099999952319195,
+            "max": 11.099999999998545
+          },
+          "drag": {
+            "frames": 1150,
+            "p50": 2.0999999523191946,
+            "p95": 3.499999952313374,
+            "p99": 11.69999990463839,
+            "max": 16.80000004768226
+          }
+        },
+        "diagnostics": {
+          "layoutBuilds": 2904,
+          "staticPaints": 2904,
+          "overlayPaints": 3444,
+          "previewClipCount": 0,
+          "backend": "canvas2d",
+          "renderer": "canvas2d",
+          "fallback": null,
+          "staticUploads": 0,
+          "deviceLosses": 0,
+          "gpuBytes": 0,
+          "visibleClips": 36,
+          "labelsRasterized": 4350
+        }
+      },
+      "baseline": {
+        "frames": 600,
+        "missed": 1,
+        "missedShare": 0.0016666666666666668
+      },
+      "dragged": 18,
+      "seeks": {
+        "regions": 10,
+        "cold": {
+          "tilesAsked": {
+            "p50": 88,
+            "max": 92
+          },
+          "built": {
+            "p50": 10.700000047683716,
+            "max": 17.799999952316284
+          },
+          "drawn": {
+            "p50": 17,
+            "max": 30.799999952316284
+          },
+          "seek": {
+            "p50": 17,
+            "max": 30.799999952316284
+          }
+        },
+        "warm": {
+          "tilesAsked": {
+            "p50": 0,
+            "max": 0
+          },
+          "built": {
+            "p50": 3.8000001907348633,
+            "max": 4.699999809265137
+          },
+          "drawn": {
+            "p50": 16.600000143051147,
+            "max": 17
+          },
+          "seek": {
+            "p50": 16.600000143051147,
+            "max": 17
+          }
+        },
+        "tiles": {
+          "compute": "worker",
+          "kernel": "wasm-simd",
+          "batches": {
+            "js": 0,
+            "wasm": 160
+          },
+          "tiles": 1212,
+          "bytes": 54048960,
+          "pending": 0,
+          "evicted": 0,
+          "stale": 0,
+          "fallback": null,
+          "error": null
+        }
+      },
+      "memory": {
+        "jsHeap": 138893023,
+        "tiles": 70064064,
+        "gpu": 0
+      },
+      "videoSize": {
+        "width": 1920,
+        "height": 1080
+      },
+      "errors": []
+    }
+  }
+}

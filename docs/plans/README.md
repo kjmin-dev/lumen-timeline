@@ -14,6 +14,6 @@ Each plan states a user outcome, the commit it starts from, the pull requests th
 | [Candidate takes per clip](clip-takes.md)                  | Shared, reusable candidate takes with undoable choice, guarded async results and previews    | #24, #28, #30, #31 |
 | [Edits that replay elsewhere](replayable-edits.md)         | Session-scoped IDs, commits that replay in another editor, and clip records by ID            | #25, #26           |
 | [Share one project between editors](shared-sessions.md)    | Optional sharing with no server required: any participant orders commands                    | #29, #35–#38       |
-| [Render a large timeline](scale-rendering.md)              | Waveform tiles from a worker, WebGL2, opt-in WebGPU and Canvas 2D on one layout, device loss | R1–R5 planned      |
+| [Render a large timeline](scale-rendering.md)              | Waveform tiles from a worker, WebGL2, opt-in WebGPU and Canvas 2D on one layout, device loss | #39–#44            |
 
 Milestones and their exit criteria are in the [roadmap](../../ROADMAP.md#milestones).

@@ -17,6 +17,8 @@ export interface RendererHost {
   readonly uploads: number;
   /** Lost WebGL2 contexts and WebGPU devices. */
   readonly losses: number;
+  /** GPU buffer and texture bytes the current backend holds. */
+  readonly gpuBytes: number;
   draw(frame: Frame): void;
   /** Reads back the last frame through the current backend. */
   read(rect: PixelRect): Promise<Pixels>;
@@ -162,6 +164,9 @@ export function createRendererHost(
     },
     get losses() {
       return losses;
+    },
+    get gpuBytes() {
+      return current.gpuBytes;
     },
     read(rect: PixelRect): Promise<Pixels> {
       return last ? current.read(last, rect) : Promise.reject(new Error("Nothing drawn yet"));

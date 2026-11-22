@@ -313,7 +313,7 @@ export interface WaveformTilesOptions {
   readonly worker?: (() => PeakWorker) | null | undefined;
   /** Use the Rust SIMD kernels in the worker for large batches. Defaults to true. */
   readonly wasm?: boolean | undefined;
-  /** The smallest batch, in samples, that uses them. Defaults to 65,536, one tile. */
+  /** The smallest batch, in samples, that uses them. Defaults to 4,096. */
   readonly wasmFrom?: number | undefined;
   /** Bytes of tiles to keep. Defaults to 64 MiB. */
   readonly cacheBytes?: number | undefined;

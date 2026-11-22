@@ -195,6 +195,11 @@ export async function createWebGPURenderer(
     get uploads() {
       return uploads;
     },
+    get gpuBytes() {
+      return (
+        capacity * (quadFloats * 4 + 4) + (texture ? texture.width * texture.height * 4 : 0) + 16
+      );
+    },
     draw(frame: Frame): void {
       if (lost || disposed) return;
       const count = prepare(frame);

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rendering benchmark · Lumen Timeline</title>
+    <link rel="stylesheet" href="/packages/timeline/style.css" />
+    <style>
+      body {
+        margin: 0;
+        background: #101417;
+        color: #e8e4d8;
+        font:
+          13px system-ui,
+          sans-serif;
+      }
+      header {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 6px 12px;
+        height: 64px;
+        box-sizing: border-box;
+      }
+      video {
+        height: 54px;
+        aspect-ratio: 16 / 9;
+        background: #000;
+      }
+      /* Twelve rows of 46 px. */
+      #timeline .lt-scroll {
+        height: 552px;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "@lumen-timeline/media": "/packages/media/dist/index.js",
+          "@lumen-timeline/core": "/packages/core/dist/index.js",
+          "@lumen-timeline/timeline": "/packages/timeline/dist/index.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <video muted loop playsinline></video>
+      <strong>Rendering benchmark</strong>
+      <output id="status">Building the project…</output>
+    </header>
+    <main id="timeline"></main>
+    <script type="module" src="./bench.mjs"></script>
+  </body>
+</html>
