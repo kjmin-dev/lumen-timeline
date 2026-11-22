@@ -11,5 +11,6 @@ Each plan states a user outcome, the commit it starts from, the pull requests th
 | [Media and timeline in TypeScript](typescript-packages.md) | An assertion-free core, then media and timeline in the same TypeScript                    | #16–#18       |
 | [Saved timeline markers](timeline-markers.md)              | Marker commands, history and reads, drawn and navigated in the timeline                   | #19, #20      |
 | [Close milestone 2](milestone-2-closeout.md)               | Marker crossings during playback and one trace over the milestone 2 exit criteria         | #22, #23      |
+| [Candidate takes per clip](clip-takes.md)                  | Shared, reusable candidate takes with undoable choice, guarded async results and previews | #24           |
 
 Milestones and their exit criteria are in the [roadmap](../../ROADMAP.md#milestones).

@@ -50,19 +50,30 @@ function read(
 }
 
 // JSON arrays are dense, so comparing indices matches comparing own keys.
-function equal(a: JsonValue | undefined, b: JsonValue | undefined): boolean {
+/** Deep equality of frozen JSON values. `undefined` equals only itself. */
+export function jsonEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
-  if (!a || !b || typeof a !== "object" || typeof b !== "object" || isArray(a) !== isArray(b))
-    return false;
-  if (isArray(a) && isArray(b))
-    return a.length === b.length && a.every((item, index) => equal(item, b[index]));
-  if (isArray(a) || isArray(b)) return false;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (isArray(a) || isArray(b)) {
+    return (
+      isArray(a) &&
+      isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => jsonEqual(item, b[index]))
+    );
+  }
   const keys = Object.keys(a);
   return (
     keys.length === Object.keys(b).length &&
-    keys.every((key) => Object.hasOwn(b, key) && equal(a[key], b[key]))
+    keys.every((key) => {
+      const left: unknown = Reflect.get(a, key);
+      const right: unknown = Reflect.get(b, key);
+      return Object.hasOwn(b, key) && jsonEqual(left, right);
+    })
   );
 }
+
+const equal = jsonEqual;
 
 // undefined represents absence within the journal. All persisted values are JSON.
 export class DataDraft {
@@ -87,6 +98,12 @@ export class DataDraft {
     const after = command.type === "remove-data" ? undefined : freezeJson(command.value);
     if (equal(before, after)) this.writes.delete(path);
     else this.writes.set(path, Object.freeze({ scope, id, key, before, after }));
+  }
+
+  /** The field as staged so far in this transaction. */
+  current(scope: string, id: string, key: string): JsonValue | undefined {
+    const write = this.writes.get(JSON.stringify([scope, id, key]));
+    return write ? write.after : read(this.base, scope, id, key);
   }
 
   patches(): readonly DataPatch[] {

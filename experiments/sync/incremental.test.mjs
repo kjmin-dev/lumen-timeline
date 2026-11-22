@@ -289,7 +289,7 @@ test("failed or missing bindings leave the guide running and can recover on cata
     f.frame(1);
     assert.equal(f.errors.length, 1);
     const guide = f.transport.voices.get("guide").node;
-    assert.throws(() => f.transport.setCatalog({ version: 2 }), /catalog/);
+    assert.throws(() => f.transport.setCatalog({ version: 2, takes: [] }), /catalog/);
     assert.equal(f.transport.catalog, f.catalog);
     const { line, ...remaining } = f.catalog.takes;
     f.transport.setCatalog({ version: 2, takes: remaining });

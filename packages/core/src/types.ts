@@ -46,6 +46,12 @@ export interface Clip {
   readonly duration: Tick;
   readonly contentIn: Tick;
   readonly contentBounds?: ContentBounds;
+  /**
+   * The clip's candidate takes, in display order. Each ID names an entry of
+   * `project.takes`. With a list, `activeTakeId` is `null` or one of its IDs.
+   * Without one, `activeTakeId` names a binding in the host's `TakeCatalog`.
+   */
+  readonly takeIds?: readonly string[];
   readonly activeTakeId?: string | null;
   readonly continuityId?: string | null;
   /** Plugin data. A clip with extensions cannot be split until a split policy exists. */
@@ -67,6 +73,24 @@ export interface Marker {
   readonly [field: string]: unknown;
 }
 
+/**
+ * One candidate for a clip's slot: a media stream aligned to content time.
+ * Clips list takes by ID, and several clips can share one, as both halves of
+ * a split do. The editor preserves additional JSON fields without
+ * interpreting them.
+ */
+export interface Take {
+  readonly id: string;
+  readonly assetId: string;
+  readonly streamId: string;
+  /** Source position, in project ticks, at the clip's content time zero. May be negative. */
+  readonly sourceAtContentZero: Tick;
+  /** Display name. Views fall back to the ID. */
+  readonly label?: string;
+  readonly extensions?: JsonObject;
+  readonly [field: string]: unknown;
+}
+
 /** Sparse entity metadata: scope, then entity ID, then field key. */
 export type EntityFields = { readonly [key: string]: JsonValue };
 export type EntityRecords = { readonly [id: string]: EntityFields };
@@ -83,6 +107,8 @@ export interface Project {
   readonly clips: readonly Clip[];
   /** Sorted by start, then ID, in a snapshot. Omitted when there are none. */
   readonly markers?: readonly Marker[];
+  /** Sorted by ID in a snapshot. Omitted when there are none. */
+  readonly takes?: readonly Take[];
   readonly entityData?: EntityData;
   readonly [field: string]: unknown;
 }
@@ -158,6 +184,90 @@ export interface RemoveMarkerCommand {
   readonly markerId: string;
 }
 
+/** The fields of a new take. Omitting `id` generates one. */
+export interface TakeInput {
+  readonly id?: string | undefined;
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly sourceAtContentZero: Tick;
+  readonly label?: string | undefined;
+  readonly extensions?: JsonObject | undefined;
+}
+
+/**
+ * Appends a take to the candidate lists of `clipIds`. Pass `take` to register
+ * a new take or `takeId` to share an existing one. A clip that already lists
+ * the take keeps its position.
+ */
+export interface AddTakeCommand {
+  readonly type: "add-take";
+  readonly clipIds: readonly string[];
+  readonly take?: TakeInput | undefined;
+  readonly takeId?: string | undefined;
+  /** Also make the take active on every listed clip. Defaults to `false`. */
+  readonly activate?: boolean | undefined;
+}
+
+/** Makes one of the clip's candidates active, or `null` for none. */
+export interface SelectTakeCommand {
+  readonly type: "select-take";
+  readonly clipId: string;
+  readonly takeId: string | null;
+}
+
+/**
+ * Removes a candidate from one clip. The active take cannot be removed; select
+ * another in the same transaction first. A take that no clip lists any more
+ * leaves the project.
+ */
+export interface RemoveTakeCommand {
+  readonly type: "remove-take";
+  readonly clipId: string;
+  readonly takeId: string;
+}
+
+/** Replaces a clip's candidate order with a permutation of the same IDs. */
+export interface ReorderTakesCommand {
+  readonly type: "reorder-takes";
+  readonly clipId: string;
+  readonly takeIds: readonly string[];
+}
+
+/**
+ * Changes only the fields given, for every clip that lists the take. A take's
+ * asset and stream are fixed; add a new take for different media.
+ */
+export interface UpdateTakeCommand {
+  readonly type: "update-take";
+  readonly takeId: string;
+  readonly label?: string | undefined;
+  readonly sourceAtContentZero?: Tick | undefined;
+}
+
+/**
+ * Rejects the whole transaction with `expectation-failed` unless the clip
+ * exists and each field deep-equals its value at this point in the
+ * transaction. `undefined` expects an absent field.
+ */
+export interface ExpectClipCommand {
+  readonly type: "expect-clip";
+  readonly clipId: string;
+  readonly fields: { readonly [field: string]: JsonValue | undefined };
+}
+
+/**
+ * Rejects the whole transaction with `expectation-failed` unless the entity
+ * field deep-equals `value` at this point in the transaction. `undefined`
+ * expects an absent field.
+ */
+export interface ExpectDataCommand {
+  readonly type: "expect-data";
+  readonly scope: string;
+  readonly id: string;
+  readonly key: string;
+  readonly value: JsonValue | undefined;
+}
+
 export type ClipCommand = MoveCommand | TrimCommand | SplitCommand;
 export type DataCommand = SetDataCommand | RemoveDataCommand;
 export type MarkerCommand =
@@ -165,7 +275,14 @@ export type MarkerCommand =
   | MoveMarkerCommand
   | UpdateMarkerCommand
   | RemoveMarkerCommand;
-export type EditCommand = ClipCommand | DataCommand | MarkerCommand;
+export type TakeCommand =
+  | AddTakeCommand
+  | SelectTakeCommand
+  | RemoveTakeCommand
+  | ReorderTakesCommand
+  | UpdateTakeCommand;
+export type ExpectCommand = ExpectClipCommand | ExpectDataCommand;
+export type EditCommand = ClipCommand | DataCommand | MarkerCommand | TakeCommand | ExpectCommand;
 export type PreviewCommand = MoveCommand | TrimCommand;
 
 /** Every code an `EditError` or a rejected edit can carry. */
@@ -199,7 +316,12 @@ export type EditErrorCode =
   | "invalid-history"
   | "foreign-snapshot"
   | "missing-marker"
-  | "invalid-marker";
+  | "invalid-marker"
+  | "missing-take"
+  | "invalid-take"
+  | "active-take"
+  | "invalid-expectation"
+  | "expectation-failed";
 
 export type HistoryPolicy = "record" | "ignore";
 export type CommitHistory = HistoryPolicy | "undo" | "redo";
@@ -237,6 +359,13 @@ export interface MarkerPatch {
   readonly after: Marker | undefined;
 }
 
+/** One take change. `undefined` represents an absent take. */
+export interface TakePatch {
+  readonly id: string;
+  readonly before: Take | undefined;
+  readonly after: Take | undefined;
+}
+
 /** A clip's half-open placement interval in project ticks. */
 export interface AffectedInterval {
   readonly clipId: string;
@@ -263,6 +392,12 @@ export interface EditCommit {
   /** Marker changes. `changedIds`, `createdIds` and `affected` describe clips only. */
   readonly markerPatches: readonly MarkerPatch[];
   readonly inverseMarkerPatches: readonly MarkerPatch[];
+  /**
+   * Take changes. A clip that lists a take whose media mapping changed appears
+   * in `changedIds` and `affected` without a clip patch of its own.
+   */
+  readonly takePatches: readonly TakePatch[];
+  readonly inverseTakePatches: readonly TakePatch[];
 }
 
 export interface EditUnchanged {
@@ -314,21 +449,41 @@ export interface ClipQueryOptions {
   readonly trackIds?: readonly string[] | undefined;
 }
 
-/** Maps a take to a decoded audio stream. Sample positions are in the stream's units. */
-export interface TakeBinding {
-  readonly assetId: string;
+/** A decoded audio stream. Sample positions are in the stream's units. */
+export interface StreamBinding {
   readonly assetVersion: Version;
-  readonly streamId: string;
   readonly sampleRate: number;
   readonly availableStart: number;
   readonly availableEnd: number;
+}
+
+/** Maps a host-aligned take to a decoded audio stream. */
+export interface TakeBinding extends StreamBinding {
+  readonly assetId: string;
+  readonly streamId: string;
   /** Signed source sample index at content time zero. */
   readonly sourceAtContentZero: number;
 }
 
+/**
+ * Runtime media facts for planning. A clip with `takeIds` plays a project take
+ * through `streams[assetId][streamId]`. A clip without one plays
+ * `takes[activeTakeId]`, which the host aligns itself.
+ */
 export interface TakeCatalog {
   readonly version: Version;
-  readonly takes: { readonly [takeId: string]: TakeBinding };
+  readonly takes?: { readonly [takeId: string]: TakeBinding } | undefined;
+  readonly streams?:
+    | { readonly [assetId: string]: { readonly [streamId: string]: StreamBinding } }
+    | undefined;
+}
+
+export interface PlanOptions {
+  /**
+   * Plays a different take, or none for `null`, in the named clips without
+   * editing the project. A clip with `takeIds` accepts only a listed take.
+   */
+  readonly takeOverrides?: { readonly [clipId: string]: string | null } | undefined;
 }
 
 /** A project interval and the half-open source sample range it plays. */
@@ -361,6 +516,13 @@ export type PlanIssue =
   | { readonly code: "invalid-gain"; readonly trackId: string }
   | { readonly code: "unresolved-take"; readonly clipId: string; readonly takeId: unknown }
   | {
+      readonly code: "unresolved-stream";
+      readonly clipId: string;
+      readonly takeId: string;
+      readonly assetId: string;
+      readonly streamId: string;
+    }
+  | {
       readonly code: "invalid-take";
       readonly clipId: string;
       readonly takeId: string;
@@ -378,7 +540,12 @@ export interface AudioPlan {
 export interface ReadHandle {
   readonly revision: number;
   clipsIn(range: TickRange, options?: ClipQueryOptions): readonly Clip[];
-  planAudio(range: TickRange, catalog: TakeCatalog): AudioPlan;
+  planAudio(range: TickRange, catalog: TakeCatalog, options?: PlanOptions): AudioPlan;
+  /**
+   * The clip's candidate takes in list order. Empty for a clip without
+   * `takeIds`. Throws an `EditError` with `missing-clip` for an unknown clip.
+   */
+  takesOf(clipId: string): readonly Take[];
   /** Markers with `range.start <= start < range.end`, in snapshot order. */
   markersIn(range: TickRange): readonly Marker[];
   /** The first marker after `tick`. */

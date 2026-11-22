@@ -1,5 +1,12 @@
 import { normalizeEntityData } from "./entity-data.ts";
 import { compareMarkers, parseMarker } from "./markers.ts";
+import {
+  checkLoadedReferences,
+  compareTakes,
+  countReferences,
+  parseTake,
+  parseTakeIds,
+} from "./takes.ts";
 import { TICKS_PER_SECOND } from "./time.ts";
 import type {
   Clip,
@@ -7,6 +14,7 @@ import type {
   JsonValue,
   Marker,
   ProjectSnapshot,
+  Take,
   Tick,
   Track,
 } from "./types.ts";
@@ -28,6 +36,8 @@ export interface OpenedProject {
   readonly snapshot: ProjectSnapshot;
   readonly rules: Rules;
   readonly byTrack: TrackLayout;
+  /** How many clips list each take. */
+  readonly takeCounts: Map<string, number>;
 }
 
 /** Placement fields before validation, from JSON or from a staged edit. */
@@ -148,6 +158,7 @@ function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Cl
     id,
     "Expected string take and continuity IDs",
   );
+  const takeIds = parseTakeIds(id, clip["takeIds"], activeTakeId);
   const extensions = clip["extensions"];
   requireEdit(
     extensions === undefined || isRecord(extensions),
@@ -162,8 +173,10 @@ function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Cl
     id,
     "Expected a string name",
   );
+  // An empty candidate list is omitted; otherwise it keeps its field position.
+  const { takeIds: _emptyTakes, ...withoutTakes } = clip;
   return Object.freeze({
-    ...clip,
+    ...(takeIds === undefined ? withoutTakes : clip),
     id,
     trackId,
     kind,
@@ -171,6 +184,7 @@ function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Cl
     duration,
     contentIn,
     ...(contentBounds === undefined ? {} : { contentBounds }),
+    ...(takeIds === undefined ? {} : { takeIds }),
     ...(activeTakeId === undefined ? {} : { activeTakeId }),
     ...(continuityId === undefined ? {} : { continuityId }),
     ...(extensions === undefined ? {} : { extensions }),
@@ -263,11 +277,28 @@ export function openProject(input: unknown): OpenedProject {
     markerList.push(marker);
   }
   markerList.sort(compareMarkers);
+  const rawTakes = project["takes"];
+  requireEdit(
+    rawTakes === undefined || isArray(rawTakes),
+    "invalid-project",
+    null,
+    "Expected a takes array",
+  );
+  const takes = new Map<string, Take>();
+  for (const value of rawTakes ?? []) {
+    const take = parseTake(value, (id) => takes.has(id));
+    takes.set(take.id, take);
+  }
+  const takeCounts = countReferences(clipList);
+  checkLoadedReferences(takes, takeCounts, clipList);
+  const takeList = [...takes.values()].sort(compareTakes);
   // Normalized entity data follows the revision, as when the editor normalized it.
-  // An empty markers list is omitted; otherwise markers keep their field position.
-  const { entityData: rawData, ...withMarkers } = project;
-  const { markers: _emptyMarkers, ...withoutMarkers } = withMarkers;
-  const rest = markerList.length ? withMarkers : withoutMarkers;
+  // Empty markers and takes lists are omitted; otherwise they keep their field position.
+  const { entityData: rawData, ...withLists } = project;
+  const { markers: _emptyMarkers, ...withoutMarkers } = withLists;
+  const withTakes = markerList.length ? withLists : withoutMarkers;
+  const { takes: _emptyTakes, ...withoutTakes } = withTakes;
+  const rest = takeList.length ? withTakes : withoutTakes;
   const entityData = Object.hasOwn(project, "entityData")
     ? normalizeEntityData(rawData)
     : undefined;
@@ -280,10 +311,11 @@ export function openProject(input: unknown): OpenedProject {
     ...(rawDuration === undefined ? {} : { duration }),
     ...(rawMinimum === undefined ? {} : { minClipDuration: minimum }),
     ...(markerList.length ? { markers: Object.freeze(markerList) } : {}),
+    ...(takeList.length ? { takes: Object.freeze(takeList) } : {}),
     revision,
     ...(entityData === undefined ? {} : { entityData }),
   });
-  return { snapshot, rules, byTrack };
+  return { snapshot, rules, byTrack, takeCounts };
 }
 
 /** Checks placement fields against the rules shared by loading and every edit. */

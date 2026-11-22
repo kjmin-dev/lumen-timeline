@@ -47,6 +47,12 @@ export class ClipDraft {
     return this.edited.get(id) ?? (index === undefined ? undefined : this.clips[index]);
   }
 
+  /** The clip as it was before this transaction, if it existed. */
+  original(id: string): Clip | undefined {
+    const index = this.positions.get(id);
+    return index === undefined ? undefined : this.clips[index];
+  }
+
   // `clip` is the current version of a clip from `get`, so it has an owner slot.
   replace(clip: Clip, after: readonly Clip[]): void {
     const owner = defined(this.owners.get(clip.id) ?? this.positions.get(clip.id), "clip slot");
