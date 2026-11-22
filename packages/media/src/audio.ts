@@ -1,8 +1,12 @@
 import { TICKS_PER_SECOND as hz, sequenceDuration } from "@lumen-timeline/core";
 import type { Tick } from "@lumen-timeline/core";
+import { auditionState, planAudition, watchAudition } from "./audition.ts";
+import type { AuditionPlan } from "./audition.ts";
 import { VoiceScheduler } from "./voice-scheduler.ts";
 import type {
   AudioContextLike,
+  Audition,
+  AuditionResult,
   AudioTransport,
   AudioTransportState,
   AudioTransportStatus,
@@ -18,6 +22,12 @@ interface Request<T> {
 }
 
 type PlayResult = "playing" | "empty" | "superseded";
+
+interface ActiveAudition {
+  readonly state: Audition;
+  readonly request: Request<AuditionResult>;
+  readonly unwatch: () => boolean;
+}
 
 function request<T>(): Request<T> {
   const { promise, resolve, reject } = Promise.withResolvers<T>();
@@ -61,6 +71,7 @@ export function createAudioTransport({
   let starting: Request<PlayResult> | null = null;
   let seeking: (Request<SeekResult> & { readonly tick: Tick }) | null = null;
   let frame: number | null = null;
+  let audition: ActiveAudition | null = null;
   let state: AudioTransportState = Object.freeze({
     status: "paused",
     playing: false,
@@ -69,6 +80,7 @@ export function createAudioTransport({
     precision: "exact",
     segment,
     segmentStart,
+    audition: null,
   });
   const listeners = new Set<(state: AudioTransportState) => void>();
   const scheduler = new VoiceScheduler({
@@ -82,6 +94,9 @@ export function createAudioTransport({
   });
   const offExtent = editor.subscribe(sequenceDuration, (next) => {
     end = next;
+    // An audition plays inside its clip. An edit that moves the clip ends it,
+    // and the return position is clamped then.
+    if (audition) return;
     if (
       !end ||
       (seeking ? seeking.tick >= end : position > end || (scheduler.anchor && currentTick() >= end))
@@ -109,7 +124,8 @@ export function createAudioTransport({
         state.presentedTick === position &&
         state.requestedTick === requestedTick &&
         state.precision === precision &&
-        state.segment === segment)
+        state.segment === segment &&
+        state.audition === (audition?.state ?? null))
     )
       return;
     const next = Object.freeze({
@@ -120,6 +136,7 @@ export function createAudioTransport({
       precision,
       segment,
       segmentStart,
+      audition: audition?.state ?? null,
     });
     state = next;
     // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may unsubscribe or issue commands during delivery, so iterate a snapshot.
@@ -150,11 +167,16 @@ export function createAudioTransport({
     const anchor = scheduler.anchor;
     if (seeking && anchor && outputClock(context).time >= anchor.audio) jump(seeking.tick);
   }
+  // Playback stops at the sequence end, or at the end of an auditioned clip.
+  function limit(): Tick {
+    return audition ? Math.min(end, audition.state.range.end) : end;
+  }
   function currentTick(time: number = outputClock(context).time): Tick {
     const anchor = scheduler.anchor;
-    if (!anchor || (seeking && time < anchor.audio)) return Math.min(position, end);
+    const stop = limit();
+    if (!anchor || (seeking && time < anchor.audio)) return Math.min(position, stop);
     return Math.min(
-      end,
+      stop,
       Math.max(seeking?.tick ?? position, anchor.tick + Math.round((time - anchor.audio) * hz)),
     );
   }
@@ -185,6 +207,23 @@ export function createAudioTransport({
     position = tick;
     publish(status);
   }
+  // Ends the audition, stops its voices and settles its promise. With
+  // `restore`, presentation returns to the position the audition left.
+  function endAudition(settle: (request: Request<AuditionResult>) => void, restore: boolean): void {
+    const active = audition;
+    if (!active) return;
+    audition = null;
+    active.unwatch();
+    cancelFrame();
+    scheduler.invalidate();
+    scheduler.setPlan(undefined);
+    if (restore) {
+      jump(Math.min(active.state.returnTick, end));
+      publish(position === end && end ? "ended" : "paused");
+    }
+    settle(active.request);
+  }
+  const cancelled = (request: Request<AuditionResult>): void => request.resolve("cancelled");
   function anchorAt(tick: Tick): void {
     // Give the first reservation one nominal render quantum to reach the graph.
     const sample = Math.ceil(context.currentTime * context.sampleRate) + 128;
@@ -201,7 +240,9 @@ export function createAudioTransport({
       seeking = null;
     }
     position = currentTick(clock.time);
-    if (position >= end) stop(end, end ? "ended" : "paused");
+    if (audition && position >= limit())
+      endAudition((request) => request.resolve("finished"), true);
+    else if (position >= end) stop(end, end ? "ended" : "paused");
     else publish("playing", null, clock.precision);
   }
   function contextChanged(): void {
@@ -211,7 +252,15 @@ export function createAudioTransport({
       const error = new Error("Audio context closed");
       starting?.reject(error);
       seeking?.reject(error);
-      stop(currentTick(), "closed");
+      const back = audition ? Math.min(audition.state.returnTick, end) : currentTick();
+      endAudition((request) => request.reject(error), false);
+      stop(back, "closed");
+      return;
+    }
+    // An interruption ends an audition that is playing. One that waits for
+    // the context to resume keeps waiting.
+    if (context.state !== "running" && audition && scheduler.anchor) {
+      endAudition(cancelled, true);
       return;
     }
     if (context.state !== "running" && wantPlay && !starting) {
@@ -248,6 +297,7 @@ export function createAudioTransport({
     play(): Promise<PlayResult> {
       if (disposed || context.state === "closed")
         return Promise.reject(new Error("Transport unavailable"));
+      endAudition(cancelled, true);
       if (!end) return Promise.resolve("empty");
       if (starting) return starting.promise;
       if (scheduler.anchor || seeking) return Promise.resolve("playing");
@@ -282,6 +332,10 @@ export function createAudioTransport({
     },
     pause() {
       if (disposed || context.state === "closed") return;
+      if (audition) {
+        endAudition(cancelled, true);
+        return;
+      }
       land();
       stop(currentTick(), "paused");
     },
@@ -290,6 +344,8 @@ export function createAudioTransport({
         return Promise.reject(new Error("Transport unavailable"));
       if (!Number.isSafeInteger(tick) || tick < 0 || tick > end)
         return Promise.reject(new RangeError("Invalid seek tick"));
+      // The seek target replaces the audition's return position.
+      endAudition(cancelled, false);
       const active = wantPlay && !starting && context.state === "running";
       const interrupted = wantPlay && state.status === "interrupted";
       land();
@@ -313,6 +369,54 @@ export function createAudioTransport({
       });
       return op.promise;
     },
+    audition(input): Promise<AuditionResult> {
+      if (disposed || context.state === "closed")
+        return Promise.reject(new Error("Transport unavailable"));
+      let plan: AuditionPlan;
+      try {
+        plan = planAudition(editor, input);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      // A newer audition keeps the first one's return position.
+      land();
+      const returnTick = audition?.state.returnTick ?? seeking?.tick ?? currentTick();
+      endAudition(cancelled, false);
+      wantPlay = false;
+      supersede();
+      cancelFrame();
+      scheduler.invalidate();
+      scheduler.setPlan(plan.options, plan.range.end);
+      const active: ActiveAudition = {
+        state: auditionState(plan, returnTick),
+        request: request<AuditionResult>(),
+        unwatch: watchAudition(editor, plan, () => endAudition(cancelled, true)),
+      };
+      audition = active;
+      jump(plan.range.start);
+      publish("starting");
+      const start = (): void => {
+        if (audition !== active) return;
+        if (context.state !== "running") throw new Error("Audio context did not resume");
+        anchorAt(plan.range.start);
+        observe();
+      };
+      const failed = (error: unknown): void => {
+        if (audition === active) endAudition((r) => r.reject(error), true);
+      };
+      try {
+        if (context.state === "running") start();
+        else Promise.resolve(context.resume()).then(start).catch(failed);
+      } catch (error) {
+        failed(error);
+      }
+      return active.request.promise;
+    },
+    cancelAudition() {
+      if (!audition) return false;
+      endAudition(cancelled, true);
+      return true;
+    },
     get catalog() {
       return scheduler.catalog;
     },
@@ -323,7 +427,7 @@ export function createAudioTransport({
     diagnostics: (id) => scheduler.diagnostics(id),
     dispose() {
       if (disposed) return;
-      position = currentTick();
+      position = audition ? Math.min(audition.state.returnTick, end) : currentTick();
       disposed = true;
       state = Object.freeze({
         status: "disposed",
@@ -333,10 +437,16 @@ export function createAudioTransport({
         precision: "exact",
         segment,
         segmentStart,
+        audition: null,
       });
       const error = new Error("Transport disposed");
       starting?.reject(error);
       seeking?.reject(error);
+      if (audition) {
+        audition.unwatch();
+        audition.request.reject(error);
+        audition = null;
+      }
       starting = null;
       seeking = null;
       cancelFrame();

@@ -118,6 +118,8 @@ export function checkPlanInputs(catalog: StreamCatalog, options: PlanOptions | u
       !Object.values(overrides).every((value) => value === null || validId(value)))
   )
     throw new TypeError("Expected take overrides mapping clip IDs to take IDs or null");
+  if (options.isolate !== undefined && !validId(options.isolate))
+    throw new TypeError("Expected an isolated clip ID");
 }
 
 export function planAudio(
@@ -131,16 +133,25 @@ export function planAudio(
 ): AudioPlan {
   checkPlanInputs(catalog, options);
   const overrides = options?.takeOverrides;
+  const isolate = options?.isolate;
   const spans: AudioSpan[] = [];
   const issues: PlanIssue[] = [];
   const solo = tracks.some((track) => track.solo === true);
   for (const track of tracks) {
-    if (track.mute === true || (solo && track.solo !== true) || track.gain === 0) continue;
-    if (track.gain !== undefined && (!Number.isFinite(track.gain) || track.gain < 0)) {
+    // An isolated clip ignores mute and solo, and reports only its own track.
+    if (isolate === undefined && (track.mute === true || (solo && track.solo !== true))) continue;
+    if (track.gain === 0) continue;
+    const badGain = track.gain !== undefined && (!Number.isFinite(track.gain) || track.gain < 0);
+    if (badGain && isolate === undefined) {
       issues.push(Object.freeze({ code: "invalid-gain", trackId: track.id }));
       continue;
     }
     visit(track.id, (clip) => {
+      if (isolate !== undefined && clip.id !== isolate) return;
+      if (badGain) {
+        issues.push(Object.freeze({ code: "invalid-gain", trackId: track.id }));
+        return;
+      }
       const id =
         isMap(overrides) && Object.hasOwn(overrides, clip.id)
           ? own(overrides, clip.id)

@@ -1,4 +1,4 @@
-import type { AudioSpan, Editor, PlanIssue, ReadHandle, StreamCatalog, Tick, TickRange } from "@lumen-timeline/core";
+import type { AudioSpan, Editor, PlanIssue, PlanOptions, ReadHandle, StreamCatalog, Tick, TickRange } from "@lumen-timeline/core";
 import type { AudioBufferLike, AudioContextLike, AudioNodeLike, BufferSourceLike, GainNodeLike, MediaErrorHandler, ResolveBuffer, TransportDiagnostics } from "./types.ts";
 /** A project tick paired with the audio-context time at which it plays. */
 export interface Anchor {
@@ -17,6 +17,8 @@ export interface Voice {
     ended?: boolean;
     failed?: boolean;
     bookedStart?: Tick;
+    /** The tick the booked node stops at: the audible end, or an earlier stop tick. */
+    bookedEnd?: Tick;
     token?: object;
     predecessorToken?: object | undefined;
     startSample?: number;
@@ -43,6 +45,10 @@ export declare class VoiceScheduler {
     readonly output: AudioNodeLike;
     read: ReadHandle;
     catalog: StreamCatalog;
+    /** Plan options for every fill, as an audition sets them. */
+    options: PlanOptions | undefined;
+    /** No voice plays at or after this tick. */
+    until: Tick;
     readonly resolveBuffer: ResolveBuffer;
     readonly onError: MediaErrorHandler;
     generation: number;
@@ -55,6 +61,7 @@ export declare class VoiceScheduler {
     setAnchor(tick: Tick, audio: number, earliestTick?: number): void;
     range(): TickRange;
     fill(changed?: ReadonlySet<string> | true): void;
+    stale(read: ReadHandle, catalog: StreamCatalog, options: PlanOptions | undefined, generation: number): boolean;
     current(voice: Voice): boolean;
     ready(voice: Voice, buffer: AudioBufferLike): void;
     acceptBuffer(voice: Voice, buffer: AudioBufferLike): void;
@@ -64,6 +71,11 @@ export declare class VoiceScheduler {
     fail(voice: Voice, error: unknown): void;
     cancel(voice: Voice, disconnect?: boolean): void;
     invalidate(disconnect?: boolean): void;
+    /**
+     * Plans with these options and stops every voice at `until`. Callers set
+     * them while no anchor is held.
+     */
+    setPlan(options: PlanOptions | undefined, until?: Tick): void;
     setCatalog(catalog: StreamCatalog): void;
     diagnostics(clipId: string): TransportDiagnostics;
     dispose(): void;

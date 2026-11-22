@@ -1,4 +1,4 @@
-import type { AudioSpan, Editor, StreamCatalog, Tick } from "@lumen-timeline/core";
+import type { AudioSpan, Editor, StreamCatalog, Tick, TickRange } from "@lumen-timeline/core";
 /** A decoded stream. The transports read its rate and length. */
 export interface AudioBufferLike {
     readonly sampleRate: number;
@@ -94,6 +94,30 @@ export interface TransportDiagnostics {
     readonly endSample: number | undefined;
 }
 export type SeekResult = "arrived" | "superseded";
+/** `mix` plays the candidate with the rest of the project, `isolated` plays it alone. */
+export type AuditionMode = "mix" | "isolated";
+export interface AuditionRequest {
+    readonly clipId: string;
+    /** One of the clip's candidates, or `null` to hear the mix with the clip silent. */
+    readonly takeId: string | null;
+    /** Defaults to `mix`. */
+    readonly mode?: AuditionMode | undefined;
+}
+/** An audition in progress. */
+export interface Audition {
+    readonly clipId: string;
+    readonly takeId: string | null;
+    readonly mode: AuditionMode;
+    /** The clip's placement when the audition started. Playback stops at its end. */
+    readonly range: TickRange;
+    /** The position presentation returns to when the audition ends. */
+    readonly returnTick: Tick;
+}
+/**
+ * `finished` when playback reached the clip's end. `cancelled` when a command,
+ * a newer audition, an edit of the clip or an interruption ended it first.
+ */
+export type AuditionResult = "finished" | "cancelled";
 export type AudioTransportStatus = "paused" | "starting" | "playing" | "seeking" | "interrupted" | "ended" | "closed" | "disposed";
 /** `output` follows the audio output timestamp, `estimated` the rendering clock. */
 export type ClockPrecision = "exact" | "output" | "estimated";
@@ -107,6 +131,8 @@ export interface AudioTransportState {
     readonly segment: number;
     /** The tick that presentation continues from in this segment. */
     readonly segmentStart: Tick;
+    /** The audition in progress, during which presentation follows the auditioned clip. */
+    readonly audition: Audition | null;
 }
 export interface AudioTransport {
     snapshot(): AudioTransportState;
@@ -115,6 +141,16 @@ export interface AudioTransport {
     play(): Promise<"playing" | "empty" | "superseded">;
     pause(): void;
     seek(tick: Tick): Promise<SeekResult>;
+    /**
+     * Pauses project playback and plays one candidate over its clip's placement,
+     * without editing the project. When it ends, presentation returns to the
+     * position it left, paused. `pause()` and `play()` cancel it and return there
+     * too, and `seek()` cancels it for its own target. Rejects with an `EditError`
+     * for an unknown clip or a take the clip does not list.
+     */
+    audition(request: AuditionRequest): Promise<AuditionResult>;
+    /** Cancels the audition in progress. Returns whether there was one. */
+    cancelAudition(): boolean;
     readonly catalog: StreamCatalog;
     setCatalog(catalog: StreamCatalog): void;
     diagnostics(clipId: string): TransportDiagnostics;
@@ -128,6 +164,8 @@ export interface VideoTransportState {
     readonly segment: number;
     /** The tick that presentation continues from in this segment. */
     readonly segmentStart: Tick;
+    /** The audition in progress, during which the element plays the auditioned clip. */
+    readonly audition: Audition | null;
 }
 export interface VideoTransport {
     snapshot(): VideoTransportState;
@@ -136,6 +174,9 @@ export interface VideoTransport {
     play(): Promise<void>;
     pause(): void;
     seek(tick: Tick): Promise<SeekResult>;
+    /** Behaves as on the audio transport, with the element as the clock. */
+    audition(request: AuditionRequest): Promise<AuditionResult>;
+    cancelAudition(): boolean;
     readonly catalog: StreamCatalog;
     setCatalog(catalog: StreamCatalog): void;
     diagnostics(clipId: string): TransportDiagnostics;

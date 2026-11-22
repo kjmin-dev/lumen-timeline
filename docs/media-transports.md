@@ -19,7 +19,7 @@ The `catalog` is a [stream catalog](playback-read-api.md): `{ version, streams }
 
 The video driver observes presented frames and handles native seeking, buffering and clock reacquisition. A shared voice scheduler consumes its project-tick/context-time anchor. It owns its planning timer, editor subscription, gain and buffer source nodes, and abortable resolution requests. A clip edit preserves unrelated reservations and the active generation. A clock discontinuity invalidates the generation.
 
-The public video factory accepts seeks in integer project ticks. Use `snapshot()`, `subscribe(listener)`, `play()`, `pause()`, `seek(tick)`, `setCatalog(catalog)` and `dispose()`. A seek started on the element itself, from native controls or a loop, is reported the same way: its target appears as `requestedTick` at `seeking`, and the landing position at `seeked`. `diagnostics(clipId)` reports the generation, sample rate and an opaque reservation identity and end sample for that clip. The experiment's seconds-based API remains available to its original probes.
+The public video factory accepts seeks in integer project ticks. Use `snapshot()`, `subscribe(listener)`, `play()`, `pause()`, `seek(tick)`, [`audition(request)`](#audition), `setCatalog(catalog)` and `dispose()`. A seek started on the element itself, from native controls or a loop, is reported the same way: its target appears as `requestedTick` at `seeking`, and the landing position at `seeked`. `diagnostics(clipId)` reports the generation, sample rate and an opaque reservation identity and end sample for that clip. The experiment's seconds-based API remains available to its original probes.
 
 The host owns the editor, video element, AudioContext, output and asset cache. Disposing the factory detaches the driver and cancels its work; the host decides when to pause the element or close its context. [Scheduling behavior and probes](incremental-playback.md)
 
@@ -47,6 +47,25 @@ The audio driver supports 1× playback. On play or an active seek, it anchors th
 - **Seek.** Use safe integer project ticks within the extent. A paused seek returns `arrived` immediately. A playing seek exposes the requested tick and coalesces same-turn requests. The latest request returns `arrived` when the presentation clock reaches its anchor; earlier requests return `superseded`. Seeking directly to the end stops there. Pause or seek during a pending start supersedes that start. A stale completion cannot book a voice.
 - **Interruption.** When the context stops running, freeze the playhead, invalidate reservations and retain the latest play intent. Recovery uses a fresh anchor. A user pause while interrupted keeps the transport paused after recovery. If editing shrinks the extent behind playback, clamp to the new end and stop.
 - **Ownership.** Pass a host-owned context, editor, output node and asset resolver. Pause and disposal leave other users of the context running. Disposal cancels pending loads and rejects pending transport operations, clears callbacks and releases this driver's reservations. Samples already in the device output pipeline may still drain.
+
+## Audition
+
+`transport.audition({ clipId, takeId, mode })` previews one of a clip's candidates without editing the project. Both transports implement it. Applying the take stays a separate `selectTake` edit, which the host can dispatch during or after the audition.
+
+```js
+const result = await transport.audition({ clipId: "line", takeId: "take-b", mode: "isolated" });
+if (result === "finished")
+  editor.dispatch(commands.selectTake({ clipId: "line", takeId: "take-b" }));
+```
+
+- **What plays.** The transport pauses project playback, remembers the playhead and plays the clip's placement as it stands, from its start to its end. `mix` plays the candidate with the rest of the project. `isolated` plays the clip alone, even on a muted track or while another track is soloed, at its track's gain. A `takeId` of `null` plays the mix with the clip silent. Every voice stops at the clip's end, including one that continues past it.
+- **Ending.** At the clip's end the promise resolves `finished`, and presentation returns to the remembered position, paused. `cancelAudition()` and `pause()` resolve `cancelled` and return there too. `play()` returns there and plays the project from it. `seek(tick)` cancels the audition for its own target. A newer audition cancels the current one and keeps its return position.
+- **Edits.** An edit that removes the clip, moves either of its edges or stops listing the auditioned take cancels the audition. Other edits, such as applying the take, relabeling it or reordering the candidates, leave it playing. The scheduler replans through them as it does during playback.
+- **State.** Snapshots carry `audition`: the clip, take, mode, the clip's placement as `range` and the `returnTick`, or `null`. The audio transport reports `starting` and then `playing` while it plays. Entering and leaving each start a [segment](#marker-crossings), so a crossing watcher sees the jump to the clip and the return as seeks. A host that should not react to markers heard during an audition can check `transport.snapshot().audition`.
+- **Failures.** An unknown clip rejects with an `EditError` coded `missing-clip`, and a take the clip does not list with `missing-take`. A malformed request rejects with a `TypeError`. An invalid request leaves playback as it was. A denied resume rejects and returns to the position. On the audio transport, an interruption of the context cancels a playing audition. Disposal rejects a pending one.
+- **Video.** The video transport pauses the element, seeks it to the clip's start and plays it. The first frame at or past the clip's end, or the element's `ended` event, finishes the audition, and the element seeks back before the promise settles.
+
+`npm test` covers both modes, every way an audition ends, the edits that end it and those that do not, and the video seek sequence. `npm run verify:pcm` renders a mix and an isolated audition at 44.1 and 48 kHz in native offline graphs and compares all 4,096 frames with an oracle in sample indices, including the cut at the clip's end.
 
 ## Marker crossings
 
