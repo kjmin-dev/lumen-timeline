@@ -6,6 +6,9 @@ import { expectClip, expectData } from "./expect.ts";
 import { defined } from "./invariant.ts";
 import { MarkerDraft, applyMarkers, invertMarkers, rebaseMarkers } from "./markers.ts";
 import { createHistory } from "./history.ts";
+import type { HistoryEntry } from "./history.ts";
+import { parseReplay, replayOf } from "./replay.ts";
+import type { Records } from "./replay.ts";
 import { reportListenerError } from "./host.ts";
 import { idAllocator } from "./ids.ts";
 import { readRegistry } from "./read.ts";
@@ -29,7 +32,6 @@ import type {
   ClipCommand,
   ClipPatch,
   CommitHistory,
-  DataPatch,
   EditCommand,
   EditCommit,
   Editor,
@@ -39,7 +41,6 @@ import type {
   ExpectClipCommand,
   ExpectDataCommand,
   HistoryState,
-  MarkerPatch,
   MoveMarkerCommand,
   MoveCommand,
   PreviewCommand,
@@ -50,11 +51,11 @@ import type {
   RemoveMarkerCommand,
   RemoveTakeCommand,
   ReorderTakesCommand,
+  ReplayCommand,
   RevisionOptions,
   SelectTakeCommand,
   SetDataCommand,
   SplitCommand,
-  TakePatch,
   TrimCommand,
   UpdateMarkerCommand,
   UpdateTakeCommand,
@@ -81,6 +82,7 @@ export interface Commands {
   pruneTakes(args?: Arguments<PruneTakesCommand>): PruneTakesCommand;
   expectClip(args: Arguments<ExpectClipCommand>): ExpectClipCommand;
   expectData(args: Arguments<ExpectDataCommand>): ExpectDataCommand;
+  replay(args: Arguments<ReplayCommand>): ReplayCommand;
 }
 
 export const commands: Readonly<Commands> = Object.freeze({
@@ -101,6 +103,7 @@ export const commands: Readonly<Commands> = Object.freeze({
   pruneTakes: (args) => ({ ...args, type: "prune-takes" }),
   expectClip: (args) => ({ ...args, type: "expect-clip" }),
   expectData: (args) => ({ ...args, type: "expect-data" }),
+  replay: (args) => ({ ...args, type: "replay" }),
 } satisfies Commands);
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
@@ -145,6 +148,31 @@ function intervals(clips: readonly Clip[]): readonly AffectedInterval[] {
       }),
     ),
   );
+}
+
+/** What a transaction changes and the inverse that undoes it. */
+interface Staged {
+  readonly forward: Records;
+  readonly backward: Records;
+  /** The change in each take's listing count. */
+  readonly delta: ReadonlyMap<string, number>;
+}
+
+function recordsOf(entry: HistoryEntry): { forward: Records; backward: Records } {
+  return {
+    forward: {
+      clips: entry.forward,
+      data: entry.data,
+      markers: entry.markers ?? [],
+      takes: entry.takes ?? [],
+    },
+    backward: {
+      clips: entry.inverse,
+      data: entry.inverseData,
+      markers: entry.inverseMarkers ?? [],
+      takes: entry.inverseTakes ?? [],
+    },
+  };
 }
 
 export function createEditor({ project, history: limits, actor }: EditorOptions): Editor {
@@ -476,22 +504,96 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     }
   }
 
+  // Stages dispatched commands in order and returns what they change, adding
+  // each command with its generated IDs filled in to `resolved`.
+  function stage(list: readonly (EditCommand | null)[], resolved: EditCommand[]): Staged {
+    const clips = new ClipDraft(snapshot.clips, byId);
+    const fields = new DataDraft(snapshot.entityData);
+    const markers = new MarkerDraft(snapshot.markers);
+    const takes = new TakeDraft(snapshot.takes);
+    for (const dispatched of list) {
+      const command = withIds(dispatched, clips, markers, takes);
+      if (command) resolved.push(command);
+      if (command?.type === "set-data" || command?.type === "remove-data") fields.stage(command);
+      else if (
+        command?.type === "add-marker" ||
+        command?.type === "move-marker" ||
+        command?.type === "update-marker" ||
+        command?.type === "remove-marker"
+      )
+        markers.stage(command, rules);
+      else if (
+        command?.type === "add-take" ||
+        command?.type === "select-take" ||
+        command?.type === "remove-take" ||
+        command?.type === "reorder-takes" ||
+        command?.type === "update-take" ||
+        command?.type === "prune-takes"
+      )
+        takes.stage(command, {
+          clips,
+          editable: editable(clips),
+          listings: (id) => (takeCounts.get(id) ?? 0) + (stagedDelta(clips).get(id) ?? 0),
+        });
+      else if (command?.type === "expect-clip") expectClip(command, clips);
+      else if (command?.type === "expect-data") expectData(command, fields);
+      else if (command?.type === "replay")
+        requireEdit(false, "invalid-replay", null, "A replay forms a transaction by itself");
+      else stageClip(command, clips);
+    }
+    const forward: Records = {
+      clips: clips.patches(),
+      data: fields.patches(),
+      markers: markers.patches(),
+      takes: takes.patches(),
+    };
+    return {
+      forward,
+      backward: {
+        clips: inverse(forward.clips),
+        data: invertData(forward.data),
+        markers: invertMarkers(forward.markers),
+        takes: invertTakes(forward.takes),
+      },
+      delta: referenceDelta(forward.clips),
+    };
+  }
+
+  // Rebases recorded changes onto the current document, as undo, redo and a
+  // replay command apply them. `backward` holds the recorded inverses, which
+  // stay in use where nothing needed rebasing.
+  function replayed(forward: Records, backward?: Records): Staged {
+    const clips = rebase(forward.clips, snapshot.clips, byId, (clip) => validateClip(clip, rules));
+    const markers = rebaseMarkers(forward.markers, snapshot.markers, rules);
+    const delta = referenceDelta(clips);
+    const takes = rebaseTakes(
+      forward.takes,
+      snapshot.takes,
+      (id) => (takeCounts.get(id) ?? 0) + (delta.get(id) ?? 0) > 0,
+    );
+    return {
+      forward: { clips, data: forward.data, markers, takes },
+      backward: {
+        clips: backward && clips === forward.clips ? backward.clips : inverse(clips),
+        data: backward ? backward.data : invertData(forward.data),
+        markers:
+          backward && markers === forward.markers ? backward.markers : invertMarkers(markers),
+        takes: backward && takes === forward.takes ? backward.takes : invertTakes(takes),
+      },
+      delta,
+    };
+  }
+
   function execute(
     input: EditCommand | readonly EditCommand[] | null,
     mode: "edit" | "undo" | "redo",
     options: EditOptions | undefined,
   ): EditResult {
+    // A dispatched replay reports a rule its records break as a history conflict.
+    let replaying = false;
     try {
       checkRevision(options);
-      let patches: readonly ClipPatch[];
-      let inverses: readonly ClipPatch[];
-      let data: readonly DataPatch[];
-      let inverseData: readonly DataPatch[];
-      let markerPatches: readonly MarkerPatch[];
-      let inverseMarkerPatches: readonly MarkerPatch[];
-      let takePatches: readonly TakePatch[];
-      let inverseTakePatches: readonly TakePatch[];
-      let delta: ReadonlyMap<string, number>;
+      let staged: Staged;
       const resolved: EditCommand[] = [];
       let policy: CommitHistory = options?.history === undefined ? "record" : options.history;
       if (mode === "edit") {
@@ -501,79 +603,48 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
           null,
           "Choose record or ignore for the transaction",
         );
-        const clips = new ClipDraft(snapshot.clips, byId);
-        const fields = new DataDraft(snapshot.entityData);
-        const markers = new MarkerDraft(snapshot.markers);
-        const takes = new TakeDraft(snapshot.takes);
-        for (const dispatched of isArray(input) ? input : [input]) {
-          const command = withIds(dispatched, clips, markers, takes);
-          if (command) resolved.push(command);
-          if (command?.type === "set-data" || command?.type === "remove-data")
-            fields.stage(command);
-          else if (
-            command?.type === "add-marker" ||
-            command?.type === "move-marker" ||
-            command?.type === "update-marker" ||
-            command?.type === "remove-marker"
-          )
-            markers.stage(command, rules);
-          else if (
-            command?.type === "add-take" ||
-            command?.type === "select-take" ||
-            command?.type === "remove-take" ||
-            command?.type === "reorder-takes" ||
-            command?.type === "update-take" ||
-            command?.type === "prune-takes"
-          )
-            takes.stage(command, {
-              clips,
-              editable: editable(clips),
-              listings: (id) => (takeCounts.get(id) ?? 0) + (stagedDelta(clips).get(id) ?? 0),
-            });
-          else if (command?.type === "expect-clip") expectClip(command, clips);
-          else if (command?.type === "expect-data") expectData(command, fields);
-          else stageClip(command, clips);
-        }
-        patches = clips.patches();
-        data = fields.patches();
-        markerPatches = markers.patches();
-        delta = referenceDelta(patches);
-        takePatches = takes.patches();
-        if (!patches.length && !data.length && !markerPatches.length && !takePatches.length)
+        const list = isArray(input) ? input : [input];
+        const replay = list.find((command) => command?.type === "replay");
+        if (replay?.type === "replay") {
+          requireEdit(
+            list.length === 1,
+            "invalid-replay",
+            null,
+            "A replay forms a transaction by itself",
+          );
+          replaying = true;
+          staged = replayed(parseReplay(replay, rules));
+        } else staged = stage(list, resolved);
+        const { forward } = staged;
+        if (
+          !forward.clips.length &&
+          !forward.data.length &&
+          !forward.markers.length &&
+          !forward.takes.length
+        )
           return { ok: true, revision: snapshot.revision, unchanged: true };
-        inverses = inverse(patches);
-        inverseData = invertData(data);
-        inverseMarkerPatches = invertMarkers(markerPatches);
-        inverseTakePatches = invertTakes(takePatches);
       } else {
         const entry = history.peek(mode);
         requireEdit(entry, "empty-history", null, "No history entry available");
-        const undo = mode === "undo";
-        const stored = undo ? entry.inverse : entry.forward;
-        patches = rebase(stored, snapshot.clips, byId, (clip) => validateClip(clip, rules));
-        inverses = patches === stored ? (undo ? entry.forward : entry.inverse) : inverse(patches);
-        data = undo ? entry.inverseData : entry.data;
-        inverseData = undo ? entry.data : entry.inverseData;
-        const recorded = (undo ? entry.inverseMarkers : entry.markers) ?? [];
-        markerPatches = rebaseMarkers(recorded, snapshot.markers, rules);
-        inverseMarkerPatches =
-          markerPatches === recorded
-            ? ((undo ? entry.markers : entry.inverseMarkers) ?? [])
-            : invertMarkers(markerPatches);
-        const recordedTakes = (undo ? entry.inverseTakes : entry.takes) ?? [];
-        const replayed = referenceDelta(patches);
-        delta = replayed;
-        takePatches = rebaseTakes(
-          recordedTakes,
-          snapshot.takes,
-          (id) => (takeCounts.get(id) ?? 0) + (replayed.get(id) ?? 0) > 0,
-        );
-        inverseTakePatches =
-          takePatches === recordedTakes
-            ? ((undo ? entry.takes : entry.inverseTakes) ?? [])
-            : invertTakes(takePatches);
+        const recorded = recordsOf(entry);
+        staged =
+          mode === "undo"
+            ? replayed(recorded.backward, recorded.forward)
+            : replayed(recorded.forward, recorded.backward);
         policy = mode;
       }
+      // Undo, redo and a replay record what they applied, so it replays elsewhere.
+      if (mode !== "edit" || replaying) resolved.push(replayOf(staged.forward));
+      const {
+        forward: { clips: patches, data, markers: markerPatches, takes: takePatches },
+        backward: {
+          clips: inverses,
+          data: inverseData,
+          markers: inverseMarkerPatches,
+          takes: inverseTakePatches,
+        },
+        delta,
+      } = staged;
 
       const before = patches.flatMap((p) => (p.before ? [p.before] : []));
       const after = patches.flatMap((p) => (p.after ? [p.after] : []));
@@ -661,7 +732,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     } catch (error) {
       if (!(error instanceof EditError)) throw error;
       const conflict =
-        mode !== "edit" &&
+        (mode !== "edit" || replaying) &&
         [
           "overlap",
           "source-bounds",

@@ -68,6 +68,8 @@ Policy applies to the entire call. Arrays run synchronously in order against a p
 5. Recheck sequence, source and track overlap constraints on the merged result.
 6. If a field was superseded, a clip is missing or changed, or an exclusive interval would overlap, return `history-conflict` with the target and reason. Both stacks and the document stay intact. The host can resolve the conflict and retry, explicitly discard that entry or clear history when replacing a project. This is value-checked session history. Concurrent multi-user text or sequence merging would need a separate reconciliation layer.
 
+An undo or redo commit lists the records it applied as one `replay` command. `commands.replay(records)` applies records under these same rules in any editor, so undo and redo can travel to another editor or a saved log. [Replay commands](headless-editing.md#generated-ids-and-replay)
+
 The policy follows selective capture by origin in Yjs, replay of history across excluded transactions in ProseMirror, and transaction grouping and bounded history in Qt. Here the mapping uses timeline entity IDs, field preconditions and exact clip boundaries. [Yjs UndoManager](https://docs.yjs.dev/api/undo-manager) · [ProseMirror history implementation](https://github.com/ProseMirror/prosemirror-history/blob/master/src/history.ts) · [Qt undo stack](https://doc.qt.io/qt-6/qundostack.html)
 
 ## Rendering and playback consequences

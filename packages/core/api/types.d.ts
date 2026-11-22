@@ -289,15 +289,29 @@ export interface ExpectDataCommand {
     readonly key: string;
     readonly value: JsonValue | undefined;
 }
+/**
+ * Applies recorded changes the way undo and redo do. Each patch replays by ID
+ * against the current document, owns only the fields it changed and conflicts
+ * where they changed since, so a conflicting replay is rejected whole. Undo
+ * and redo commits carry one, which another editor or a saved log applies like
+ * any command. A replay forms a transaction by itself.
+ */
+export interface ReplayCommand {
+    readonly type: "replay";
+    readonly clipPatches?: readonly ClipPatch[] | undefined;
+    readonly dataPatches?: readonly DataPatch[] | undefined;
+    readonly markerPatches?: readonly MarkerPatch[] | undefined;
+    readonly takePatches?: readonly TakePatch[] | undefined;
+}
 export type ClipCommand = MoveCommand | TrimCommand | SplitCommand;
 export type DataCommand = SetDataCommand | RemoveDataCommand;
 export type MarkerCommand = AddMarkerCommand | MoveMarkerCommand | UpdateMarkerCommand | RemoveMarkerCommand;
 export type TakeCommand = AddTakeCommand | SelectTakeCommand | RemoveTakeCommand | ReorderTakesCommand | UpdateTakeCommand | PruneTakesCommand;
 export type ExpectCommand = ExpectClipCommand | ExpectDataCommand;
-export type EditCommand = ClipCommand | DataCommand | MarkerCommand | TakeCommand | ExpectCommand;
+export type EditCommand = ClipCommand | DataCommand | MarkerCommand | TakeCommand | ExpectCommand | ReplayCommand;
 export type PreviewCommand = MoveCommand | TrimCommand;
 /** Every code an `EditError` or a rejected edit can carry. */
-export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "invalid-edge" | "invalid-range" | "split-policy-required" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker" | "missing-take" | "invalid-take" | "active-take" | "listed-take" | "invalid-expectation" | "expectation-failed";
+export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "invalid-edge" | "invalid-range" | "split-policy-required" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker" | "missing-take" | "invalid-take" | "active-take" | "listed-take" | "invalid-expectation" | "expectation-failed" | "invalid-replay";
 export type HistoryPolicy = "record" | "ignore";
 export type CommitHistory = HistoryPolicy | "undo" | "redo";
 export interface RevisionOptions {
@@ -399,9 +413,9 @@ export interface EditCommit {
      * The transaction's commands with every generated ID made explicit and each
      * split named by `atContent`, so another editor at the same revision replays
      * them to the same result, and a split replayed after a concurrent move cuts
-     * the same content point. They
-     * share nested values with the dispatched commands. Empty for undo and redo,
-     * which replay recorded changes.
+     * the same content point. They share nested values with the dispatched
+     * commands. Undo, redo and a dispatched replay list one `replay` command with
+     * the records they applied.
      */
     readonly commands: readonly EditCommand[];
 }
