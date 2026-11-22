@@ -1,8 +1,8 @@
 # Edits that replay elsewhere
 
-**Status.** PR X in [#25](https://github.com/kjmin-dev/lumen-timeline/pull/25) and PR Y in [#26](https://github.com/kjmin-dev/lumen-timeline/pull/26).
+**Status.** Delivered: PR X in [#25](https://github.com/kjmin-dev/lumen-timeline/pull/25) and PR Y in [#26](https://github.com/kjmin-dev/lumen-timeline/pull/26).
 
-**User outcome.** An edit made in one editor replays in another and produces the same project, with the same IDs. Undo stops reporting a conflict when a move and a trim touched the same clip, because the two no longer write the same field. Both are groundwork for editing a project from several places at once. [Audit experiments](../../experiments/collab/README.md)
+**User outcome.** An edit made in one editor replays in another and produces the same project, with the same IDs. Undo stops reporting a conflict when a move and a trim touched the same clip, because the two no longer write the same field. Both are groundwork for editing a project from several places at once. [Sharing plan](shared-sessions.md) · [Audit experiments](../../experiments/collab/README.md)
 
 **Starting point.** After #24, the audit left three probes open.
 

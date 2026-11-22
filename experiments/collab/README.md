@@ -2,11 +2,11 @@
 
 These scripts back the design audit of November 2026 and the plans that followed it. Run `npm run build` first; each script then runs with `node`.
 
-| Script             | Question                                                                                         |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| `audit.mjs`        | What does the core do in eleven situations that make undo or merging hard?                       |
-| `field-merge.mjs`  | Do two edits made against the same base merge field by field into what both users meant?         |
-| `server-order.mjs` | Do three clients converge when a server orders their commands and each replays the accepted log? |
+| Script               | Question                                                                                              |
+| -------------------- | ----------------------------------------------------------------------------------------------------- |
+| `audit.mjs`          | What does the core do in eleven situations that make undo or merging hard?                            |
+| `field-merge.mjs`    | Do two edits made against the same base merge field by field into what both users meant?              |
+| `ordered-replay.mjs` | Do three editors converge when one sequencer orders their commands and each replays the accepted log? |
 
 ## `audit.mjs`
 
@@ -32,8 +32,8 @@ For pairs of edits whose meaning does not depend on their order, the script merg
 
 With the stored fields, a left trim writes `start`, `duration` and `contentIn`, so it clashes with a move, a right trim and a split, and no merge is right. In content space a move writes only `origin`, a left trim only `in` and a right trim only `out`: these pairs never clash and always merge correctly. Two edits of the same edge clash in both forms, as they should. History replay now compares placement in content space, and `clipFieldChanges(patch)` reports a clip patch in the same terms.
 
-## `server-order.mjs`
+## `ordered-replay.mjs`
 
-Three clients each send one command per round that is valid against their own view. The server applies the round in an arbitrary order and rejects what no longer fits. Every client replays the accepted commands. Pass a round count as the first argument; the default is 600.
+Three editors each send one command per round that is valid against their own view. A sequencer, here just another headless editor, applies the round in an arbitrary order and rejects what no longer fits. Every editor replays the accepted commands. Pass a round count as the first argument; the default is 600.
 
-The run reports how many commands the ordering rejected, how many rounds left a client different from the server, and how many left an overlap on the exclusive track. Both of the last two must be zero, and the script exits with an error otherwise. Every command names the IDs it creates, which is what makes the replay exact.
+The run reports how many commands the ordering rejected, how many rounds left an editor different from the sequencer, and how many left an overlap on the exclusive track. Both of the last two must be zero, and the script exits with an error otherwise. Every command names the IDs it creates, which is what makes the replay exact.

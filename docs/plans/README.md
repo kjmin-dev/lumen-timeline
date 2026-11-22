@@ -13,5 +13,6 @@ Each plan states a user outcome, the commit it starts from, the pull requests th
 | [Close milestone 2](milestone-2-closeout.md)               | Marker crossings during playback and one trace over the milestone 2 exit criteria         | #22, #23      |
 | [Candidate takes per clip](clip-takes.md)                  | Shared, reusable candidate takes with undoable choice, guarded async results and previews | #24           |
 | [Edits that replay elsewhere](replayable-edits.md)         | Session-scoped IDs, commits that replay in another editor, and clip records by ID         | #25, #26      |
+| [Share one project between editors](shared-sessions.md)    | Optional sharing with no server required: any participant orders commands                 | Planned       |
 
 Milestones and their exit criteria are in the [roadmap](../../ROADMAP.md#milestones).

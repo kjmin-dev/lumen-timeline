@@ -1,6 +1,6 @@
-// Three clients edit the same synced state at once. A server applies their
-// commands in an arbitrary order with the same headless core, and every client
-// replays the accepted log. Do they converge with the invariants intact?
+// Three editors edit the same synced state at once. A sequencer, here another
+// headless editor, applies their commands in an arbitrary order, and every
+// editor replays the accepted log. Do they converge with the invariants intact?
 import { commands, createEditor, TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
 
 let seed = 5;
@@ -72,8 +72,8 @@ const intent = (snapshot, actor) => {
         : commands.addMarker({ id: actor + "-" + ++ids, start: rnd(120) * hz });
   }
 };
-const server = createEditor({ project: project() });
-const clients = ["A", "B", "C"].map((actor) => ({
+const sequencer = createEditor({ project: project() });
+const editors = ["A", "B", "C"].map((actor) => ({
   actor,
   editor: createEditor({ project: project() }),
 }));
@@ -85,8 +85,8 @@ let diverged = 0;
 let overlaps = 0;
 let sameClip = 0;
 for (let round = 0; round < rounds; round++) {
-  // Each client sends only a command that is valid against its own view.
-  const batch = clients.map((c) => {
+  // Each editor sends only a command that is valid against its own view.
+  const batch = editors.map((c) => {
     for (;;) {
       const command = intent(c.editor.getSnapshot(), c.actor);
       if (createEditor({ project: c.editor.getSnapshot() }).dispatch(command).ok) return command;
@@ -98,17 +98,17 @@ for (let round = 0; round < rounds; round++) {
   const log = [];
   for (const command of batch) {
     sent++;
-    const result = server.dispatch(command, { history: "ignore" });
+    const result = sequencer.dispatch(command, { history: "ignore" });
     if (result.ok) {
       accepted++;
       log.push(command);
     } else rejected[result.code] = (rejected[result.code] ?? 0) + 1;
   }
-  for (const c of clients)
+  for (const c of editors)
     for (const command of log) c.editor.dispatch(command, { history: "ignore" });
-  const truth = JSON.stringify(server.getSnapshot());
-  if (clients.some((c) => JSON.stringify(c.editor.getSnapshot()) !== truth)) diverged++;
-  const lane = [...server.getSnapshot().clips].sort((a, b) => a.start - b.start);
+  const truth = JSON.stringify(sequencer.getSnapshot());
+  if (editors.some((c) => JSON.stringify(c.editor.getSnapshot()) !== truth)) diverged++;
+  const lane = [...sequencer.getSnapshot().clips].sort((a, b) => a.start - b.start);
   if (lane.some((c, i) => i > 0 && lane[i - 1].start + lane[i - 1].duration > c.start)) overlaps++;
 }
 console.log({
