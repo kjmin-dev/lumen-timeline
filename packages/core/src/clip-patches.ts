@@ -298,9 +298,33 @@ export function rebase(
 
 /**
  * Applies patches whose `before` states match the clips. A new clip goes after
- * the clip it follows, or to the end when that clip is absent.
+ * the clip it follows, or to the end when that clip is absent. `positions`
+ * holds the index of every clip in `clips`, where the caller keeps them: the
+ * patches then cost a copy of the list and the clips they name, not a lookup
+ * per clip.
  */
-export function applyClips(clips: readonly Clip[], patches: readonly ClipPatch[]): readonly Clip[] {
+export function applyClips(
+  clips: readonly Clip[],
+  patches: readonly ClipPatch[],
+  positions?: ReadonlyMap<string, number>,
+): readonly Clip[] {
+  const at = (id: string | undefined): number | undefined =>
+    id === undefined ? undefined : positions?.get(id);
+  // Updates alone leave every clip in its place. Array.from copies a frozen
+  // array as a block, which slice() does not.
+  if (positions && patches.every((p) => p.before && p.after && at(p.id) !== undefined)) {
+    const result = Array.from(clips);
+    for (const { id, after } of patches) {
+      const index = at(id);
+      if (index !== undefined && after) result[index] = after;
+    }
+    return Object.freeze(result);
+  }
+  // The clips a patch names or follows. Every other clip is copied as it is.
+  const named = positions ? new Uint8Array(clips.length) : null;
+  if (named)
+    for (const { id, follows } of patches)
+      for (const index of [at(id), at(follows)]) if (index !== undefined) named[index] = 1;
   const updated = new Map<string, Clip>();
   const removed = new Set<string>();
   const followers = new Map<string, Clip[]>();
@@ -323,7 +347,11 @@ export function applyClips(clips: readonly Clip[], patches: readonly ClipPatch[]
     followers.delete(clip.id);
     for (const follower of next) place(follower);
   };
-  for (const clip of clips) if (!removed.has(clip.id)) place(updated.get(clip.id) ?? clip);
+  for (let index = 0; index < clips.length; index++) {
+    const clip = defined(clips[index], "listed clip");
+    if (named && !named[index]) result.push(clip);
+    else if (!removed.has(clip.id)) place(updated.get(clip.id) ?? clip);
+  }
   for (const clip of loose) place(clip);
   // What remains follows a clip that is not in the project. Placing one takes
   // its own followers with it.

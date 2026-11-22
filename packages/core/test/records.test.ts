@@ -254,3 +254,59 @@ test("a new clip whose anchor is absent goes to the end", () => {
   );
   assert.ok(Object.isFrozen(placed));
 });
+
+// The editor passes each clip's position, which spares a lookup per clip. The
+// result is the same list, with the same clip objects, as without them.
+test("patches apply the same with clip positions as without", () => {
+  let seed = 0x2545f491;
+  const random = (n: number): number => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return Math.floor((seed / 2 ** 32) * n);
+  };
+  const kinds = new Map<string, number>();
+  for (let round = 0; round < 400; round++) {
+    const base = Object.freeze(
+      Array.from({ length: random(12) }, (_, i) => Object.freeze(clip("c" + i, i * 200))),
+    );
+    const positions = new Map(base.map((c, i) => [c.id, i]));
+    const patches: {
+      id: string;
+      before: Clip | undefined;
+      after: Clip | undefined;
+      follows?: string;
+    }[] = [];
+    const added: string[] = [];
+    const taken = new Set<string>();
+    for (let n = random(6); n > 0; n--) {
+      const kind = ["update", "remove", "add", "add", "loose", "absent"][random(6)] ?? "update";
+      const target = base[random(base.length)];
+      if (kind === "absent") {
+        // A clip the list does not hold: nothing to update or remove.
+        const gone = Object.freeze(clip("gone" + n, 9));
+        patches.push({ id: gone.id, before: gone, after: random(2) ? gone : undefined });
+      } else if (kind === "update" || kind === "remove") {
+        if (!target || taken.has(target.id)) continue;
+        taken.add(target.id);
+        const after = kind === "update" ? Object.freeze({ ...target, start: 7 }) : undefined;
+        patches.push({ id: target.id, before: target, after });
+      } else {
+        const id = "n" + round + "-" + n;
+        const after = Object.freeze(clip(id, 5));
+        // After a clip of the base, a clip this set adds, or one that is nowhere.
+        const anchors = [target?.id, added[random(added.length)], "missing"];
+        const follows = kind === "loose" ? undefined : anchors[random(3)];
+        patches.push({ id, before: undefined, after, ...(follows ? { follows } : {}) });
+        added.push(id);
+      }
+      kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
+    }
+    const plain = applyClips(base, patches);
+    const placed = applyClips(base, patches, positions);
+    assert.ok(Object.isFrozen(placed));
+    assert.notEqual(placed, base);
+    assert.equal(placed.length, plain.length, JSON.stringify(patches));
+    placed.forEach((c, i) => assert.equal(c, plain[i], JSON.stringify(patches)));
+  }
+  for (const kind of ["update", "remove", "add", "loose", "absent"])
+    assert.ok((kinds.get(kind) ?? 0) > 100, kind);
+});

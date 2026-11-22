@@ -3,6 +3,7 @@ import { isArray, requireEdit, safeInteger } from "./validation.ts";
 import { visitRange } from "./interval-index.ts";
 import { markerIndex } from "./markers.ts";
 import { planAudio } from "./playback.ts";
+import { findTake } from "./takes.ts";
 import type {
   AudioPlan,
   Clip,
@@ -19,9 +20,29 @@ import type {
 } from "./types.ts";
 
 export interface ReadRegistry {
-  pin(snapshot: ProjectSnapshot, layout: ReadonlyMap<string, readonly Clip[]>): void;
+  /**
+   * Keeps what a snapshot's reads need: its clips per track in start order,
+   * and each clip's position in `snapshot.clips`. The editor shares both with
+   * the revisions an edit leaves them unchanged in.
+   */
+  pin(
+    snapshot: ProjectSnapshot,
+    layout: ReadonlyMap<string, readonly Clip[]>,
+    positions: ReadonlyMap<string, number>,
+  ): void;
   read(snapshot: ProjectSnapshot): ReadHandle;
 }
+
+interface Pinned {
+  readonly layout: ReadonlyMap<string, readonly Clip[]>;
+  readonly positions: ReadonlyMap<string, number>;
+}
+
+// A clip lists the same takes in every revision that holds both that clip and
+// that take list, so the lists a view or planner asks for again and again are
+// made once and outlive an edit elsewhere.
+const takeLists = new WeakMap<readonly Take[], WeakMap<Clip, readonly Take[]>>();
+const noTakes: readonly Take[] = Object.freeze([]);
 
 function validateTick(tick: Tick): void {
   requireEdit(safeInteger(tick), "invalid-range", null, "Expected an integer tick");
@@ -41,26 +62,22 @@ function validate(range: TickRange): void {
 // Weak keys allow retained snapshots to pin their layout without retaining
 // every revision for the lifetime of the editor.
 export function readRegistry(tracks: readonly Track[]): ReadRegistry {
-  const layouts = new WeakMap<ProjectSnapshot, ReadonlyMap<string, readonly Clip[]>>();
+  const pins = new WeakMap<ProjectSnapshot, Pinned>();
   const handles = new WeakMap<ProjectSnapshot, ReadHandle>();
   const order = new Map(tracks.map((track, index) => [track.id, index]));
   return {
-    pin(snapshot, layout) {
-      layouts.set(snapshot, layout);
+    pin(snapshot, layout, positions) {
+      pins.set(snapshot, { layout, positions });
     },
     read(snapshot) {
-      const layout = layouts.get(snapshot);
-      requireEdit(layout, "foreign-snapshot", null, "Read requires a snapshot from this editor");
+      const pinned = pins.get(snapshot);
+      requireEdit(pinned, "foreign-snapshot", null, "Read requires a snapshot from this editor");
       const cached = handles.get(snapshot);
       if (cached) return cached;
-      // Built on first use; most handles serve playback, which needs only takes.
-      let takeMap: ReadonlyMap<string, Take> | undefined;
-      let clipMap: ReadonlyMap<string, Clip> | undefined;
+      const { layout, positions } = pinned;
+      // Built on first use, and only for a query that scans every clip.
       let listings: ReadonlyMap<string, readonly string[]> | undefined;
-      const takeOf = (id: string): Take | undefined => {
-        takeMap ??= new Map((snapshot.takes ?? []).map((take) => [take.id, take]));
-        return takeMap.get(id);
-      };
+      const takeOf = (id: string): Take | undefined => findTake(snapshot.takes, id);
       const handle: ReadHandle = Object.freeze({
         revision: snapshot.revision,
         clipsIn(range: TickRange, { trackIds }: ClipQueryOptions = {}): readonly Clip[] {
@@ -94,12 +111,21 @@ export function readRegistry(tracks: readonly Track[]): ReadRegistry {
           );
         },
         takesOf(clipId: string): readonly Take[] {
-          clipMap ??= new Map(snapshot.clips.map((clip) => [clip.id, clip]));
-          const clip = typeof clipId === "string" ? clipMap.get(clipId) : undefined;
+          const at = typeof clipId === "string" ? positions.get(clipId) : undefined;
+          const clip = at === undefined ? undefined : snapshot.clips[at];
           requireEdit(clip, "missing-clip", clipId, "Clip does not exist");
-          return Object.freeze(
-            (clip.takeIds ?? []).map((id) => defined(takeOf(id), "listed take")),
-          );
+          if (!clip.takeIds || !snapshot.takes) return noTakes;
+          let listed = takeLists.get(snapshot.takes);
+          if (!listed) {
+            listed = new WeakMap();
+            takeLists.set(snapshot.takes, listed);
+          }
+          let takes = listed.get(clip);
+          if (!takes) {
+            takes = Object.freeze(clip.takeIds.map((id) => defined(takeOf(id), "listed take")));
+            listed.set(clip, takes);
+          }
+          return takes;
         },
         clipsListing(takeId: string): readonly string[] {
           const take = typeof takeId === "string" ? takeOf(takeId) : undefined;

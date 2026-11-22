@@ -23,14 +23,17 @@ export function sameRecord(a: Entity, b: Entity): boolean {
   );
 }
 
+/** Looks a record up by ID in the list a transaction started from. */
+export type RecordLookup<T extends Entity> = (id: string) => T | undefined;
+
 /** The patches of a staged map whose value differs from its base. */
 export function stagedPatches<T extends Entity>(
-  base: ReadonlyMap<string, T>,
+  base: RecordLookup<T>,
   staged: ReadonlyMap<string, T | undefined>,
 ): readonly RecordPatch<T>[] {
   const patches: RecordPatch<T>[] = [];
   for (const [id, after] of staged) {
-    const before = base.get(id);
+    const before = base(id);
     if (before === after || (before && after && sameRecord(before, after))) continue;
     patches.push(Object.freeze({ id, before, after }));
   }
@@ -56,13 +59,13 @@ function conflict(id: string, reason: string): never {
  */
 export function rebaseRecords<T extends Entity>(
   patches: readonly RecordPatch<T>[],
-  current: ReadonlyMap<string, T>,
+  current: RecordLookup<T>,
   validate: (record: T) => void,
   noun: string,
 ): readonly RecordPatch<T>[] {
   let changed = false;
   const result = patches.map((patch) => {
-    const found = current.get(patch.id);
+    const found = current(patch.id);
     const { before, after } = patch;
     if (before === undefined) {
       if (found !== undefined) conflict(patch.id, noun + " ID is already occupied");
@@ -99,12 +102,12 @@ export function rebaseRecords<T extends Entity>(
   return changed ? Object.freeze(result) : patches;
 }
 
-/** Applies patches whose `before` states match the base. */
+/** Applies patches whose `before` states match the indexed base. */
 export function applyRecords<T extends Entity>(
-  base: readonly T[] | undefined,
+  base: ReadonlyMap<string, T>,
   patches: readonly RecordPatch<T>[],
 ): Map<string, T> {
-  const byId = new Map((base ?? []).map((record) => [record.id, record]));
+  const byId = new Map(base);
   for (const { id, after } of patches) {
     if (after === undefined) byId.delete(id);
     else byId.set(id, after);
