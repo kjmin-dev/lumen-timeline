@@ -1,19 +1,10 @@
 import type { Rules } from "./document.ts";
 import type { JsonValue, Marker, MarkerCommand, MarkerPatch, Tick } from "./types.ts";
+import { applyRecords, invertRecords, rebaseRecords, stagedPatches } from "./record-patches.ts";
 import { isRecord, requireEdit, safeInteger, validId } from "./validation.ts";
-
-type MutableMarker = { -readonly [K in keyof Marker]: Marker[K] };
 
 export function compareMarkers(a: Marker, b: Marker): number {
   return a.start - b.start || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-}
-
-function sameMarker(a: Marker, b: Marker): boolean {
-  return (
-    a === b ||
-    (Object.keys(a).length === Object.keys(b).length &&
-      Object.keys(a).every((key) => Object.hasOwn(b, key) && Object.is(a[key], b[key])))
-  );
 }
 
 const optionalText = (value: unknown): value is string | undefined =>
@@ -154,24 +145,12 @@ export class MarkerDraft {
   }
 
   patches(): readonly MarkerPatch[] {
-    const patches: MarkerPatch[] = [];
-    for (const [id, after] of this.staged) {
-      const before = this.byId.get(id);
-      if (before === after || (before && after && sameMarker(before, after))) continue;
-      patches.push(Object.freeze({ id, before, after }));
-    }
-    return Object.freeze(patches);
+    return stagedPatches(this.byId, this.staged);
   }
 }
 
 export function invertMarkers(patches: readonly MarkerPatch[]): readonly MarkerPatch[] {
-  return Object.freeze(
-    patches.map((p) => Object.freeze({ id: p.id, before: p.after, after: p.before })),
-  );
-}
-
-function conflict(id: string, reason: string): never {
-  requireEdit(false, "history-conflict", id, reason);
+  return invertRecords(patches);
 }
 
 /**
@@ -184,42 +163,12 @@ export function rebaseMarkers(
   rules: Rules,
 ): readonly MarkerPatch[] {
   const current = new Map((base ?? []).map((marker) => [marker.id, marker]));
-  let changed = false;
-  const result = patches.map((patch) => {
-    const found = current.get(patch.id);
-    const { before, after } = patch;
-    if (before === undefined) {
-      if (found !== undefined) conflict(patch.id, "Marker ID is already occupied");
-      if (after) checkStart(after.start, after.id, rules);
-      return patch;
-    }
-    if (found === undefined) conflict(patch.id, "History target is missing");
-    if (after === undefined) {
-      if (!sameMarker(found, before)) conflict(patch.id, "Undo would remove a modified marker");
-      if (found === before) return patch;
-      changed = true;
-      return Object.freeze({ id: patch.id, before: found, after });
-    }
-    if (found === before) {
-      checkStart(after.start, after.id, rules);
-      return patch;
-    }
-    const merged: MutableMarker = { ...found };
-    const keys = [
-      ...Object.keys(before),
-      ...Object.keys(after).filter((k) => !Object.hasOwn(before, k)),
-    ];
-    for (const key of keys) {
-      if (Object.is(before[key], after[key])) continue;
-      if (!Object.is(found[key], before[key])) conflict(patch.id, "History field changed: " + key);
-      if (Object.hasOwn(after, key)) merged[key] = after[key];
-      else delete merged[key];
-    }
-    checkStart(merged.start, merged.id, rules);
-    changed = true;
-    return Object.freeze({ id: patch.id, before: found, after: Object.freeze(merged) });
-  });
-  return changed ? Object.freeze(result) : patches;
+  return rebaseRecords(
+    patches,
+    current,
+    (marker) => checkStart(marker.start, marker.id, rules),
+    "marker",
+  );
 }
 
 /** Applies patches whose `before` states match the base. Returns the canonical list. */
@@ -228,12 +177,7 @@ export function applyMarkers(
   patches: readonly MarkerPatch[],
 ): readonly Marker[] | undefined {
   if (!patches.length) return base;
-  const byId = new Map((base ?? []).map((marker) => [marker.id, marker]));
-  for (const { id, after } of patches) {
-    if (after === undefined) byId.delete(id);
-    else byId.set(id, after);
-  }
-  const list = [...byId.values()].sort(compareMarkers);
+  const list = [...applyRecords(base, patches).values()].sort(compareMarkers);
   return list.length ? Object.freeze(list) : undefined;
 }
 

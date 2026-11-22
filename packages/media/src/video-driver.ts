@@ -1,5 +1,5 @@
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
-import type { Editor, PlanIssue, TakeCatalog } from "@lumen-timeline/core";
+import type { Editor, PlanIssue, StreamCatalog } from "@lumen-timeline/core";
 import { VoiceScheduler } from "./voice-scheduler.ts";
 import type { Anchor, Voice } from "./voice-scheduler.ts";
 import type {
@@ -18,7 +18,7 @@ function reportsOutputTime(context: AudioContextLike): context is TimedAudioCont
 
 export interface VideoDriverOptions {
   readonly editor: Editor;
-  readonly catalog: TakeCatalog;
+  readonly catalog: StreamCatalog;
   readonly resolveBuffer: ResolveBuffer;
   readonly onError?: MediaErrorHandler | undefined;
   readonly onFrame?: ((seconds: number) => void) | undefined;
@@ -105,10 +105,10 @@ export class VideoTransport {
   get issues(): readonly PlanIssue[] {
     return this.scheduler.issues;
   }
-  get catalog(): TakeCatalog {
+  get catalog(): StreamCatalog {
     return this.scheduler.catalog;
   }
-  setCatalog(catalog: TakeCatalog): void {
+  setCatalog(catalog: StreamCatalog): void {
     this.scheduler.setCatalog(catalog);
   }
   fill(): void {

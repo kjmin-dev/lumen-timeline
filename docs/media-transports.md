@@ -15,6 +15,8 @@ const transport = createVideoTransport({
 const view = mountTimeline(container, { editor, transport });
 ```
 
+The `catalog` is a [stream catalog](playback-read-api.md): `{ version, streams }`, where `streams[assetId][streamId]` gives the decoded sample rate, asset version and available samples behind each take.
+
 The video driver observes presented frames and handles native seeking, buffering and clock reacquisition. A shared voice scheduler consumes its project-tick/context-time anchor. It owns its planning timer, editor subscription, gain and buffer source nodes, and abortable resolution requests. A clip edit preserves unrelated reservations and the active generation. A clock discontinuity invalidates the generation.
 
 The public video factory accepts seeks in integer project ticks. Use `snapshot()`, `subscribe(listener)`, `play()`, `pause()`, `seek(tick)`, `setCatalog(catalog)` and `dispose()`. A seek started on the element itself, from native controls or a loop, is reported the same way: its target appears as `requestedTick` at `seeking`, and the landing position at `seeked`. `diagnostics(clipId)` reports the generation, sample rate and an opaque reservation identity and end sample for that clip. The experiment's seconds-based API remains available to its original probes.

@@ -1,6 +1,6 @@
 import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
-import { bufferCatalog } from "./buffer-fixture.mjs";
+import { bufferCatalog, bufferTakes, listTakes } from "./buffer-fixture.mjs";
 
 // Use native audio nodes in one continuous offline graph. The controllable
 // observation clock lets edits land on exact frames before rendering begins.
@@ -37,12 +37,13 @@ export async function verifyAudioOnlyPcm(rate) {
     project: {
       schemaVersion: 1,
       tracks: [{ id: "voice" }, { id: "bed", gain: 0.5 }],
-      clips: [
+      clips: listTakes([
         clip("left", "voice", 0, 128, 32),
         clip("right", "voice", 128, 128, 160),
         clip("music", "bed", 384, 384, 0),
         clip("line", "voice", 448, 128, 16),
-      ],
+      ]),
+      takes: bufferTakes(takes),
     },
   });
   const transport = createAudioTransport({

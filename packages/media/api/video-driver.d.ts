@@ -1,10 +1,10 @@
-import type { Editor, PlanIssue, TakeCatalog } from "@lumen-timeline/core";
+import type { Editor, PlanIssue, StreamCatalog } from "@lumen-timeline/core";
 import { VoiceScheduler } from "./voice-scheduler.ts";
 import type { Anchor, Voice } from "./voice-scheduler.ts";
 import type { AudioContextLike, AudioNodeLike, MediaErrorHandler, ResolveBuffer, SeekResult, TimedAudioContext, VideoElementLike } from "./types.ts";
 export interface VideoDriverOptions {
     readonly editor: Editor;
-    readonly catalog: TakeCatalog;
+    readonly catalog: StreamCatalog;
     readonly resolveBuffer: ResolveBuffer;
     readonly onError?: MediaErrorHandler | undefined;
     readonly onFrame?: ((seconds: number) => void) | undefined;
@@ -35,8 +35,8 @@ export declare class VideoTransport {
     get anchor(): Anchor | null;
     get voices(): Map<string, Voice>;
     get issues(): readonly PlanIssue[];
-    get catalog(): TakeCatalog;
-    setCatalog(catalog: TakeCatalog): void;
+    get catalog(): StreamCatalog;
+    setCatalog(catalog: StreamCatalog): void;
     fill(): void;
     observe(): void;
     lostLock(media: number, audio: number): boolean;

@@ -1,5 +1,7 @@
 import type { Clip, Tick } from "./types.ts";
 export declare const TICKS_PER_SECOND = 282240000;
+/** The longest project and the furthest source position: seven days of ticks. */
+export declare const MAX_TICK: number;
 export declare function unitsToTicks(units: number, numerator: number, denominator?: number): Tick;
 export declare function ticksToUnits(ticks: Tick, numerator: number, denominator?: number): number;
 /** Clip placement fields read by `sourceWindow`. */

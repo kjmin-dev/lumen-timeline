@@ -1,18 +1,24 @@
 import { normalizeEntityData } from "./entity-data.ts";
 import { compareMarkers, parseMarker } from "./markers.ts";
-import { TICKS_PER_SECOND } from "./time.ts";
+import {
+  checkLoadedReferences,
+  compareTakes,
+  countReferences,
+  parseCandidates,
+  parseTake,
+} from "./takes.ts";
+import { MAX_TICK, TICKS_PER_SECOND } from "./time.ts";
 import type {
   Clip,
   ContentBounds,
   JsonValue,
   Marker,
   ProjectSnapshot,
+  Take,
   Tick,
   Track,
 } from "./types.ts";
 import { freezeJson, isArray, isRecord, requireEdit, safeInteger, validId } from "./validation.ts";
-
-const MAX_TICK: number = 7 * 86400 * TICKS_PER_SECOND;
 
 /** Validation rules shared by project loading and every staged clip. */
 export interface Rules {
@@ -28,6 +34,8 @@ export interface OpenedProject {
   readonly snapshot: ProjectSnapshot;
   readonly rules: Rules;
   readonly byTrack: TrackLayout;
+  /** How many clips list each take. */
+  readonly takeCounts: Map<string, number>;
 }
 
 /** Placement fields before validation, from JSON or from a staged edit. */
@@ -148,6 +156,7 @@ function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Cl
     id,
     "Expected string take and continuity IDs",
   );
+  const candidates = parseCandidates(id, clip["takeIds"], activeTakeId);
   const extensions = clip["extensions"];
   requireEdit(
     extensions === undefined || isRecord(extensions),
@@ -162,8 +171,10 @@ function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Cl
     id,
     "Expected a string name",
   );
+  // A clip carries both candidate fields or neither. Kept fields keep their position.
+  const { takeIds: _noTakes, activeTakeId: _noActive, ...withoutCandidates } = clip;
   return Object.freeze({
-    ...clip,
+    ...(candidates === undefined ? withoutCandidates : clip),
     id,
     trackId,
     kind,
@@ -171,7 +182,7 @@ function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Cl
     duration,
     contentIn,
     ...(contentBounds === undefined ? {} : { contentBounds }),
-    ...(activeTakeId === undefined ? {} : { activeTakeId }),
+    ...candidates,
     ...(continuityId === undefined ? {} : { continuityId }),
     ...(extensions === undefined ? {} : { extensions }),
     ...(name === undefined ? {} : { name }),
@@ -263,11 +274,28 @@ export function openProject(input: unknown): OpenedProject {
     markerList.push(marker);
   }
   markerList.sort(compareMarkers);
+  const rawTakes = project["takes"];
+  requireEdit(
+    rawTakes === undefined || isArray(rawTakes),
+    "invalid-project",
+    null,
+    "Expected a takes array",
+  );
+  const takes = new Map<string, Take>();
+  for (const value of rawTakes ?? []) {
+    const take = parseTake(value, (id) => takes.has(id));
+    takes.set(take.id, take);
+  }
+  const takeCounts = countReferences(clipList);
+  checkLoadedReferences(takes, clipList);
+  const takeList = [...takes.values()].sort(compareTakes);
   // Normalized entity data follows the revision, as when the editor normalized it.
-  // An empty markers list is omitted; otherwise markers keep their field position.
-  const { entityData: rawData, ...withMarkers } = project;
-  const { markers: _emptyMarkers, ...withoutMarkers } = withMarkers;
-  const rest = markerList.length ? withMarkers : withoutMarkers;
+  // Empty markers and takes lists are omitted; otherwise they keep their field position.
+  const { entityData: rawData, ...withLists } = project;
+  const { markers: _emptyMarkers, ...withoutMarkers } = withLists;
+  const withTakes = markerList.length ? withLists : withoutMarkers;
+  const { takes: _emptyTakes, ...withoutTakes } = withTakes;
+  const rest = takeList.length ? withTakes : withoutTakes;
   const entityData = Object.hasOwn(project, "entityData")
     ? normalizeEntityData(rawData)
     : undefined;
@@ -280,10 +308,11 @@ export function openProject(input: unknown): OpenedProject {
     ...(rawDuration === undefined ? {} : { duration }),
     ...(rawMinimum === undefined ? {} : { minClipDuration: minimum }),
     ...(markerList.length ? { markers: Object.freeze(markerList) } : {}),
+    ...(takeList.length ? { takes: Object.freeze(takeList) } : {}),
     revision,
     ...(entityData === undefined ? {} : { entityData }),
   });
-  return { snapshot, rules, byTrack };
+  return { snapshot, rules, byTrack, takeCounts };
 }
 
 /** Checks placement fields against the rules shared by loading and every edit. */
@@ -309,8 +338,10 @@ export function checkPlacement(
     id,
     "Clip exceeds the sequence or minimum duration",
   );
+  // Content time and take positions both stay within seven days, so a source
+  // mapping is always a safe integer.
   requireEdit(
-    safeInteger(contentIn) && Number.isSafeInteger(contentIn + length),
+    safeInteger(contentIn) && Math.abs(contentIn) <= MAX_TICK,
     "invalid-range",
     id,
     "Invalid content time",

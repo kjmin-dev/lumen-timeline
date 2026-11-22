@@ -27,7 +27,7 @@ const clip = (
   start,
   duration,
   contentIn,
-  takeSetId: "takes",
+  takeIds: ["A"],
   activeTakeId: "A",
 });
 const project = (): Fixture => ({
@@ -45,6 +45,7 @@ const project = (): Fixture => ({
     clip("unrelated", "bed", 30, 10),
     clip("locked", "guide", 1, 5),
   ],
+  takes: [{ id: "A", assetId: "asset", streamId: "mono", sourceAtContentZero: 0 }],
   extensions: { review: { version: 1, data: { notes: ["keep"] } } },
 });
 const move = (clipIds: string[], delta: number, trackId?: string) =>
@@ -351,6 +352,7 @@ test("1,000 committed edits rewind and replay the same source windows and IDs", 
     duration: 10000,
     tracks: [{ id: "one" }, { id: "two", overlap: "exclusive" }],
     clips: [clip("main", "one", 0, 3000, 100)],
+    takes: [{ id: "A", assetId: "asset", streamId: "mono", sourceAtContentZero: 0 }],
   };
   const e = createEditor({ project: initial, history: { maxEntries: 1000 } });
   for (let i = 1; i <= 250; i++) {

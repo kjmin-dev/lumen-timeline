@@ -3,6 +3,9 @@ import type { Clip, Tick } from "./types.ts";
 // Source rates are rational units per second, e.g. 30000 / 1001 frames.
 export const TICKS_PER_SECOND = 282_240_000;
 
+/** The longest project and the furthest source position: seven days of ticks. */
+export const MAX_TICK: number = 7 * 86400 * TICKS_PER_SECOND;
+
 function convert(value: number, numerator: number, denominator: number, toTicks: boolean): number {
   if (
     !Number.isSafeInteger(value) ||

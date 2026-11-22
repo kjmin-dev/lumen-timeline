@@ -7,7 +7,7 @@ import {
   TICKS_PER_SECOND as hz,
   watchMarkerCrossings,
 } from "@lumen-timeline/core";
-import type { Clip, Marker, PresentationSource, TakeCatalog } from "@lumen-timeline/core";
+import type { Clip, Marker, PresentationSource, StreamCatalog } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
 import type { AudioBufferLike, ResolveBuffer } from "@lumen-timeline/media";
 import type { TestContext } from "node:test";
@@ -17,6 +17,7 @@ const sec = (n: number): number => Math.round(n * hz);
 const clip = (id: string, start: number, duration: number, contentIn = 0): Clip => ({
   id,
   trackId: id,
+  takeIds: [id],
   activeTakeId: id,
   kind: "audio",
   start: sec(start),
@@ -40,24 +41,25 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
       schemaVersion: 1,
       tracks: clips.map((c) => ({ id: c.id })),
       clips,
+      // One take per clip, each on an asset of the same name.
+      takes: clips.map((c) => ({
+        id: c.id,
+        assetId: c.id,
+        streamId: "mono",
+        sourceAtContentZero: 0,
+      })),
       ...(options.duration === undefined ? {} : { duration: sec(options.duration) }),
       ...(options.markers === undefined ? {} : { markers: options.markers }),
     },
   });
   const rate = context.sampleRate;
-  const catalog: TakeCatalog = {
+  const catalog: StreamCatalog = {
     version: 1,
-    takes: Object.fromEntries(
+    streams: Object.fromEntries(
       clips.map((c) => [
         c.id,
         {
-          assetId: c.id,
-          assetVersion: 1,
-          streamId: "mono",
-          sampleRate: rate,
-          sourceAtContentZero: 0,
-          availableStart: 0,
-          availableEnd: rate * 10,
+          mono: { assetVersion: 1, sampleRate: rate, availableStart: 0, availableEnd: rate * 10 },
         },
       ]),
     ),
@@ -574,4 +576,72 @@ test("playback that reaches a shortened end keeps its segment and crosses marker
     [0, sec(4.5)],
   );
   assert.deepEqual(crossed, ["late"]);
+});
+
+test("playback follows project takes through select, alignment updates and undo", async (t) => {
+  timers(t);
+  const context = clock(48000);
+  const rate = context.sampleRate;
+  const editor = createEditor({
+    project: {
+      schemaVersion: 1,
+      tracks: [{ id: "voice" }],
+      clips: [
+        {
+          id: "line",
+          trackId: "voice",
+          kind: "audio",
+          start: 0,
+          duration: sec(6),
+          contentIn: sec(1),
+          takeIds: ["a", "b"],
+          activeTakeId: "a",
+        },
+      ],
+      takes: [
+        { id: "a", assetId: "take-a", streamId: "mono", sourceAtContentZero: 0 },
+        { id: "b", assetId: "take-b", streamId: "mono", sourceAtContentZero: -sec(1) },
+      ],
+    },
+  });
+  const stream = { assetVersion: 1, sampleRate: rate, availableStart: 0, availableEnd: 10 * rate };
+  const buffers = new Map(
+    ["take-a", "take-b"].map((id) => [id, { sampleRate: rate, length: 10 * rate }]),
+  );
+  const transport = createAudioTransport({
+    editor,
+    context,
+    output: sink,
+    catalog: { version: 1, streams: { "take-a": { mono: stream }, "take-b": { mono: stream } } },
+    resolveBuffer: (span) => {
+      const buffer = buffers.get(span.assetId);
+      assert.ok(buffer);
+      return buffer;
+    },
+  });
+  t.after(() => {
+    transport.dispose();
+    editor.dispose();
+  });
+  const playing = () => {
+    const node = last(context.nodes);
+    return { buffer: node.buffer, offset: Math.round(node.offset * rate) };
+  };
+  await transport.play();
+  const first = playing();
+  assert.equal(first.buffer, buffers.get("take-a"));
+  // Content time 1 s at take A's origin 0 plays source second 1.
+  assert.equal(first.offset, rate);
+  assert.ok(editor.dispatch(commands.selectTake({ clipId: "line", takeId: "b" })).ok);
+  assert.deepEqual(playing(), { buffer: buffers.get("take-b"), offset: 0 });
+  assert.ok(editor.dispatch(commands.updateTake({ takeId: "b", sourceAtContentZero: 0 })).ok);
+  assert.deepEqual(playing(), { buffer: buffers.get("take-b"), offset: rate });
+  assert.ok(editor.history.undo().ok);
+  assert.deepEqual(playing(), { buffer: buffers.get("take-b"), offset: 0 });
+  assert.ok(editor.history.undo().ok);
+  assert.deepEqual(playing(), first);
+  // A label is not media: the scheduled voice stays.
+  const node = last(context.nodes);
+  assert.ok(editor.dispatch(commands.updateTake({ takeId: "a", label: "Keeper" })).ok);
+  assert.equal(last(context.nodes), node);
 });

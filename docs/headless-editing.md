@@ -19,10 +19,11 @@ const editor = createEditor({
         start: seconds(12),
         duration: seconds(4),
         contentIn: seconds(1),
-        takeSetId: "recordings",
+        takeIds: ["take-a"],
         activeTakeId: "take-a",
       },
     ],
+    takes: [{ id: "take-a", assetId: "recording", streamId: "audio-0", sourceAtContentZero: 0 }],
   },
 });
 
@@ -36,7 +37,7 @@ if (cut.ok) {
 }
 ```
 
-In the example, the right clip initially starts at 14 s and reads the source at 3 s. Trimming one second from its left sets its timeline start to 15 s and its content offset to 4 s. Moving it two seconds later places the same source at 17 s. The left clip retains its ID and active take.
+In the example, the right clip initially starts at 14 s and reads the source at 3 s. Trimming one second from its left sets its timeline start to 15 s and its content offset to 4 s. Moving it two seconds later places the same source at 17 s. The left clip retains its ID and active take, and both clips list `take-a`.
 
 ## Project and command contract
 
@@ -49,7 +50,7 @@ In the example, the right clip initially starts at 14 s and reads the source at 
 
 Use a command array for an atomic batch. Pass `{ history: 'ignore' }` to apply single or batched writes outside the undo stacks. Defaults, conflict recovery, durable metadata and retention limits are defined in [selective history](selective-history.md).
 
-- Loading checks every typed field and rejects a malformed project with an `EditError`. It rejects an invalid track name, mute, solo or gain with `invalid-track`, and an invalid clip name, take or continuity ID or extensions map with `invalid-clip`. Other JSON fields are kept unchanged.
+- Loading checks every typed field and rejects a malformed project with an `EditError`. It rejects an invalid track name, mute, solo or gain with `invalid-track`, and an invalid clip name, take or continuity ID or extensions map with `invalid-clip`. A malformed take or candidate list is rejected with `invalid-take`. Content time lies within seven days of zero, like a take's source position, so a source mapping always fits a safe integer. Other JSON fields are kept unchanged.
 - `getSnapshot()` returns the immutable project with its revision. Retained snapshots remain valid after edits. Save the project as JSON and pass it to `createEditor` to reopen at the saved revision. History is local to an editor session.
 - Pass `{ expectedRevision }` as a second argument to `dispatch`, or as an argument to `history.undo` or `history.redo`, to reject stale writes. A change increments the revision once and returns `ok`, `revision`, `changedIds`, `createdIds`, forward and inverse patches, and `affected.before` and `affected.after` intervals. These intervals include the vacated track on a cross-track move. A zero-delta edit with no placement change returns `unchanged: true` at the current revision.
 - Each patch describes an array splice with `index`, `before` and `after` clip lists. All indices in one patch list refer to the same pre-transaction snapshot. A rejected command returns `{ ok: false, revision, code, target, reason }` and preserves both history branches. One undo reverses the complete selection move. Redo restores the exact split ID. A successful recorded edit after undo discards the previous redo branch. An ignored transaction preserves it.
@@ -75,6 +76,53 @@ editor.dispatch(commands.removeMarker({ markerId: "chorus" }));
   - `missing-marker`: an unknown marker.
 - **Commit results.** A commit reports `markerPatches` and `inverseMarkerPatches` as `{ id, before, after }` records, where `undefined` means absent. `changedIds` and `affected` cover clips only.
 - **Undo and redo.** Replay keeps marker fields changed since an edit unless the edit owns them. Removing a marker requires the whole recorded marker to match.
+
+## Takes
+
+A take is one candidate for a clip's slot: `{ id, assetId, streamId, sourceAtContentZero, label?, forkedFrom?, extensions? }`. The source position is in project ticks at the clip's content time zero and lies within seven days of it. `project.takes` holds every take, sorted by ID and omitted when empty. A clip lists its candidates in `takeIds`, in display order, and plays `activeTakeId`. Several clips can list one take; a split copies the list to both halves.
+
+```js
+const late = { assetId: "line-12-v3", streamId: "audio-0", sourceAtContentZero: -seconds(3) };
+editor.dispatch([
+  commands.expectData({ scope: "script", id: "line", key: "revision", value: 7 }),
+  commands.addTake({ clipIds: [rightId], take: { id: "take-c", ...late }, activate: true }),
+]);
+editor.dispatch(commands.reorderTakes({ clipId: rightId, takeIds: ["take-c", "take-a"] }));
+// Nudge take-a for the right half only. The left half keeps the original.
+editor.dispatch(
+  commands.updateTake({
+    takeId: "take-a",
+    clipIds: [rightId],
+    newId: "take-a-right",
+    sourceAtContentZero: seconds(1) / 50,
+  }),
+);
+editor.dispatch(commands.removeTake({ clipId: rightId, takeId: "take-a-right" }));
+editor.dispatch(commands.pruneTakes());
+```
+
+- **One form per state.** A clip with candidates carries both `takeIds` and `activeTakeId`, where `null` means none is active. A clip without candidates carries neither field. Loading accepts an empty list or a missing `activeTakeId` and writes this form.
+- **Load rules.** Take IDs are unique, and every listed ID names a take. The active take is listed. A take that no clip lists is valid and stays until it is pruned.
+- **Commands.** Take commands combine with every other command in one transaction. Commands that edit a clip's list reject a clip on a locked track with `locked-track`.
+  - `addTake({ clipIds, take | takeId, activate? })` registers a new take, or shares an existing one, and appends it to each clip's list. A clip that already lists it keeps its position. It does not change the active take unless `activate` is `true`. Omitting the new take's `id` generates one.
+  - `selectTake({ clipId, takeId })` accepts a listed take or `null`.
+  - `removeTake({ clipId, takeId })` rejects the active take with `active-take`. Select another one first, in the same transaction if you like. The take stays in the project.
+  - `reorderTakes({ clipId, takeIds })` accepts a permutation of the list.
+  - `updateTake({ takeId, clipIds?, newId?, label?, sourceAtContentZero? })` changes only the fields given. A take's asset and stream are fixed; add a new take for new media.
+  - `pruneTakes({ takeIds? })` removes takes that no clip lists: all of them, or the ones named. Naming a listed take rejects the command with `listed-take`. Call it before saving, and retire entity data keyed by the pruned IDs in the same transaction.
+- **Updating some clips.** Without `clipIds`, `updateTake` changes the take for every clip that lists it. With `clipIds`, it changes it for those clips only. If another clip lists the take too, the take is first copied under `newId`, or a generated ID. The copy replaces the take in the named clips, at the same list position and as the active take where it was active, and records its source in `forkedFrom`. When the named clips are the only ones listing the take, it changes in place and `newId` is unused. `read.clipsListing(takeId)` tells which case applies.
+- **Expectations.** `expectClip({ clipId, fields })` and `expectData({ scope, id, key, value })` compare deep JSON values at their position in the transaction, where `undefined` means absent. A difference rejects the whole transaction with `expectation-failed`. A missing clip fails the expectation too.
+- **Rejections.**
+  - `invalid-take`: a taken ID, a malformed take, a source position beyond seven days, a bad permutation, or `newId` without `clipIds`.
+  - `missing-take`: an unknown take, or one the clip does not list.
+  - `active-take` and `listed-take`: removing the active take, and pruning a listed one.
+  - `invalid-expectation`: a malformed expectation.
+- **Commit results.** A commit reports `takePatches` and `inverseTakePatches` as `{ id, before, after }` records. `changedIds` and `affected` also include every clip that lists a take whose source position changed, so playback replans those clips. A label change replans nothing.
+- **Undo and redo.** Clip fields replay field by field and compare by value, so a selection and a reorder do not conflict. Take fields follow the marker rules. A take's presence follows its listings: replay skips adding a take that already exists, and skips removing one that is gone or that another clip lists by then. Replay returns `history-conflict` rather than list a take that was pruned since.
+
+## Canonical order
+
+Snapshots order markers by start and then ID, takes by ID, and each track's clips by start and then ID. IDs compare by UTF-16 code unit, as JavaScript's `<` does. An implementation in another language must use the same comparison to produce the same snapshot; UTF-8 byte order differs for characters outside the Basic Multilingual Plane.
 
 ## Regression checks
 

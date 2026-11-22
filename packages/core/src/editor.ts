@@ -2,15 +2,27 @@ import { openProject, orderTrack, validateClip } from "./document.ts";
 import type { TrackLayout } from "./document.ts";
 import { ClipDraft, inverse, rebase } from "./clip-patches.ts";
 import { DataDraft, applyData, invertData } from "./entity-data.ts";
+import { expectClip, expectData } from "./expect.ts";
 import { defined } from "./invariant.ts";
 import { MarkerDraft, applyMarkers, invertMarkers, rebaseMarkers } from "./markers.ts";
 import { createHistory } from "./history.ts";
 import { hostRandomId, reportListenerError } from "./host.ts";
 import { readRegistry } from "./read.ts";
+import {
+  TakeDraft,
+  applyTakes,
+  checkReferences,
+  invertTakes,
+  rebaseTakes,
+  referenceDelta,
+  remapsMedia,
+  stagedDelta,
+} from "./takes.ts";
 import { splitClip } from "./time.ts";
 import { EditError, isArray, requireEdit, validId } from "./validation.ts";
 import type {
   AddMarkerCommand,
+  AddTakeCommand,
   AffectedInterval,
   Clip,
   ClipCommand,
@@ -23,20 +35,28 @@ import type {
   EditOptions,
   EditorOptions,
   EditResult,
+  ExpectClipCommand,
+  ExpectDataCommand,
   HistoryState,
   MarkerPatch,
   MoveMarkerCommand,
   MoveCommand,
   PreviewCommand,
+  PruneTakesCommand,
   PreviewResult,
   ProjectSnapshot,
   RemoveDataCommand,
   RemoveMarkerCommand,
+  RemoveTakeCommand,
+  ReorderTakesCommand,
   RevisionOptions,
+  SelectTakeCommand,
   SetDataCommand,
   SplitCommand,
+  TakePatch,
   TrimCommand,
   UpdateMarkerCommand,
+  UpdateTakeCommand,
 } from "./types.ts";
 
 type Arguments<C> = Omit<C, "type">;
@@ -51,6 +71,14 @@ export interface Commands {
   splitClip(args: Arguments<SplitCommand>): SplitCommand;
   setEntityData(args: Arguments<SetDataCommand>): SetDataCommand;
   removeEntityData(args: Arguments<RemoveDataCommand>): RemoveDataCommand;
+  addTake(args: Arguments<AddTakeCommand>): AddTakeCommand;
+  selectTake(args: Arguments<SelectTakeCommand>): SelectTakeCommand;
+  removeTake(args: Arguments<RemoveTakeCommand>): RemoveTakeCommand;
+  reorderTakes(args: Arguments<ReorderTakesCommand>): ReorderTakesCommand;
+  updateTake(args: Arguments<UpdateTakeCommand>): UpdateTakeCommand;
+  pruneTakes(args?: Arguments<PruneTakesCommand>): PruneTakesCommand;
+  expectClip(args: Arguments<ExpectClipCommand>): ExpectClipCommand;
+  expectData(args: Arguments<ExpectDataCommand>): ExpectDataCommand;
 }
 
 export const commands: Readonly<Commands> = Object.freeze({
@@ -63,6 +91,14 @@ export const commands: Readonly<Commands> = Object.freeze({
   moveMarker: (args) => ({ ...args, type: "move-marker" }),
   updateMarker: (args) => ({ ...args, type: "update-marker" }),
   removeMarker: (args) => ({ ...args, type: "remove-marker" }),
+  addTake: (args) => ({ ...args, type: "add-take" }),
+  selectTake: (args) => ({ ...args, type: "select-take" }),
+  removeTake: (args) => ({ ...args, type: "remove-take" }),
+  reorderTakes: (args) => ({ ...args, type: "reorder-takes" }),
+  updateTake: (args) => ({ ...args, type: "update-take" }),
+  pruneTakes: (args) => ({ ...args, type: "prune-takes" }),
+  expectClip: (args) => ({ ...args, type: "expect-clip" }),
+  expectData: (args) => ({ ...args, type: "expect-data" }),
 } satisfies Commands);
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
@@ -110,7 +146,7 @@ function intervals(clips: readonly Clip[]): readonly AffectedInterval[] {
 }
 
 export function createEditor({ project, history: limits }: EditorOptions): Editor {
-  let { snapshot, rules, byTrack } = openProject(project);
+  let { snapshot, rules, byTrack, takeCounts } = openProject(project);
   let byId = positions(snapshot.clips);
   const reads = readRegistry(snapshot.tracks);
   reads.pin(snapshot, byTrack);
@@ -126,6 +162,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
   let disposed = false;
   let fallbackId = 0;
   let markerFallbackId = 0;
+  let takeFallbackId = 0;
 
   function newClipId(draft: ClipDraft): string {
     const random = hostRandomId();
@@ -146,6 +183,31 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       id = "marker-" + ++markerFallbackId;
     } while (taken(id));
     return id;
+  }
+
+  function newTakeId(taken: (id: string) => boolean): string {
+    const random = hostRandomId();
+    if (random !== undefined) return random;
+    let id;
+    do {
+      id = "take-" + ++takeFallbackId;
+    } while (taken(id));
+    return id;
+  }
+
+  // The current version of a clip that take commands may edit.
+  function editable(draft: ClipDraft): (id: string) => Clip {
+    return (id) => {
+      const clip = validId(id) ? draft.get(id) : undefined;
+      requireEdit(clip, "missing-clip", id, "Clip does not exist");
+      requireEdit(
+        !defined(rules.tracks.get(clip.trackId), "clip track").locked,
+        "locked-track",
+        clip.trackId,
+        "Track is locked",
+      );
+      return clip;
+    };
   }
 
   function stageClip(command: ClipCommand | null, draft: ClipDraft): void {
@@ -414,6 +476,9 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       let inverseData: readonly DataPatch[];
       let markerPatches: readonly MarkerPatch[];
       let inverseMarkerPatches: readonly MarkerPatch[];
+      let takePatches: readonly TakePatch[];
+      let inverseTakePatches: readonly TakePatch[];
+      let delta: ReadonlyMap<string, number>;
       let policy: CommitHistory = options?.history === undefined ? "record" : options.history;
       if (mode === "edit") {
         requireEdit(
@@ -425,6 +490,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         const clips = new ClipDraft(snapshot.clips, byId);
         const fields = new DataDraft(snapshot.entityData);
         const markers = new MarkerDraft(snapshot.markers);
+        const takes = new TakeDraft(snapshot.takes);
         for (const command of isArray(input) ? input : [input]) {
           if (command?.type === "set-data" || command?.type === "remove-data")
             fields.stage(command);
@@ -435,16 +501,35 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
             command?.type === "remove-marker"
           )
             markers.stage(command, rules, newMarkerId);
+          else if (
+            command?.type === "add-take" ||
+            command?.type === "select-take" ||
+            command?.type === "remove-take" ||
+            command?.type === "reorder-takes" ||
+            command?.type === "update-take" ||
+            command?.type === "prune-takes"
+          )
+            takes.stage(command, {
+              clips,
+              editable: editable(clips),
+              newId: newTakeId,
+              listings: (id) => (takeCounts.get(id) ?? 0) + (stagedDelta(clips).get(id) ?? 0),
+            });
+          else if (command?.type === "expect-clip") expectClip(command, clips);
+          else if (command?.type === "expect-data") expectData(command, fields);
           else stageClip(command, clips);
         }
         patches = clips.patches();
         data = fields.patches();
         markerPatches = markers.patches();
-        if (!patches.length && !data.length && !markerPatches.length)
+        delta = referenceDelta(patches);
+        takePatches = takes.patches();
+        if (!patches.length && !data.length && !markerPatches.length && !takePatches.length)
           return { ok: true, revision: snapshot.revision, unchanged: true };
         inverses = inverse(patches);
         inverseData = invertData(data);
         inverseMarkerPatches = invertMarkers(markerPatches);
+        inverseTakePatches = invertTakes(takePatches);
       } else {
         const entry = history.peek(mode);
         requireEdit(entry, "empty-history", null, "No history entry available");
@@ -460,6 +545,18 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
           markerPatches === recorded
             ? ((undo ? entry.markers : entry.inverseMarkers) ?? [])
             : invertMarkers(markerPatches);
+        const recordedTakes = (undo ? entry.inverseTakes : entry.takes) ?? [];
+        const replayed = referenceDelta(patches);
+        delta = replayed;
+        takePatches = rebaseTakes(
+          recordedTakes,
+          snapshot.takes,
+          (id) => (takeCounts.get(id) ?? 0) + (replayed.get(id) ?? 0) > 0,
+        );
+        inverseTakePatches =
+          takePatches === recordedTakes
+            ? ((undo ? entry.takes : entry.inverseTakes) ?? [])
+            : invertTakes(takePatches);
         policy = mode;
       }
 
@@ -468,6 +565,19 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       const geometry = patches.length ? prepareLayout(patches, before, after) : null;
       const entityData = applyData(snapshot.entityData, data);
       const markerList = applyMarkers(snapshot.markers, markerPatches);
+      const takeState = applyTakes(snapshot.takes, takePatches);
+      const counted = (id: string): number => (takeCounts.get(id) ?? 0) + (delta.get(id) ?? 0);
+      checkReferences(after, takePatches, takeState.byId, counted);
+      const clipList = geometry?.clips ?? snapshot.clips;
+      // Clips that list a remapped take play different media without a patch of their own.
+      const remapped = new Set(takePatches.filter(remapsMedia).map((p) => p.id));
+      const patchedIds = new Set(after.map((c) => c.id));
+      const relisted = remapped.size
+        ? clipList.filter(
+            (clip) =>
+              !patchedIds.has(clip.id) && (clip.takeIds ?? []).some((id) => remapped.has(id)),
+          )
+        : [];
       const revision = nextRevision();
       const oldIds = new Set(before.map((c) => c.id));
       const result: EditCommit = Object.freeze({
@@ -478,21 +588,30 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         inversePatches: inverses,
         dataPatches: data,
         inverseDataPatches: inverseData,
-        changedIds: Object.freeze([...new Set([...oldIds, ...after.map((c) => c.id)])]),
+        changedIds: Object.freeze([
+          ...new Set([...oldIds, ...after.map((c) => c.id), ...relisted.map((c) => c.id)]),
+        ]),
         createdIds: Object.freeze(after.filter((c) => !oldIds.has(c.id)).map((c) => c.id)),
-        affected: Object.freeze({ before: intervals(before), after: intervals(after) }),
+        affected: Object.freeze({
+          before: intervals([...before, ...relisted]),
+          after: intervals([...after, ...relisted]),
+        }),
         markerPatches,
         inverseMarkerPatches,
+        takePatches,
+        inverseTakePatches,
       });
       const next: Mutable<ProjectSnapshot> = {
         ...snapshot,
         revision,
-        clips: geometry?.clips ?? snapshot.clips,
+        clips: clipList,
       };
       if (entityData === undefined) delete next.entityData;
       else next.entityData = entityData;
       if (markerList === undefined) delete next.markers;
       else next.markers = markerList;
+      if (takeState.list === undefined) delete next.takes;
+      else next.takes = takeState.list;
 
       // Validation, conflict checks and staging finish before any observable write.
       if (mode !== "edit") history.advance(mode);
@@ -506,7 +625,13 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
           ...(markerPatches.length
             ? { markers: markerPatches, inverseMarkers: inverseMarkerPatches }
             : {}),
+          ...(takePatches.length ? { takes: takePatches, inverseTakes: inverseTakePatches } : {}),
         });
+      for (const [id, change] of delta) {
+        const count = (takeCounts.get(id) ?? 0) + change;
+        if (count) takeCounts.set(id, count);
+        else takeCounts.delete(id);
+      }
       if (geometry) {
         byId = geometry.positions;
         byTrack = geometry.layout;
@@ -520,7 +645,15 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
     } catch (error) {
       if (!(error instanceof EditError)) throw error;
       const conflict =
-        mode !== "edit" && ["overlap", "source-bounds", "invalid-range"].includes(error.code);
+        mode !== "edit" &&
+        [
+          "overlap",
+          "source-bounds",
+          "invalid-range",
+          "missing-take",
+          "invalid-take",
+          "listed-take",
+        ].includes(error.code);
       return {
         ok: false,
         revision: snapshot.revision,

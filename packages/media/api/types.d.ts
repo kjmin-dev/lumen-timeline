@@ -1,4 +1,4 @@
-import type { AudioSpan, Editor, TakeCatalog, Tick } from "@lumen-timeline/core";
+import type { AudioSpan, Editor, StreamCatalog, Tick } from "@lumen-timeline/core";
 /** A decoded stream. The transports read its rate and length. */
 export interface AudioBufferLike {
     readonly sampleRate: number;
@@ -77,7 +77,7 @@ export interface MediaOptions {
     readonly context: AudioContextLike;
     /** Defaults to `context.destination`. */
     readonly output?: AudioNodeLike | undefined;
-    readonly catalog: TakeCatalog;
+    readonly catalog: StreamCatalog;
     readonly resolveBuffer: ResolveBuffer;
     readonly onError?: MediaErrorHandler | undefined;
 }
@@ -115,8 +115,8 @@ export interface AudioTransport {
     play(): Promise<"playing" | "empty" | "superseded">;
     pause(): void;
     seek(tick: Tick): Promise<SeekResult>;
-    readonly catalog: TakeCatalog;
-    setCatalog(catalog: TakeCatalog): void;
+    readonly catalog: StreamCatalog;
+    setCatalog(catalog: StreamCatalog): void;
     diagnostics(clipId: string): TransportDiagnostics;
     dispose(): void;
 }
@@ -136,8 +136,8 @@ export interface VideoTransport {
     play(): Promise<void>;
     pause(): void;
     seek(tick: Tick): Promise<SeekResult>;
-    readonly catalog: TakeCatalog;
-    setCatalog(catalog: TakeCatalog): void;
+    readonly catalog: StreamCatalog;
+    setCatalog(catalog: StreamCatalog): void;
     diagnostics(clipId: string): TransportDiagnostics;
     dispose(): void;
 }

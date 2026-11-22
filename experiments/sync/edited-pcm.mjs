@@ -1,7 +1,7 @@
 import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { verifyAudioOnlyPcm } from "./audio-only-pcm.mjs";
 import { verifyContinuousEdits } from "./continuous-edits.mjs";
-import { bufferCatalog } from "./buffer-fixture.mjs";
+import { bufferCatalog, listTakes } from "./buffer-fixture.mjs";
 import { scheduleWindow } from "./transport.mjs";
 
 const renderLength = 64;
@@ -67,7 +67,13 @@ export async function verifyEditedPcm() {
       project: {
         schemaVersion: 1,
         tracks: [{ id: "voice", overlap: "exclusive" }, { id: "mix" }],
-        clips: [
+        takes: ["voice", "bed"].map((id) => ({
+          id,
+          assetId: id,
+          streamId: "mono",
+          sourceAtContentZero: 0,
+        })),
+        clips: listTakes([
           {
             id: "line",
             trackId: "voice",
@@ -86,7 +92,7 @@ export async function verifyEditedPcm() {
             contentIn: tick(2),
             activeTakeId: "bed",
           },
-        ],
+        ]),
       },
     });
     async function compare(state, guideStart = 23) {

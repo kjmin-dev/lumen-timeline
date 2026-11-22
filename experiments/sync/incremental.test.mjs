@@ -8,6 +8,7 @@ const tick = (s) => Math.round(s * hz);
 const clip = (id, start, end, trackId, take = id) => ({
   id,
   trackId,
+  takeIds: [take],
   activeTakeId: take,
   kind: "audio",
   start: tick(start),
@@ -16,14 +17,11 @@ const clip = (id, start, end, trackId, take = id) => ({
 });
 const move = (id, delta) => commands.moveClips({ clipIds: [id], delta: tick(delta) });
 const buffer = { sampleRate: rate, length: rate * 30 };
-const binding = (assetId) => ({
-  assetId,
-  streamId: "s",
+const binding = () => ({
   assetVersion: 1,
   sampleRate: rate,
   availableStart: 0,
   availableEnd: buffer.length,
-  sourceAtContentZero: 0,
 });
 function pass(result) {
   assert.equal(result.ok, true, JSON.stringify(result));
@@ -34,10 +32,13 @@ function fixture(
   resolver = () => buffer,
   tracks = ["music", "voice"].map((id) => ({ id })),
 ) {
-  const editor = createEditor({ project: { schemaVersion: 1, tracks, clips } });
+  // One take per ID the clips play, each on an asset of the same name.
+  const ids = [...new Set(clips.map((c) => c.activeTakeId))];
+  const takes = ids.map((id) => ({ id, assetId: id, streamId: "s", sourceAtContentZero: 0 }));
+  const editor = createEditor({ project: { schemaVersion: 1, tracks, clips, takes } });
   const catalog = {
     version: 1,
-    takes: Object.fromEntries(clips.map((c) => [c.activeTakeId, binding(c.activeTakeId)])),
+    streams: Object.fromEntries(ids.map((id) => [id, { s: binding() }])),
   };
   const player = Object.assign(new EventTarget(), {
     duration: 30,
@@ -155,8 +156,8 @@ test("pending buffers use the latest offset, survive unrelated revisions, and re
   try {
     f.frame(1);
     const music = f.transport.voices.get("bed").node;
-    const replacement = { ...f.catalog.takes.line, assetVersion: 2, streamId: "new" };
-    f.transport.setCatalog({ version: 2, takes: { ...f.catalog.takes, line: replacement } });
+    const replacement = { s: { ...f.catalog.streams.line.s, assetVersion: 2 } };
+    f.transport.setCatalog({ version: 2, streams: { ...f.catalog.streams, line: replacement } });
     assert.equal(loads.length, 2);
     assert.equal(loads[0].signal.aborted, true);
     loads[0].resolve(buffer);
@@ -175,7 +176,6 @@ test("pending buffers use the latest offset, survive unrelated revisions, and re
     await Promise.resolve();
     const voice = f.transport.voices.get("line");
     assert.equal(voice.node.offset, 1.25);
-    assert.equal(voice.span.streamId, "new");
     assert.equal(voice.span.assetVersion, 2);
     assert.equal(f.transport.voices.get("bed").node, music);
     f.transport.setCatalog(f.catalog);
@@ -291,11 +291,11 @@ test("failed or missing bindings leave the guide running and can recover on cata
     const guide = f.transport.voices.get("guide").node;
     assert.throws(() => f.transport.setCatalog({ version: 2 }), /catalog/);
     assert.equal(f.transport.catalog, f.catalog);
-    const { line, ...remaining } = f.catalog.takes;
-    f.transport.setCatalog({ version: 2, takes: remaining });
-    assert.equal(f.transport.issues[0].code, "unresolved-take");
+    const { line, ...remaining } = f.catalog.streams;
+    f.transport.setCatalog({ version: 2, streams: remaining });
+    assert.equal(f.transport.issues[0].code, "unresolved-stream");
     available = true;
-    f.transport.setCatalog({ version: 3, takes: { ...remaining, line } });
+    f.transport.setCatalog({ version: 3, streams: { ...remaining, line } });
     assert.equal(f.transport.voices.get("line").node.offset, 1);
     assert.equal(f.transport.voices.get("guide").node, guide);
     assert.deepEqual(guide.stops, [12]);

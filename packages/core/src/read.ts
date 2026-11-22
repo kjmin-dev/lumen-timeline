@@ -8,9 +8,11 @@ import type {
   Clip,
   ClipQueryOptions,
   Marker,
+  PlanOptions,
   ProjectSnapshot,
   ReadHandle,
-  TakeCatalog,
+  StreamCatalog,
+  Take,
   Tick,
   TickRange,
   Track,
@@ -51,6 +53,14 @@ export function readRegistry(tracks: readonly Track[]): ReadRegistry {
       requireEdit(layout, "foreign-snapshot", null, "Read requires a snapshot from this editor");
       const cached = handles.get(snapshot);
       if (cached) return cached;
+      // Built on first use; most handles serve playback, which needs only takes.
+      let takeMap: ReadonlyMap<string, Take> | undefined;
+      let clipMap: ReadonlyMap<string, Clip> | undefined;
+      let listings: ReadonlyMap<string, readonly string[]> | undefined;
+      const takeOf = (id: string): Take | undefined => {
+        takeMap ??= new Map((snapshot.takes ?? []).map((take) => [take.id, take]));
+        return takeMap.get(id);
+      };
       const handle: ReadHandle = Object.freeze({
         revision: snapshot.revision,
         clipsIn(range: TickRange, { trackIds }: ClipQueryOptions = {}): readonly Clip[] {
@@ -71,11 +81,41 @@ export function readRegistry(tracks: readonly Track[]): ReadRegistry {
           }
           return Object.freeze(found);
         },
-        planAudio(range: TickRange, catalog: TakeCatalog): AudioPlan {
+        planAudio(range: TickRange, catalog: StreamCatalog, options?: PlanOptions): AudioPlan {
           validate(range);
-          return planAudio(snapshot.revision, tracks, range, catalog, (id, emit) =>
-            visitRange(layout.get(id), range.start, range.end, emit),
+          return planAudio(
+            snapshot.revision,
+            tracks,
+            range,
+            catalog,
+            (id, emit) => visitRange(layout.get(id), range.start, range.end, emit),
+            takeOf,
+            options,
           );
+        },
+        takesOf(clipId: string): readonly Take[] {
+          clipMap ??= new Map(snapshot.clips.map((clip) => [clip.id, clip]));
+          const clip = typeof clipId === "string" ? clipMap.get(clipId) : undefined;
+          requireEdit(clip, "missing-clip", clipId, "Clip does not exist");
+          return Object.freeze(
+            (clip.takeIds ?? []).map((id) => defined(takeOf(id), "listed take")),
+          );
+        },
+        clipsListing(takeId: string): readonly string[] {
+          const take = typeof takeId === "string" ? takeOf(takeId) : undefined;
+          requireEdit(take, "missing-take", takeId, "Take does not exist");
+          if (!listings) {
+            const byTake = new Map<string, string[]>();
+            for (const clip of snapshot.clips) {
+              for (const id of clip.takeIds ?? []) {
+                const ids = byTake.get(id);
+                if (ids) ids.push(clip.id);
+                else byTake.set(id, [clip.id]);
+              }
+            }
+            listings = byTake;
+          }
+          return Object.freeze([...(listings.get(take.id) ?? [])]);
         },
         markersIn(range: TickRange): readonly Marker[] {
           validate(range);

@@ -5,7 +5,9 @@ import type {
   Clip,
   EditResult,
   ReadHandle,
-  TakeBinding,
+  StreamBinding,
+  StreamCatalog,
+  Take,
   TickRange,
   Track,
 } from "@lumen-timeline/core";
@@ -25,18 +27,34 @@ const clip = (
   start,
   duration,
   contentIn: 0,
-  activeTakeId: take,
+  ...(take === null ? {} : { takeIds: [take], activeTakeId: take }),
 });
-const open = (clips: readonly Clip[], tracks: readonly Track[] = [{ id: "voice" }]) =>
-  createEditor({ project: { schemaVersion: 1, tracks, clips } });
-const binding = (rate: number): TakeBinding => ({
-  assetId: "asset",
-  streamId: "mono",
+/** One take per ID the clips play, each on its own asset, at the given source positions. */
+const takesOf = (clips: readonly Clip[], positions: Record<string, number> = {}): Take[] =>
+  [...new Set(clips.flatMap((c) => c.takeIds ?? []))].map((id) => ({
+    id,
+    assetId: id,
+    streamId: "mono",
+    sourceAtContentZero: positions[id] ?? 0,
+  }));
+const open = (
+  clips: readonly Clip[],
+  tracks: readonly Track[] = [{ id: "voice" }],
+  positions?: Record<string, number>,
+) =>
+  createEditor({ project: { schemaVersion: 1, tracks, clips, takes: takesOf(clips, positions) } });
+const binding = (rate: number): StreamBinding => ({
   assetVersion: 1,
   sampleRate: rate,
-  sourceAtContentZero: 0,
   availableStart: 0,
   availableEnd: rate * 20,
+});
+const catalogOf = (
+  version: string | number,
+  streams: Record<string, StreamBinding>,
+): StreamCatalog => ({
+  version,
+  streams: Object.fromEntries(Object.entries(streams).map(([id, mono]) => [id, { mono }])),
 });
 const range = (start: number, end: number): TickRange => ({ start, end });
 function commit(result: EditResult): void {
@@ -124,7 +142,7 @@ test("worked plan preserves absolute source samples across split, move and undo"
   for (const rate of [44100, 48000]) {
     const e = open([{ ...clip("line", "voice", sec(12), sec(4)), contentIn: sec(1) }]);
     const first = e.read();
-    const catalog = { version: "v1", takes: { A: binding(rate) } };
+    const catalog = catalogOf("v1", { A: binding(rate) });
     function check(read: ReadHandle, pos: number, id: string): void {
       const q = range(unitsToTicks(pos, 10), unitsToTicks(pos + 1, 10));
       const plan = read.planAudio(q, catalog);
@@ -159,16 +177,16 @@ test("silent slots, unavailable samples and missing bindings leave other voices 
     ...clip(id, "voice", sec(12), sec(4), id === "blank" ? null : id),
     contentIn: sec(1),
   }));
-  const e = open(clips);
-  const plan = e.read().planAudio(range(sec(12), sec(16)), {
-    version: 0,
-    takes: {
-      good: { ...binding(rate), sourceAtContentZero: -rate * 1.5, availableEnd: rate * 2 },
+  const e = open(clips, undefined, { good: -unitsToTicks(15, 10) });
+  const plan = e.read().planAudio(
+    range(sec(12), sec(16)),
+    catalogOf(0, {
+      good: { ...binding(rate), availableEnd: rate * 2 },
       long: binding(rate),
       bad: { ...binding(rate), sampleRate: 0 },
       silent: { ...binding(rate), availableEnd: 0 },
-    },
-  });
+    }),
+  );
   assert.deepEqual(
     plan.spans.map((s) => s.clipId),
     ["good", "long"],
@@ -181,7 +199,7 @@ test("silent slots, unavailable samples and missing bindings leave other voices 
   });
   assert.deepEqual(
     plan.issues.map((i) => i.code),
-    ["invalid-take", "unresolved-take"],
+    ["invalid-stream", "unresolved-stream"],
   );
   assert.equal(e.getSnapshot().revision, 0);
   assert.equal(e.history.undoDepth, 0);
@@ -213,7 +231,7 @@ test("mute overrides solo; track gain and each overlapping voice survive plannin
   assert.deepEqual(
     e
       .read()
-      .planAudio(q, { version: 1, takes: { A: binding(48000) } })
+      .planAudio(q, catalogOf(1, { A: binding(48000) }))
       .spans.map((s) => [s.clipId, s.gain]),
     [
       ["a", 0.4],
@@ -227,7 +245,7 @@ test("fractional-frame cut produces the same shared native sample on both sides"
   for (const rate of [44100, 48000, 90001]) {
     const e = open([clip("a", "voice", 0, sec(1))]);
     commit(e.dispatch(commands.splitClip({ clipId: "a", at: cut, rightId: "b" })));
-    const catalog = { version: 1, takes: { A: binding(rate) } };
+    const catalog = catalogOf(1, { A: binding(rate) });
     const [a, b] = e.read().planAudio(range(0, sec(1)), catalog).spans;
     assert.equal(a.window.sourceEnd, b.window.sourceStart);
     assert.equal(b.window.sourceStart, ticksToUnits(cut, rate));

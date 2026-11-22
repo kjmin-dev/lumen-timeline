@@ -1,5 +1,5 @@
 import { TICKS_PER_SECOND as hz, createEditor } from "@lumen-timeline/core";
-import { bufferCatalog } from "./buffer-fixture.mjs";
+import { bufferCatalog, bufferTakes, listTakes } from "./buffer-fixture.mjs";
 import { VideoTransport } from "./transport.mjs";
 import { createTake, frameObserver } from "./browser.mjs";
 
@@ -31,7 +31,14 @@ export async function soak(seconds) {
     trackId: "guide",
     kind: "audio",
   }));
-  const editor = createEditor({ project: { schemaVersion: 1, tracks: [{ id: "guide" }], clips } });
+  const editor = createEditor({
+    project: {
+      schemaVersion: 1,
+      tracks: [{ id: "guide" }],
+      clips: listTakes(clips),
+      takes: bufferTakes(takes),
+    },
+  });
   const transport = new VideoTransport(video, ctx, probe, {
     editor,
     catalog: bufferCatalog(takes),

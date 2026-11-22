@@ -26,22 +26,19 @@ export function createDemoAssets(audio) {
       (0.8 + 0.2 * Math.cos(t));
   }
   const rate = audio.sampleRate;
-  const binding = (assetId, length) =>
+  // The project's takes name these assets. The catalog describes their decoded streams.
+  const stream = (length) =>
     Object.freeze({
-      assetId,
-      streamId: "mono",
-      assetVersion: 1,
-      sampleRate: rate,
-      sourceAtContentZero: 0,
-      availableStart: 0,
-      availableEnd: length,
+      mono: Object.freeze({
+        assetVersion: 1,
+        sampleRate: rate,
+        availableStart: 0,
+        availableEnd: length,
+      }),
     });
   const catalog = Object.freeze({
     version: 1,
-    takes: Object.freeze({
-      line: binding("line", 8 * rate),
-      bed: binding("bed", music.length),
-    }),
+    streams: Object.freeze({ line: stream(8 * rate), bed: stream(music.length) }),
   });
   return {
     catalog,
