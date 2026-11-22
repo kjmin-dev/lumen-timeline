@@ -133,6 +133,7 @@ async function editSession(context) {
     return: "line",
     bed: "bed",
     reply: "reply",
+    stem: "stem",
   });
 
   // Save, reopen into a fresh editor and recover the same document.

@@ -4,7 +4,7 @@ Lumen Timeline is a planned JavaScript framework for building browser-based audi
 
 The core will own editing commands, time and history. A shared browser view will handle waveforms, pointer input and playhead updates. React, Svelte, SolidJS and Vue will each get a thin wrapper around that view, targeting the latest stable major of the framework.
 
-**Project status** — Milestone 2 is complete. Headless clip and marker commands, selective history and incremental playback drive video and audio-only workspaces on the same Canvas 2D timeline. Milestone 3's exit criteria pass: candidate takes, audition, a take panel and a host-supplied generator in the example. A project-wide line list and reference stems remain.
+**Project status** — Milestone 3 is complete. Headless clip and marker commands, selective history and incremental playback drive video and audio-only workspaces on the same Canvas 2D timeline. The dubbing example adds a track per speaker, a bilingual line list with line play, a reference stem drawn as a waveform, candidate takes with audition, and a host-supplied take generator. Milestone 4, rendering at scale, is next.
 
 - [Core implementation architecture](docs/core-architecture.md) defines the TypeScript editing engine, sample scheduling and optional Rust waveform worker.
 - [Design](docs/design.md) covers the project format, playback clocks, editing semantics, GPU rendering and extension API.

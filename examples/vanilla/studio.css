@@ -279,6 +279,10 @@ header a {
 #line-panel {
   margin-top: 14px;
 }
+/* Room for every track of the example without scrolling. */
+#timeline .lt-scroll {
+  height: 186px;
+}
 .line-list {
   margin: 14px 0;
   background: #1b2326;

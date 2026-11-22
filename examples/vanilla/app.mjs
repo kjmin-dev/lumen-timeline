@@ -9,16 +9,19 @@ import { createGeneration, mountLinePanel } from "./generation.mjs";
 import { mountLineList } from "./lines.mjs";
 import { attachPlayer } from "./player.mjs";
 import { mountTakePanel } from "./takes.mjs";
+import { createWaveforms } from "./waveforms.mjs";
 
 const video = document.querySelector("video");
 const videoProject = {
   schemaVersion: 1,
   duration: 24 * hz,
-  // One track per speaker, plus the music.
+  // One track per speaker, the music, and the original dialogue as a quiet,
+  // locked reference stem under the whole picture.
   tracks: [
     { id: "dialogue", name: "Narrator", overlap: "exclusive" },
     { id: "music", name: "Music", locked: true },
     { id: "keeper", name: "Keeper", overlap: "exclusive" },
+    { id: "stem", name: "Original dialogue", locked: true, gain: 0.35 },
   ],
   clips: [
     {
@@ -72,6 +75,18 @@ const videoProject = {
       activeTakeId: "reply",
       lineId: "line-3",
     },
+    {
+      id: "stem",
+      name: "Original dialogue",
+      trackId: "stem",
+      kind: "audio",
+      start: 0,
+      duration: 24 * hz,
+      contentIn: 0,
+      contentBounds: { start: 0, end: 24 * hz },
+      takeIds: ["stem"],
+      activeTakeId: "stem",
+    },
   ],
   // Three candidates for the first line: the recording, the same recording a
   // quarter second later, and a synthesized guide.
@@ -88,6 +103,7 @@ const videoProject = {
     { id: "bed", assetId: "bed", streamId: "mono", sourceAtContentZero: 0, label: "Music bed" },
     // The keeper's placeholder read reuses the guide recording from 2 s.
     { id: "reply", assetId: "guide", streamId: "mono", sourceAtContentZero: 2 * hz, label: "Read" },
+    { id: "stem", assetId: "stem", streamId: "mono", sourceAtContentZero: 0, label: "Original" },
   ],
   markers: [
     { id: "marker-line", start: 12 * hz, label: "Tidal line" },
@@ -149,6 +165,8 @@ export async function openProject(data) {
     transport,
     snap: { gridTicks: hz / 10 },
     labels: words,
+    // The reference stem draws its continuous waveform.
+    waveforms: createWaveforms({ stem: playback.assets.stem }),
     pixelsPerSecond: Math.max(
       20,
       (document.querySelector("#timeline").clientWidth - 160) /

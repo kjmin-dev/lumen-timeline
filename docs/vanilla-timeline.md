@@ -33,9 +33,33 @@ The example's **Takes** panel lists the selected clip's candidates in order. Eac
 
 `npm run verify:takes` checks the caption and repaint rules, an isolated and a cancelled audition with the video returning to its position, apply, reorder, remove, undo and reopen in the video workspace, and a mix audition and the renamed words in the audio workspace. Pass `firefox` or `webkit` to `node examples/vanilla/verify-takes.mjs` for the other engines.
 
+## Waveforms
+
+Pass `waveforms` to `mountTimeline` to draw a waveform in each clip whose active take has peaks. The view asks the provider for the visible part of the take's source, one bucket per CSS pixel column, whenever it paints that clip:
+
+```js
+const view = mountTimeline(element, {
+  editor,
+  transport,
+  waveforms: {
+    // Source time is content time plus the take's sourceAtContentZero, in ticks.
+    peaks: ({ assetId, streamId, start, end, buckets }) => minMaxPairs ?? null,
+    subscribe: (listener) => cache.onReady(listener),
+  },
+});
+```
+
+- **Peaks.** `peaks` returns `buckets` minimum and maximum pairs between -1 and 1, or `null` to draw nothing for that source yet. A move keeps the requested range, and a trim or a take's new `sourceAtContentZero` changes it.
+- **Late peaks.** When peaks arrive or change, call the `subscribe` listener with the asset ID. The view repaints only the tracks whose clips play that asset. A take that starts playing other media repaints the tracks of the clips that list it. Disposing the view unsubscribes.
+- **Scope.** Each paint asks for what is visible. A provider that summarises its buffers, as the example's does, answers from that summary. Tiled pyramids and workers are [milestone 4](../ROADMAP.md#milestones).
+
+The video workspace's **Original dialogue** track holds a reference stem under the whole picture: a locked clip that plays the original-language dialogue quietly at a track gain of 0.35. Its waveform shows where each original line falls, for timing the dub against it. The example's provider, in `examples/vanilla/waveforms.mjs`, keeps the minimum and maximum of every 64 samples and reads raw samples when a column covers fewer than two blocks.
+
+`npm run verify:waveforms` checks that the stem's drawn peaks fall in its phrases and not between them at two zoom levels, and that the stem is locked. In a mount of its own, it checks that pending peaks draw nothing, that a notification repaints once and only the track that plays the asset, the source range after a move, a left trim and a take offset change, and the unsubscription on dispose. Pass `firefox` or `webkit` to `node examples/vanilla/verify-waveforms.mjs` for the other engines.
+
 ## Script
 
-The video workspace has one track per speaker, Narrator and Keeper, beside the music. The **Lines** list below the timeline, in `examples/vanilla/lines.mjs`, shows every clip that carries a line, in timeline order. Each row gives the speaker, which is the clip's track, the range, the active take, the source text and the translation. A split line shows each part, as in `part 1 of 2`.
+The video workspace has one track per speaker, Narrator and Keeper, beside the music and the reference stem. The **Lines** list below the timeline, in `examples/vanilla/lines.mjs`, shows every clip that carries a line, in timeline order. Each row gives the speaker, which is the clip's track, the range, the active take, the source text and the translation. A split line shows each part, as in `part 1 of 2`.
 
 - **Select and reveal.** Clicking a row selects its clip, and `view.reveal(clipId)` brings it into view in the timeline. The inspector, take panel and line panel follow the selection. A clip selected in the timeline marks its row and scrolls it into view inside the list. The list has a constant height and never scrolls the page, so a selection made with the pointer moves nothing under it.
 - **Line play.** **Play line** seeks to the clip and calls [`play({ until })`](media-transports.md#play-to-a-stop) with the clip's end, so playback stops on the line's last tick. Ordinary playback still begins at the playhead. While playback is inside a line, its row reads **Playing**, whatever has focus.
@@ -56,7 +80,7 @@ The example's `studio.generation` plugin, in `examples/vanilla/generation.mjs`, 
 
 ## Edit clips
 
-Drag a clip body to move the selection. Drag a visible endpoint to trim it. Shift-click adds or removes a clip from the selection. A clipped edge of the viewport still picks the body when the true trim handle is offscreen. The music track in the example is locked. The dialogue track rejects overlapping placements.
+Drag a clip body to move the selection. Drag a visible endpoint to trim it. Shift-click adds or removes a clip from the selection. A clipped edge of the viewport still picks the body when the true trim handle is offscreen. The music and reference stem tracks in the example are locked. The speaker tracks reject overlapping placements.
 
 The dashed overlay previews a candidate move or trim. Release commits one transaction. Escape, pointer cancellation, lost capture and view disposal discard the gesture. A change to a selected placement cancels the drag. Independent metadata writes can advance the revision while the gesture continues. On release the view validates the absolute intent against the latest sequence and track constraints.
 
