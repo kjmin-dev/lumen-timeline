@@ -23,6 +23,16 @@ const browser = await { chromium, firefox, webkit }[engine].launch(
         args: [
           "--enable-unsafe-webgpu",
           ...(software ? ["--use-angle=swiftshader", "--use-webgpu-adapter=swiftshader"] : []),
+          // Without a GPU, Linux composites in software, which cannot show a
+          // WebGPU canvas; Vulkan on SwiftShader composites on the "GPU" instead.
+          ...(software && process.platform === "linux"
+            ? [
+                "--enable-features=Vulkan",
+                "--use-vulkan=swiftshader",
+                "--disable-vulkan-surface",
+                "--ignore-gpu-blocklist",
+              ]
+            : []),
         ],
       }
     : {},
@@ -247,7 +257,10 @@ try {
         }
       return out;
     });
+    await frames(page, 10);
     const first = await diagnostics(page);
+    // A device lost before the trace loses it means this browser cannot keep one.
+    assert.equal(first.deviceLosses, 0, backend + ": lost on its own: " + first.fallback);
     result.layout = first.visibleClips;
     result.request = [first.renderer, first.fallback];
     await frames(page);
