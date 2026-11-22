@@ -97,7 +97,7 @@ const brief = (r) => (r.ok ? (r.unchanged ? "unchanged" : "ok") : r.code + ": " 
   const again = e.dispatch(commands.addTake({ clipIds: ["other"], take: fresh("c") }));
   show("6 reuse the ID of an unlisted take", brief(again));
 }
-// 7. Generated IDs: without randomUUID, and by default.
+// 7. Generated IDs: without randomUUID, and replayed from a commit's commands.
 {
   const crypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
   Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
@@ -106,8 +106,14 @@ const brief = (r) => (r.ok ? (r.unchanged ? "unchanged" : "ok") : r.code + ": " 
   const fallback = [editor(), editor()].map(split);
   if (crypto) Object.defineProperty(globalThis, "crypto", crypto);
   show("7a two editors without randomUUID", fallback);
-  const [x, y] = [editor(), editor()].map(split);
-  show("7b the same command yields the same ID", x === y);
+  const first = editor();
+  const result = first.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz }));
+  const second = editor();
+  second.dispatch(result.commands);
+  show(
+    "7b a commit's commands replay to the same ID",
+    second.getSnapshot().clips.some((c) => c.id === result.createdIds[0]),
+  );
 }
 // 8. A source position that no plan could use.
 {

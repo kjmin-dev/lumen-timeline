@@ -12,19 +12,19 @@ These scripts back the design audit of November 2026 and the plans that followed
 
 Each line is one probe. The table records what each showed when the audit ran and what resolved it.
 
-| Probe | At the audit                                                     | Now                                                                                    |
-| ----- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| 1     | Undoing a left trim conflicts after an unrelated move            | Open. The trim owns `start`, which the move also wrote.                                |
-| 2     | A list equal by value but not by identity conflicts              | Resolved: fields compare by value.                                                     |
-| 3     | Undoing an added take conflicts after another take was added     | Open. A candidate list is one value.                                                   |
-| 4     | Undo kept a field it had to remove, or reported a false conflict | Resolved: replay owns the fields an edit removed.                                      |
-| 5     | "No active take" had two spellings                               | Resolved: a clip carries both candidate fields or neither.                             |
-| 6     | A new take under an old ID inherited its entity data             | Resolved: takes stay until pruned, so the ID is taken. Prune and retire data together. |
-| 7     | Fallback IDs repeat across editors, and default IDs are random   | Open.                                                                                  |
-| 8     | An unusable source position was accepted and failed at playback  | Resolved: positions and content time stay within seven days.                           |
-| 9     | Undoing an added take failed once another clip listed it         | Resolved: a take's presence follows its listings.                                      |
-| 10    | Canonical order follows UTF-16 code units, not UTF-8 bytes       | Documented in the headless editing guide.                                              |
-| 11    | `expectedRevision` rejects an edit after any unrelated change    | Use `expectClip` and `expectData` to guard only what an edit depends on.               |
+| Probe | At the audit                                                     | Now                                                                                     |
+| ----- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 1     | Undoing a left trim conflicts after an unrelated move            | Open. The trim owns `start`, which the move also wrote.                                 |
+| 2     | A list equal by value but not by identity conflicts              | Resolved: fields compare by value.                                                      |
+| 3     | Undoing an added take conflicts after another take was added     | Open. A candidate list is one value.                                                    |
+| 4     | Undo kept a field it had to remove, or reported a false conflict | Resolved: replay owns the fields an edit removed.                                       |
+| 5     | "No active take" had two spellings                               | Resolved: a clip carries both candidate fields or neither.                              |
+| 6     | A new take under an old ID inherited its entity data             | Resolved: takes stay until pruned, so the ID is taken. Prune and retire data together.  |
+| 7     | Fallback IDs repeat across editors, and default IDs are random   | Resolved: IDs carry a session actor, and a commit's `commands` name every generated ID. |
+| 8     | An unusable source position was accepted and failed at playback  | Resolved: positions and content time stay within seven days.                            |
+| 9     | Undoing an added take failed once another clip listed it         | Resolved: a take's presence follows its listings.                                       |
+| 10    | Canonical order follows UTF-16 code units, not UTF-8 bytes       | Documented in the headless editing guide.                                               |
+| 11    | `expectedRevision` rejects an edit after any unrelated change    | Use `expectClip` and `expectData` to guard only what an edit depends on.                |
 
 ## `field-merge.mjs`
 

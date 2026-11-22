@@ -6,7 +6,8 @@ import { expectClip, expectData } from "./expect.ts";
 import { defined } from "./invariant.ts";
 import { MarkerDraft, applyMarkers, invertMarkers, rebaseMarkers } from "./markers.ts";
 import { createHistory } from "./history.ts";
-import { hostRandomId, reportListenerError } from "./host.ts";
+import { reportListenerError } from "./host.ts";
+import { idAllocator } from "./ids.ts";
 import { readRegistry } from "./read.ts";
 import {
   TakeDraft,
@@ -145,8 +146,10 @@ function intervals(clips: readonly Clip[]): readonly AffectedInterval[] {
   );
 }
 
-export function createEditor({ project, history: limits }: EditorOptions): Editor {
+export function createEditor({ project, history: limits, actor }: EditorOptions): Editor {
+  requireEdit(actor === undefined || validId(actor), "invalid-id", actor, "Expected an actor name");
   let { snapshot, rules, byTrack, takeCounts } = openProject(project);
+  const newId = idAllocator(actor, snapshot);
   let byId = positions(snapshot.clips);
   const reads = readRegistry(snapshot.tracks);
   reads.pin(snapshot, byTrack);
@@ -160,39 +163,37 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
   const notifications: Notification[] = [];
   let notifying = false;
   let disposed = false;
-  let fallbackId = 0;
-  let markerFallbackId = 0;
-  let takeFallbackId = 0;
 
-  function newClipId(draft: ClipDraft): string {
-    const random = hostRandomId();
-    if (random !== undefined) return random;
-    // Embedded HTTP editors may lack randomUUID. Hosts can also supply a durable ID.
-    let id;
-    do {
-      id = "clip-" + ++fallbackId;
-    } while (draft.get(id));
-    return id;
-  }
-
-  function newMarkerId(taken: (id: string) => boolean): string {
-    const random = hostRandomId();
-    if (random !== undefined) return random;
-    let id;
-    do {
-      id = "marker-" + ++markerFallbackId;
-    } while (taken(id));
-    return id;
-  }
-
-  function newTakeId(taken: (id: string) => boolean): string {
-    const random = hostRandomId();
-    if (random !== undefined) return random;
-    let id;
-    do {
-      id = "take-" + ++takeFallbackId;
-    } while (taken(id));
-    return id;
+  // Fills in every ID a command would otherwise leave the editor to generate,
+  // so the commands of a commit replay to the same IDs in another editor.
+  function withIds(
+    command: EditCommand | null,
+    clips: ClipDraft,
+    markers: MarkerDraft,
+    takes: TakeDraft,
+  ): EditCommand | null {
+    if (command?.type === "split" && command.rightId === undefined)
+      return Object.freeze({ ...command, rightId: newId((id) => clips.get(id) !== undefined) });
+    if (command?.type === "add-marker" && command.id === undefined)
+      return Object.freeze({ ...command, id: newId((id) => markers.get(id) !== undefined) });
+    const takeTaken = (id: string): boolean => takes.get(id) !== undefined;
+    if (
+      command?.type === "add-take" &&
+      typeof command.take === "object" &&
+      command.take !== null &&
+      command.take.id === undefined
+    )
+      return Object.freeze({
+        ...command,
+        take: Object.freeze({ ...command.take, id: newId(takeTaken) }),
+      });
+    if (
+      command?.type === "update-take" &&
+      command.clipIds !== undefined &&
+      command.newId === undefined
+    )
+      return Object.freeze({ ...command, newId: newId(takeTaken) });
+    return command;
   }
 
   // The current version of a clip that take commands may edit.
@@ -286,7 +287,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
           id,
           "A split policy is required for this clip extension",
         );
-        const rightId = command.rightId === undefined ? newClipId(draft) : command.rightId;
+        const { rightId } = command;
         requireEdit(
           validId(rightId) && !draft.get(rightId),
           "invalid-id",
@@ -479,6 +480,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       let takePatches: readonly TakePatch[];
       let inverseTakePatches: readonly TakePatch[];
       let delta: ReadonlyMap<string, number>;
+      const resolved: EditCommand[] = [];
       let policy: CommitHistory = options?.history === undefined ? "record" : options.history;
       if (mode === "edit") {
         requireEdit(
@@ -491,7 +493,9 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         const fields = new DataDraft(snapshot.entityData);
         const markers = new MarkerDraft(snapshot.markers);
         const takes = new TakeDraft(snapshot.takes);
-        for (const command of isArray(input) ? input : [input]) {
+        for (const dispatched of isArray(input) ? input : [input]) {
+          const command = withIds(dispatched, clips, markers, takes);
+          if (command) resolved.push(command);
           if (command?.type === "set-data" || command?.type === "remove-data")
             fields.stage(command);
           else if (
@@ -500,7 +504,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
             command?.type === "update-marker" ||
             command?.type === "remove-marker"
           )
-            markers.stage(command, rules, newMarkerId);
+            markers.stage(command, rules);
           else if (
             command?.type === "add-take" ||
             command?.type === "select-take" ||
@@ -512,7 +516,6 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
             takes.stage(command, {
               clips,
               editable: editable(clips),
-              newId: newTakeId,
               listings: (id) => (takeCounts.get(id) ?? 0) + (stagedDelta(clips).get(id) ?? 0),
             });
           else if (command?.type === "expect-clip") expectClip(command, clips);
@@ -600,6 +603,7 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         inverseMarkerPatches,
         takePatches,
         inverseTakePatches,
+        commands: Object.freeze(resolved),
       });
       const next: Mutable<ProjectSnapshot> = {
         ...snapshot,
