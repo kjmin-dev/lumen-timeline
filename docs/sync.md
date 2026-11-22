@@ -65,6 +65,16 @@ Sessions resend what is still pending. The actor table keeps an entry that was a
 
 `session.dispose()` stops syncing and leaves the visible editor as an ordinary editor.
 
+## Example: tabs of one browser
+
+Run `npm run example:vanilla` and open `/examples/sync/index.html` in several tabs. Each tab edits the same project through its own session. The tab that holds a Web Lock runs the sequencer and orders every tab's edits over a `BroadcastChannel`. Its own session talks to the sequencer inside the tab.
+
+- **Handover.** When the leading tab closes, the browser hands the lock to another tab. That tab asks the others for their confirmed state, starts the next sequencer from the most advanced one, and announces itself, and the other tabs rejoin.
+- **Policies.** Add `?policy=online` or `?policy=confirmed` to a tab's address to choose its policy, and `&deadline=` to set its deadline in milliseconds. **Go offline** simulates a dropped connection in a follower tab.
+- **Status.** The page shows the tab's role, actor, connection, pending count and confirmed revision, the other tabs' selections, and a log of the session's reports.
+
+`npm run verify:shared` drives four tabs through Playwright with no backend. Two tabs edit at once and converge. A concurrent overlap is rejected and rolled out of its author's tab. A tab goes offline under `queue`, keeps editing and catches up. A tab under `online` loses an edit, goes offline, is refused further edits as read-only and rolls back at the deadline. A tab under `confirmed` holds an edit until the leader accepts it. Then the leading tab closes, another takes over, and every remaining tab ends on the same document. CI runs it. Pass `firefox` or `webkit` to `node examples/sync/verify.mjs` for the other engines.
+
 ## Checks
 
 `npm test` runs the package's tests:
