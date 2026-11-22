@@ -83,6 +83,13 @@ For the 4 MiB buffer, worker round-trip medians improved by 2.4× in Chrome, 3.2
 
 For clip lookups, the JS implementation was faster in all three engines. For late microsecond timestamps, the Rust i128 implementation beat the current JS BigInt fallback. Even the largest Chrome gap here costs about 43 ns per conversion. A future import benchmark should include input packing and use representative files before moving that operation into WASM.
 
+## The shipping kernel
+
+The media package's peak kernels follow this decision. `packages/media/wasm/peaks.rs` reduces any bucket size, including a final partial bucket, and builds a waveform tile's six levels in one call. It has no imports and allocates nothing: the JS binding validates every length, places input and output in the module's memory and refreshes its views after growth. A pair holds the minimum and maximum of a bucket's finite samples. NaN and infinities are left out, a bucket without a finite sample is `+∞`/`−∞`, and negative zero is stored as zero. The JS kernels in `packages/media/src/peaks.ts` follow the same rules, so both return the same bits whatever order they visit samples in.
+
+- **Bytes.** `npm run wasm:build` compiles the source with Rust 1.100.0, `opt-level=3`, one codegen unit, `simd128` and the repository path remapped, and writes the module to `packages/media/src/peaks-wasm.ts` with its SHA-256. `npm run wasm:check` rebuilds it and fails when the committed bytes differ. CI runs it.
+- **Parity.** `packages/media/test/peaks.test.ts` compares both kernels with a direct reduction, bit for bit, over seeded PCM with NaN, infinities, both zeros and denormals, bucket sizes from 1 to 4,096 and partial lengths. Folding four pairs equals reducing at the coarser size. Both refuse a length they cannot honour before touching memory.
+
 ## Reproduce
 
 Use Node 22 or newer, npm, FFmpeg with libx264, Google Chrome and rustup. The installed Chrome channel is the default for the browser probes. Playwright-managed Chromium, Firefox and WebKit can also be selected. All generated media and WASM binaries live in temporary directories.
@@ -100,6 +107,7 @@ npm run verify:sync -- webkit
 
 rustup toolchain install 1.100.0 --profile minimal
 rustup target add --toolchain 1.100.0 wasm32-unknown-unknown
+npm run wasm:check
 npm run bench:wasm
 npm run bench:wasm -- firefox
 npm run bench:wasm -- webkit
