@@ -1,5 +1,10 @@
-import { bindEditing, snapConfig } from "./gestures.ts";
+import { createLabelAtlas } from "./atlas.ts";
+import type { LabelAtlas } from "./atlas.ts";
+import { bindEditing, handleAt, snapConfig } from "./gestures.ts";
 import type { PointerInfo } from "./gestures.ts";
+import { layoutRow, palette, QuadList } from "./layout.ts";
+import { createCanvas2DRenderer } from "./renderer.ts";
+import type { Renderer, RowQuads } from "./renderer.ts";
 import { TICKS_PER_SECOND as hz, sequenceDuration } from "@lumen-timeline/core";
 import { commands } from "@lumen-timeline/core";
 import type {
@@ -11,13 +16,13 @@ import type {
   Tick,
   Track,
 } from "@lumen-timeline/core";
-import { captionWords, takeCaption } from "./captions.ts";
-import { placeWaveform, unit } from "./waveforms.ts";
+import { captionWords } from "./captions.ts";
 import { element } from "./dom.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
 import type {
   TimelineDiagnostics,
+  TimelineHit,
   TimelineOptions,
   TimelineView,
   TransportState,
@@ -38,13 +43,6 @@ import {
 } from "./geometry.ts";
 
 const maxTick = 7 * 86400 * hz;
-const colors = [
-  ["#2b5555", "#87d6cb"],
-  ["#604332", "#ffb184"],
-  ["#464360", "#c8bbff"],
-] as const;
-const palette = (index: number): readonly [string, string] =>
-  colors[index % colors.length] ?? colors[0];
 const clampTick = (tick: Tick, end: Tick): Tick => Math.max(0, Math.min(end, tick));
 const markerColor = "#ffd7a4";
 
@@ -55,7 +53,9 @@ interface Row extends Packed {
 }
 
 /** The view keeps its own counters, read through `getDiagnostics`. */
-type Counters = { -readonly [K in keyof TimelineDiagnostics]: TimelineDiagnostics[K] };
+type Counters = {
+  -readonly [K in "layoutBuilds" | "staticPaints" | "overlayPaints"]: TimelineDiagnostics[K];
+};
 
 function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const ctx = canvas.getContext("2d");
@@ -144,12 +144,16 @@ export function mountTimeline(
     boxes: Box<Clip>[] = [],
     ghosts: readonly Clip[] = [];
   const packed = new Map<string, Packed>();
-  const diagnostics: Omit<Counters, "previewClipCount"> = {
+  const diagnostics: Counters = {
     layoutBuilds: 0,
     staticPaints: 0,
     overlayPaints: 0,
   };
   let disposed = false;
+  // Each visible row's quads, kept between paints so a backend can draw them all.
+  const scenes = new Map<number, QuadList>();
+  let atlas: LabelAtlas | null = null;
+  const renderer: Renderer = createCanvas2DRenderer(body);
 
   function rebuildRows(dirty?: ReadonlySet<string>): void {
     totalHeight = 0;
@@ -284,36 +288,17 @@ export function mountTimeline(
     ruler.setAttribute("aria-valuenow", String(t / hz));
     ruler.setAttribute("aria-valuetext", formatTime(t));
   }
-  // The active take's peaks across the clip's visible columns, behind its name.
-  function drawWaveform(ctx: CanvasRenderingContext2D, b: Box<Clip>, color: string): void {
-    const clip = b.clip;
-    if (!waveforms || typeof clip.activeTakeId !== "string") return;
-    const take = read.takesOf(clip.id).find((t) => t.id === clip.activeTakeId);
-    const placed = take && placeWaveform(clip, take, b.x, b.endX, view);
-    if (!placed) return;
-    const { buckets } = placed.request;
-    const peaks = waveforms.peaks(placed.request);
-    if (!peaks || peaks.length < 2 * buckets) return;
-    // Below the stripe, with the name drawn over it.
-    const mid = b.y + 3 + (b.height - 3) / 2;
-    const half = (b.height - 7) / 2;
-    ctx.fillStyle = color;
-    for (let i = 0; i < buckets; i++) {
-      const top = mid - unit(peaks[2 * i + 1]) * half;
-      const bottom = mid - unit(peaks[2 * i]) * half;
-      ctx.fillRect(placed.x + i, top, 1, Math.max(1, bottom - top));
-    }
-  }
-  // Tracks with a clip whose active take plays `assetId`.
+  // Visible tracks with a drawn clip whose active take plays `assetId`.
   function playing(assetId: string): ReadonlySet<string> {
     const tracks = new Set<string>();
-    for (const clip of snapshot.clips) {
-      const id = clip.activeTakeId;
+    for (const b of boxes) {
+      const id = b.clip.activeTakeId;
       if (
         typeof id === "string" &&
-        read.takesOf(clip.id).some((t) => t.id === id && t.assetId === assetId)
+        !tracks.has(b.clip.trackId) &&
+        read.takesOf(b.clip.id).some((t) => t.id === id && t.assetId === assetId)
       )
-        tracks.add(clip.trackId);
+        tracks.add(b.clip.trackId);
     }
     return tracks;
   }
@@ -326,102 +311,181 @@ export function mountTimeline(
       painting = false;
     }
   }
+  function labelAtlas(): LabelAtlas {
+    if (!atlas) atlas = createLabelAtlas(doc, dpr);
+    return atlas;
+  }
   function paintClips(dirty?: ReadonlySet<string>): void {
-    const ctx = setup(body, width, height);
     const range = { start: view.startTick, end: Math.min(maxTick, tickAt(width, view) + 1) };
+    const grid: number[] = [];
+    gridLines((x) => grid.push(x));
+    const atlas = labelAtlas();
     if (!dirty) {
-      ctx.clearRect(0, 0, width, height);
       boxes = [];
+      for (const index of scenes.keys())
+        if (!visible.some((row) => row.index === index)) scenes.delete(index);
     } else boxes = boxes.filter((b) => !dirty.has(b.clip.trackId));
-    let count = 0;
+    const changed: RowQuads[] = [];
     for (const row of visible) {
       if (dirty && !dirty.has(row.track.id)) continue;
-      const top = row.top - scroll.scrollTop;
-      ctx.clearRect(0, top, width, row.height);
-      ctx.fillStyle = row.index % 2 ? "#1b2025" : "#191e22";
-      ctx.fillRect(0, top, width, row.height - 1);
-      ctx.fillStyle = "#2b3136";
-      gridLines((x) => ctx.fillRect(Math.round(x), top, 1, row.height));
-      const [fill, stripe] = palette(row.index);
-      for (const clip of read.clipsIn(range, { trackIds: [row.track.id] })) {
-        // pack() assigned a lane to every clip on this track.
-        const b = rectangle(clip, row.lanes.get(clip.id) ?? 0, top, view, width);
-        if (b.endX <= b.x) continue;
-        boxes.push(b);
-        ctx.fillStyle = fill;
-        ctx.fillRect(b.x, b.y, b.endX - b.x, b.height);
-        ctx.fillStyle = stripe;
-        ctx.fillRect(b.x, b.y, b.endX - b.x, 3);
-        drawWaveform(ctx, b, stripe + "66");
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(b.x + 3, b.y, Math.max(0, b.endX - b.x - 6), b.height);
-        ctx.clip();
-        ctx.font = "500 12px system-ui, sans-serif";
-        ctx.fillStyle = "#faf6e9";
-        const name = clip.name ?? clip.id;
-        ctx.fillText(name, b.x + 9, b.y + 21);
-        const caption = takeCaption(clip, (id) => read.takesOf(id), words);
-        if (caption) {
-          const x = b.x + 9 + ctx.measureText(name).width + 10;
-          ctx.font = "11px system-ui, sans-serif";
-          ctx.fillStyle = stripe;
-          ctx.fillText(caption, x, b.y + 21);
-        }
-        ctx.restore();
+      let quads = scenes.get(row.index);
+      if (!quads) {
+        quads = new QuadList();
+        scenes.set(row.index, quads);
       }
-      count++;
+      const top = row.top - scroll.scrollTop;
+      layoutRow(
+        row,
+        read.clipsIn(range, { trackIds: [row.track.id] }),
+        {
+          view,
+          width,
+          top,
+          dpr,
+          grid,
+          words,
+          takesOf: (id) => read.takesOf(id),
+          peaks: waveforms && ((request) => waveforms.peaks(request)),
+          label: (name, caption, color) => atlas.slot(name, caption, color),
+        },
+        quads,
+        boxes,
+      );
+      changed.push({ top, height: row.height, quads });
     }
-    if (count || !dirty) {
+    // A full atlas holds only this paint's labels after a clear.
+    if (atlas.full && !relaying) {
+      atlas.clear();
+      relaying = true;
+      try {
+        return paintClips();
+      } finally {
+        relaying = false;
+      }
+    }
+    renderer.draw({
+      width,
+      height,
+      dpr,
+      rows: visible.flatMap((row) => {
+        const quads = scenes.get(row.index);
+        return quads ? [{ top: row.top - scroll.scrollTop, height: row.height, quads }] : [];
+      }),
+      changed: dirty ? changed : null,
+      atlas,
+    });
+    if (changed.length || !dirty) {
       diagnostics.staticPaints++;
       diagnostics.layoutBuilds++;
     }
     paintOverlay();
     frame();
   }
+  let relaying = false;
+  // Measures the mount, places the visible rows' headers, and draws.
+  let headerKey = "";
   function refresh(): void {
     if (disposed) return;
     width = surface.clientWidth;
     height = scroll.clientHeight;
-    dpr = win.devicePixelRatio || 1;
-    view = viewport(view.startTick, view.pixelsPerSecond, width, duration);
+    const ratio = win.devicePixelRatio || 1;
+    if (ratio !== dpr) {
+      // Labels are rasterized at the device pixel ratio.
+      rasterized += atlas?.rasterized ?? 0;
+      atlas?.dispose();
+      atlas = null;
+      dpr = ratio;
+    }
     space.style.height = Math.max(totalHeight, height) + "px";
     pin.style.height = height + "px";
     visible = rows.filter(
       (row) => row.top < scroll.scrollTop + height && row.top + row.height > scroll.scrollTop,
     );
-    const headers = visible.map((row) => {
-      const label = doc.createElement("div");
-      label.className = "lt-label";
-      label.style.top = row.top - scroll.scrollTop + "px";
-      label.style.height = row.height + "px";
-      label.style.setProperty("--track-color", palette(row.index)[1]);
-      label.textContent = row.track.name ?? row.track.id;
-      return label;
-    });
-    headerList.replaceChildren(...headers);
+    const key = visible
+      .map((row) => [row.index, row.top - scroll.scrollTop, row.height, row.track.name].join())
+      .join("|");
+    if (key !== headerKey) {
+      headerKey = key;
+      const headers = visible.map((row) => {
+        const label = doc.createElement("div");
+        label.className = "lt-label";
+        label.style.top = row.top - scroll.scrollTop + "px";
+        label.style.height = row.height + "px";
+        label.style.setProperty("--track-color", palette(row.index)[1]);
+        label.textContent = row.track.name ?? row.track.id;
+        return label;
+      });
+      headerList.replaceChildren(...headers);
+    }
+    redraw();
+  }
+  // Draws the ruler and clips at the current viewport. A pan or zoom needs no more.
+  function redraw(): void {
+    view = viewport(view.startTick, view.pixelsPerSecond, width, duration);
     pan.max = String(Math.max(0, duration - Math.ceil((width * hz) / view.pixelsPerSecond)));
     pan.step = "1";
     pan.value = String(view.startTick);
     paintRuler();
     paint();
   }
+  let rasterized = 0;
   function setViewport({
     startTick = view.startTick,
     pixelsPerSecond = view.pixelsPerSecond,
   }: Partial<Viewport>): void {
     view = viewport(startTick, pixelsPerSecond, width, duration);
-    refresh();
+    if (!disposed) redraw();
   }
   function zoom(x: number, factor: number): void {
     setViewport(zoomAt(view, x, factor, width, duration));
   }
+  // One option per clip in project order, kept by clip ID.
+  const clipOptions = new Map<string, HTMLOptionElement>();
   function updateNavigator(): void {
+    clipOptions.clear();
     const options = doc.createDocumentFragment();
     options.append(new win.Option("Select clip", ""));
-    for (const c of snapshot.clips) options.append(new win.Option(c.name ?? c.id, c.id));
+    for (const c of snapshot.clips) {
+      const option = new win.Option(c.name ?? c.id, c.id);
+      clipOptions.set(c.id, option);
+      options.append(option);
+    }
     navigator.replaceChildren(options);
     navigator.value = editor.session.getSelection().at(-1) ?? "";
+  }
+  // Updates only the options of patched clips. A new clip takes its place in
+  // the project's clip order, before the next clip that was already listed.
+  function patchNavigator(change: EditCommit): void {
+    const patches = change.clipPatches;
+    if (patches.length > 64) return updateNavigator();
+    const added: string[] = [];
+    for (const p of patches) {
+      const option = clipOptions.get(p.id);
+      if (!p.after) {
+        option?.remove();
+        clipOptions.delete(p.id);
+      } else if (!option) {
+        clipOptions.set(p.id, new win.Option(p.after.name ?? p.after.id, p.id));
+        added.push(p.id);
+      } else if (option.text !== (p.after.name ?? p.after.id))
+        option.text = p.after.name ?? p.after.id;
+    }
+    if (added.length) {
+      const fresh = new Set(added);
+      const at = new Map<string, number>();
+      snapshot.clips.forEach((c, i) => fresh.has(c.id) && at.set(c.id, i));
+      added.sort((a, b) => (at.get(a) ?? 0) - (at.get(b) ?? 0));
+      for (const id of added) {
+        let next: HTMLOptionElement | null = null;
+        for (let i = (at.get(id) ?? 0) + 1; i < snapshot.clips.length && !next; i++) {
+          const later = snapshot.clips[i]?.id;
+          if (later && !fresh.has(later)) next = clipOptions.get(later) ?? null;
+        }
+        const option = clipOptions.get(id);
+        if (option) navigator.insertBefore(option, next);
+      }
+    }
+    if (patches.length) navigator.value = editor.session.getSelection().at(-1) ?? "";
   }
   // Rebuild the marker list, keeping the chosen marker while it exists.
   function updateMarkers(): void {
@@ -552,6 +616,18 @@ export function mountTimeline(
     config,
   });
   // Scrolls a clip's lane into view and, when its start is offscreen, pans to it.
+  function hitTest({ x, y }: { readonly x: number; readonly y: number }): TimelineHit | null {
+    if (disposed || !(x >= 0 && x < width && y >= 0 && y < height)) return null;
+    const top = y + scroll.scrollTop;
+    const row = visible.find((r) => r.top <= top && top < r.top + r.height);
+    const box = hit(boxes, x, y);
+    return {
+      clipId: box?.clip.id ?? null,
+      edge: box ? handleAt(box, x, width) : null,
+      trackId: row?.track.id ?? null,
+      tick: tickAt(x, view),
+    };
+  }
   function reveal(clipId: string): boolean {
     const clip = snapshot.clips.find((c) => c.id === clipId);
     const row = clip && rows.find((r) => r.track.id === clip.trackId);
@@ -627,8 +703,7 @@ export function mountTimeline(
       const oldRows = rows,
         oldDuration = duration;
       rebuildRows(dirty);
-      if (change.clipPatches.some((p) => p.before === undefined || p.after === undefined))
-        updateNavigator();
+      patchNavigator(change);
       if (duration !== oldDuration || rows.some((r, i) => r.height !== oldRows[i]?.height))
         return refresh();
       if (change.markerPatches.length) paintRuler();
@@ -668,12 +743,25 @@ export function mountTimeline(
   }
   const offSelection = editor.session.subscribeSelection(selected);
   const offFrame = transport.subscribe(frame);
-  // New peaks repaint only the tracks that draw them, after any paint in progress.
+  // New peaks repaint only the visible tracks that draw them, after any paint in
+  // progress. The first notification paints at once; later ones wait for the
+  // next frame and paint together.
+  const waveTracks = new Set<string>();
+  let waveFrame = 0;
+  function waveRepaint(): void {
+    waveFrame = 0;
+    if (disposed || !waveTracks.size) return;
+    const tracks = new Set(waveTracks);
+    waveTracks.clear();
+    paint(tracks);
+    waveFrame = win.requestAnimationFrame(waveRepaint);
+  }
   const offWaveforms =
     waveforms?.subscribe?.((assetId) => {
       const repaint = (): void => {
-        const tracks = playing(assetId);
-        if (!disposed && tracks.size) paint(tracks);
+        if (disposed) return;
+        for (const track of playing(assetId)) waveTracks.add(track);
+        if (waveTracks.size && !waveFrame) waveRepaint();
       };
       if (painting) queueMicrotask(repaint);
       else repaint();
@@ -696,7 +784,14 @@ export function mountTimeline(
     setViewport,
     getViewport: () => ({ ...view }),
     reveal,
-    getDiagnostics: () => ({ ...diagnostics, previewClipCount: ghosts.length }),
+    hitTest,
+    getDiagnostics: () => ({
+      ...diagnostics,
+      previewClipCount: ghosts.length,
+      backend: renderer.backend,
+      visibleClips: boxes.length,
+      labelsRasterized: rasterized + (atlas?.rasterized ?? 0),
+    }),
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -707,6 +802,11 @@ export function mountTimeline(
       offSelection();
       offFrame();
       offWaveforms();
+      if (waveFrame) win.cancelAnimationFrame(waveFrame);
+      renderer.dispose();
+      atlas?.dispose();
+      atlas = null;
+      scenes.clear();
       root.remove();
     },
   };

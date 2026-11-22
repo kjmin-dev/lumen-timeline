@@ -6,7 +6,7 @@ Load `@lumen-timeline/timeline/style.css` and call `mountTimeline(element, { edi
 
 `view.setViewport({startTick, pixelsPerSecond})` changes one mount. `view.reveal(clipId)` scrolls a clip's lane into view and pans to its start when that is offscreen, for a host list that selects clips. Ctrl/Command-wheel zooms at the pointer. Shift-wheel or the scroll slider pans. Use the ruler or its arrow keys to seek. Click a clip, Shift-click to change a group or use the native clip navigator. `editor.session.select(ids)`, `getSelection()` and `subscribeSelection(listener)` share a selection across views. Selection is ephemeral. Undo prunes missing IDs.
 
-The ruler and static clips are cached separately from selection and the moving playhead. Track subrows are assigned from complete track intervals and retained across horizontal pans. Painting and picking use CSS pixels; the backing canvas follows device pixel ratio. `view.getDiagnostics()` returns paint and layout counts. `view.dispose()` releases that mount's observers, subscriptions and DOM. The host owns its editor and transport.
+The ruler and static clips are cached separately from selection and the moving playhead. Track subrows are assigned from complete track intervals and retained across horizontal pans. Each paint lays out the visible rows once, as rectangles, waveform columns and label crops in stacking order, and the drawing backend draws only that layout. Clip names and captions are rasterized once into a label atlas at the device pixel ratio. Painting and picking use CSS pixels; the backing canvas follows device pixel ratio. `view.hitTest({ x, y })` returns the clip, trim handle or body, track and tick under a point of the clip surface, read from the layout. `view.getDiagnostics()` returns paint and layout counts, the drawing backend, the clips in the current layout and the labels rasterized so far. `view.dispose()` releases that mount's observers, subscriptions and DOM. The host owns its editor and transport.
 
 Run `npm test` and `npm run verify:timeline` for geometry, session and real-browser checks. `npm run verify:milestone` runs the milestone 2 acceptance session across both workspaces and a headless replay; pass `firefox` or `webkit` to `node examples/vanilla/verify-milestone.mjs` for the other engines. Install the test browser with `npx playwright install chromium`. The ten-second playback trace asserts zero extra layout or static paint operations at a fixed viewport.
 
@@ -49,13 +49,19 @@ const view = mountTimeline(element, {
 });
 ```
 
-- **Peaks.** `peaks` returns `buckets` minimum and maximum pairs between -1 and 1, or `null` to draw nothing for that source yet. A move keeps the requested range, and a trim or a take's new `sourceAtContentZero` changes it.
-- **Late peaks.** When peaks arrive or change, call the `subscribe` listener with the asset ID. The view repaints only the tracks whose clips play that asset. A take that starts playing other media repaints the tracks of the clips that list it. Disposing the view unsubscribes.
+- **Peaks.** `peaks` returns `buckets` minimum and maximum pairs between -1 and 1, or `null` to draw nothing for that source yet. A column whose pair is not finite is not drawn. A move keeps the requested range, and a trim or a take's new `sourceAtContentZero` changes it.
+- **Late peaks.** When peaks arrive or change, call the `subscribe` listener with the asset ID. The view repaints only the visible tracks whose drawn clips play that asset. The first notification repaints at once; any more before the next frame repaint together in it. A take that starts playing other media repaints the tracks of the clips that list it. Disposing the view unsubscribes.
 - **Scope.** Each paint asks for what is visible. [Waveform tiles](waveforms.md) from the media package answer from tiles built in a worker, and a host can pass any provider of its own.
 
 The video workspace's **Original dialogue** track holds a reference stem under the whole picture: a locked clip that plays the original-language dialogue quietly at a track gain of 0.35. Its waveform shows where each original line falls, for timing the dub against it. The example draws it with `createWaveformTiles` over the decoded stem, so its peaks are built in the media package's worker.
 
 `npm run verify:waveforms` waits for the stem's tiles, then checks that its drawn peaks fall in its phrases and not between them at two zoom levels, and that the stem is locked. In a mount of its own, it checks that pending peaks draw nothing, that a notification repaints once and only the track that plays the asset, the source range after a move, a left trim and a take offset change, and the unsubscription on dispose. Pass `firefox` or `webkit` to `node examples/vanilla/verify-waveforms.mjs` for the other engines.
+
+## Scale
+
+Work in the view follows what is visible, not the size of the project. A paint lays out only the clips of visible rows in the visible range, which the core's per-track interval index returns. A pan or zoom redraws the ruler and the layout and leaves the track headers alone. The clip navigator updates only the options of the clips an edit patched, and a new clip takes its place in project order. Labels stay in the atlas while they fit; when it fills, the view clears it and lays out again, so it only ever holds one paint's labels.
+
+`npm run verify:scale` mounts the roadmap's benchmark shape: two hours, 40 tracks and 20,000 clips at 1440 × 900 CSS pixels and DPR 2, with 12 rows visible. At three zoom levels, down to the whole project, the layout holds exactly the clips a direct count finds. Sixty pans leave the headers and the navigator unchanged. A split and its undo add and remove one navigator option, which stays in project order. One waveform notification repaints at once and a burst of ten repaints twice. Panning across the project rasterizes thousands of distinct labels, more than the atlas holds, and labels still draw. Hit tests find a clip's body and handle, empty track space and the outside. Pass `firefox` or `webkit` to `node examples/vanilla/verify-scale.mjs` for the other engines.
 
 ## Script
 

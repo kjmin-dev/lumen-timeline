@@ -1,0 +1,67 @@
+import type { Clip, Take, Track } from "@lumen-timeline/core";
+import type { CaptionWords } from "./captions.ts";
+import type { Box, Packed, Viewport } from "./geometry.ts";
+import type { WaveformRequest } from "./types.ts";
+/** Floats per quad: x, y, width, height, then the atlas region u0, v0, u1, v1. */
+export declare const quadFloats = 8;
+/** A packed color: red in the lowest byte, alpha in the highest, as GPUs read RGBA8. */
+export type Rgba = number;
+export declare function rgba(hex: string, alpha?: number): Rgba;
+/** The quads of one row, reused from paint to paint. */
+export declare class QuadList {
+    count: number;
+    data: Float32Array<ArrayBuffer>;
+    colors: Uint32Array<ArrayBuffer>;
+    clear(): void;
+    private reserve;
+    /** A solid rectangle. Its atlas region is empty. */
+    rect(x: number, y: number, w: number, h: number, color: Rgba): void;
+    /** A crop of the label atlas, drawn unchanged. */
+    image(x: number, y: number, w: number, h: number, u0: number, v0: number, u1: number, v1: number): void;
+}
+/** Whether quad `i` crops the atlas rather than filling a color. */
+export declare const isImage: (list: QuadList, i: number) => boolean;
+/** A label rasterized in the atlas, in normalized atlas coordinates and CSS pixels. */
+export interface LabelSlot {
+    readonly u0: number;
+    readonly v0: number;
+    readonly u1: number;
+    readonly v1: number;
+    readonly width: number;
+    readonly height: number;
+}
+/** Rasterizes a clip's name and caption, or returns `null` when the atlas is full. */
+export type LabelSource = (name: string, caption: string | undefined, captionColor: string) => LabelSlot | null;
+/** A track row as the view lays it out. */
+export interface LayoutRow extends Packed {
+    readonly track: Track;
+    readonly index: number;
+    /** Top in the scrolled content, in CSS pixels. */
+    readonly top: number;
+}
+export interface RowLayout {
+    readonly view: Viewport;
+    readonly width: number;
+    /** The row's top relative to the viewport. */
+    readonly top: number;
+    readonly dpr: number;
+    /** Grid line positions across the viewport. */
+    readonly grid: readonly number[];
+    readonly words: CaptionWords;
+    readonly takesOf: (clipId: string) => readonly Take[];
+    peaks?: ((request: WaveformRequest) => ArrayLike<number> | null) | undefined;
+    readonly label: LabelSource;
+}
+/** Where a label starts after its clip's left edge, and its top below the clip's. */
+export declare const labelInset = 9;
+export declare const labelTop = 6;
+/** Label height in CSS pixels, with the text's baseline 15 pixels down. */
+export declare const labelHeight = 20;
+export declare const labelBaseline = 15;
+/** A row's fill and stripe colors. */
+export declare const palette: (index: number) => readonly [string, string];
+/**
+ * Lays out one row's visible clips into `quads`, appending their boxes to
+ * `boxes` for hit tests. `clips` are the row's clips in the visible range.
+ */
+export declare function layoutRow(row: LayoutRow, clips: readonly Clip[], layout: RowLayout, quads: QuadList, boxes: Box<Clip>[]): void;

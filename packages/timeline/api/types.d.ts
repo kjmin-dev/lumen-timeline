@@ -92,6 +92,23 @@ export interface TimelineDiagnostics {
     readonly staticPaints: number;
     readonly overlayPaints: number;
     readonly previewClipCount: number;
+    /** The backend drawing the clips. */
+    readonly backend: "webgl2" | "webgpu" | "canvas2d";
+    /** Clips in the current layout: the clips of visible rows in the visible range. */
+    readonly visibleClips: number;
+    /** Labels rasterized into the label atlas since the view mounted. */
+    readonly labelsRasterized: number;
+}
+/** What lies under a point of the clip surface. */
+export interface TimelineHit {
+    /** The clip under the point, or `null` over empty track space. */
+    readonly clipId: string | null;
+    /** The clip's part under the point: a trim handle or its body. `null` with no clip. */
+    readonly edge: "left" | "right" | "move" | null;
+    /** The track row under the point, or `null` below the last track. */
+    readonly trackId: string | null;
+    /** The timeline tick at the point's horizontal position. */
+    readonly tick: Tick;
 }
 export interface TimelineView {
     setViewport(viewport: Partial<Viewport>): void;
@@ -102,6 +119,15 @@ export interface TimelineView {
      * does not hold.
      */
     reveal(clipId: string): boolean;
+    /**
+     * What lies under a point given in CSS pixels from the clip surface's top
+     * left corner, as the pointer sees it. `null` outside the surface. It reads
+     * the layout, not pixels, so every backend answers alike.
+     */
+    hitTest(point: {
+        readonly x: number;
+        readonly y: number;
+    }): TimelineHit | null;
     getDiagnostics(): TimelineDiagnostics;
     /** Releases this mount's DOM, observers and subscriptions. The host owns the editor and transport. */
     dispose(): void;

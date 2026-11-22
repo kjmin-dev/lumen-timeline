@@ -14,7 +14,7 @@ const errors = [];
 try {
   const page = await browser.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(server.url + "/examples/vanilla/peaks.html");
+  await page.goto(server.url + "/examples/vanilla/lab.html");
   const result = await page.evaluate(async () => {
     const { createWaveformTiles } = await import("@lumen-timeline/media");
     const hz = 282240000;
