@@ -1,4 +1,4 @@
-import type { AudioSpan, Editor, TakeCatalog, Tick } from "@lumen-timeline/core";
+import type { AudioSpan, Editor, StreamCatalog, Tick } from "@lumen-timeline/core";
 
 // Host interfaces list only the members the transports use. Real DOM objects
 // satisfy them, and test doubles can implement them without casts.
@@ -100,7 +100,7 @@ export interface MediaOptions {
   readonly context: AudioContextLike;
   /** Defaults to `context.destination`. */
   readonly output?: AudioNodeLike | undefined;
-  readonly catalog: TakeCatalog;
+  readonly catalog: StreamCatalog;
   readonly resolveBuffer: ResolveBuffer;
   readonly onError?: MediaErrorHandler | undefined;
 }
@@ -153,8 +153,8 @@ export interface AudioTransport {
   play(): Promise<"playing" | "empty" | "superseded">;
   pause(): void;
   seek(tick: Tick): Promise<SeekResult>;
-  readonly catalog: TakeCatalog;
-  setCatalog(catalog: TakeCatalog): void;
+  readonly catalog: StreamCatalog;
+  setCatalog(catalog: StreamCatalog): void;
   diagnostics(clipId: string): TransportDiagnostics;
   dispose(): void;
 }
@@ -176,8 +176,8 @@ export interface VideoTransport {
   play(): Promise<void>;
   pause(): void;
   seek(tick: Tick): Promise<SeekResult>;
-  readonly catalog: TakeCatalog;
-  setCatalog(catalog: TakeCatalog): void;
+  readonly catalog: StreamCatalog;
+  setCatalog(catalog: StreamCatalog): void;
   diagnostics(clipId: string): TransportDiagnostics;
   dispose(): void;
 }

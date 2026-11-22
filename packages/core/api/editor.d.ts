@@ -1,4 +1,4 @@
-import type { AddMarkerCommand, AddTakeCommand, Editor, EditorOptions, ExpectClipCommand, ExpectDataCommand, MoveMarkerCommand, MoveCommand, RemoveDataCommand, RemoveMarkerCommand, RemoveTakeCommand, ReorderTakesCommand, SelectTakeCommand, SetDataCommand, SplitCommand, TrimCommand, UpdateMarkerCommand, UpdateTakeCommand } from "./types.ts";
+import type { AddMarkerCommand, AddTakeCommand, Editor, EditorOptions, ExpectClipCommand, ExpectDataCommand, MoveMarkerCommand, MoveCommand, PruneTakesCommand, RemoveDataCommand, RemoveMarkerCommand, RemoveTakeCommand, ReorderTakesCommand, SelectTakeCommand, SetDataCommand, SplitCommand, TrimCommand, UpdateMarkerCommand, UpdateTakeCommand } from "./types.ts";
 type Arguments<C> = Omit<C, "type">;
 export interface Commands {
     addMarker(args: Arguments<AddMarkerCommand>): AddMarkerCommand;
@@ -15,6 +15,7 @@ export interface Commands {
     removeTake(args: Arguments<RemoveTakeCommand>): RemoveTakeCommand;
     reorderTakes(args: Arguments<ReorderTakesCommand>): ReorderTakesCommand;
     updateTake(args: Arguments<UpdateTakeCommand>): UpdateTakeCommand;
+    pruneTakes(args?: Arguments<PruneTakesCommand>): PruneTakesCommand;
     expectClip(args: Arguments<ExpectClipCommand>): ExpectClipCommand;
     expectData(args: Arguments<ExpectDataCommand>): ExpectDataCommand;
 }

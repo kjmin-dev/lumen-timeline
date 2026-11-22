@@ -16,6 +16,7 @@ import {
   rebaseTakes,
   referenceDelta,
   remapsMedia,
+  stagedDelta,
 } from "./takes.ts";
 import { splitClip } from "./time.ts";
 import { EditError, isArray, requireEdit, validId } from "./validation.ts";
@@ -41,6 +42,7 @@ import type {
   MoveMarkerCommand,
   MoveCommand,
   PreviewCommand,
+  PruneTakesCommand,
   PreviewResult,
   ProjectSnapshot,
   RemoveDataCommand,
@@ -74,6 +76,7 @@ export interface Commands {
   removeTake(args: Arguments<RemoveTakeCommand>): RemoveTakeCommand;
   reorderTakes(args: Arguments<ReorderTakesCommand>): ReorderTakesCommand;
   updateTake(args: Arguments<UpdateTakeCommand>): UpdateTakeCommand;
+  pruneTakes(args?: Arguments<PruneTakesCommand>): PruneTakesCommand;
   expectClip(args: Arguments<ExpectClipCommand>): ExpectClipCommand;
   expectData(args: Arguments<ExpectDataCommand>): ExpectDataCommand;
 }
@@ -93,6 +96,7 @@ export const commands: Readonly<Commands> = Object.freeze({
   removeTake: (args) => ({ ...args, type: "remove-take" }),
   reorderTakes: (args) => ({ ...args, type: "reorder-takes" }),
   updateTake: (args) => ({ ...args, type: "update-take" }),
+  pruneTakes: (args) => ({ ...args, type: "prune-takes" }),
   expectClip: (args) => ({ ...args, type: "expect-clip" }),
   expectData: (args) => ({ ...args, type: "expect-data" }),
 } satisfies Commands);
@@ -502,9 +506,15 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
             command?.type === "select-take" ||
             command?.type === "remove-take" ||
             command?.type === "reorder-takes" ||
-            command?.type === "update-take"
+            command?.type === "update-take" ||
+            command?.type === "prune-takes"
           )
-            takes.stage(command, clips, editable(clips), newTakeId);
+            takes.stage(command, {
+              clips,
+              editable: editable(clips),
+              newId: newTakeId,
+              listings: (id) => (takeCounts.get(id) ?? 0) + (stagedDelta(clips).get(id) ?? 0),
+            });
           else if (command?.type === "expect-clip") expectClip(command, clips);
           else if (command?.type === "expect-data") expectData(command, fields);
           else stageClip(command, clips);
@@ -513,7 +523,6 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
         data = fields.patches();
         markerPatches = markers.patches();
         delta = referenceDelta(patches);
-        takes.collect(takeCounts, delta);
         takePatches = takes.patches();
         if (!patches.length && !data.length && !markerPatches.length && !takePatches.length)
           return { ok: true, revision: snapshot.revision, unchanged: true };
@@ -537,12 +546,17 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
             ? ((undo ? entry.markers : entry.inverseMarkers) ?? [])
             : invertMarkers(markerPatches);
         const recordedTakes = (undo ? entry.inverseTakes : entry.takes) ?? [];
-        takePatches = rebaseTakes(recordedTakes, snapshot.takes);
+        const replayed = referenceDelta(patches);
+        delta = replayed;
+        takePatches = rebaseTakes(
+          recordedTakes,
+          snapshot.takes,
+          (id) => (takeCounts.get(id) ?? 0) + (replayed.get(id) ?? 0) > 0,
+        );
         inverseTakePatches =
           takePatches === recordedTakes
             ? ((undo ? entry.takes : entry.inverseTakes) ?? [])
             : invertTakes(takePatches);
-        delta = referenceDelta(patches);
         policy = mode;
       }
 
@@ -632,9 +646,14 @@ export function createEditor({ project, history: limits }: EditorOptions): Edito
       if (!(error instanceof EditError)) throw error;
       const conflict =
         mode !== "edit" &&
-        ["overlap", "source-bounds", "invalid-range", "missing-take", "invalid-take"].includes(
-          error.code,
-        );
+        [
+          "overlap",
+          "source-bounds",
+          "invalid-range",
+          "missing-take",
+          "invalid-take",
+          "listed-take",
+        ].includes(error.code);
       return {
         ok: false,
         revision: snapshot.revision,

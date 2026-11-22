@@ -8,8 +8,8 @@ import type {
   PlanOptions,
   SourceRange,
   StreamBinding,
+  StreamCatalog,
   Take,
-  TakeCatalog,
   Tick,
   TickRange,
   Track,
@@ -27,14 +27,6 @@ function own(map: unknown, key: string): unknown {
   // Reflect.get returns any; the annotation keeps host data unknown.
   const value: unknown = isMap(map) && Object.hasOwn(map, key) ? Reflect.get(map, key) : undefined;
   return value;
-}
-
-/** A stream and the source position, in project ticks, at content time zero. */
-interface ResolvedTake {
-  readonly assetId: string;
-  readonly streamId: string;
-  readonly stream: StreamBinding;
-  readonly sourceAtContentZero: Tick;
 }
 
 const sampleIndex = (value: unknown): value is number =>
@@ -59,22 +51,6 @@ function streamOf(value: unknown): StreamBinding {
   return { assetVersion, sampleRate, availableStart, availableEnd };
 }
 
-/** Resolves a host-aligned take binding. Throws a `RangeError` for a malformed one. */
-function bindingOf(value: unknown): ResolvedTake {
-  const assetId = own(value, "assetId");
-  const streamId = own(value, "streamId");
-  const sourceAtContentZero = own(value, "sourceAtContentZero");
-  if (!validId(assetId) || !validId(streamId) || !sampleIndex(sourceAtContentZero))
-    throw new RangeError("Invalid take binding");
-  const stream = streamOf(value);
-  return {
-    assetId,
-    streamId,
-    stream,
-    sourceAtContentZero: unitsToTicks(sourceAtContentZero, stream.sampleRate),
-  };
-}
-
 function nativeRange(
   start: Tick,
   end: Tick,
@@ -90,29 +66,26 @@ function nativeRange(
 
 function planClip(
   clip: Clip,
-  takeId: string,
+  take: Take,
   track: Track,
   range: TickRange,
-  resolved: ResolvedTake,
+  stream: StreamBinding,
 ): AudioSpan | null {
-  const { stream } = resolved;
   const { sampleRate } = stream;
-  const take = {
-    sourceAtContentZero: resolved.sourceAtContentZero,
+  const window = {
+    sourceAtContentZero: take.sourceAtContentZero,
     availableStart: unitsToTicks(stream.availableStart, sampleRate),
     availableEnd: unitsToTicks(stream.availableEnd, sampleRate),
   };
+  // Placements, content time and take positions are each within seven days.
   const origin = take.sourceAtContentZero + clip.contentIn;
-  if (![origin, origin - clip.start, origin + clip.duration].every(Number.isSafeInteger)) {
-    throw new RangeError("Source mapping exceeds safe tick range");
-  }
-  const full = sourceWindow(clip, take, clip.start, clip.start + clip.duration);
+  const full = sourceWindow(clip, window, clip.start, clip.start + clip.duration);
   if (!full) return null;
   const start = Math.max(full.start, range.start);
   const end = Math.min(full.end, range.end);
   if (end <= start) return null;
-  const window = nativeRange(start, end, full.sourceStart + (start - full.start), stream);
-  if (!window) return null;
+  const queried = nativeRange(start, end, full.sourceStart + (start - full.start), stream);
+  if (!queried) return null;
   const audible = nativeRange(full.start, full.end, full.sourceStart, stream);
   // Unreachable: rounding and clamping are monotonic, so the full range holds
   // at least the samples of the window inside it.
@@ -121,27 +94,22 @@ function planClip(
     clipId: clip.id,
     trackId: track.id,
     chainId: clip.continuityId ?? null,
-    takeId,
-    assetId: resolved.assetId,
+    takeId: take.id,
+    assetId: take.assetId,
     assetVersion: stream.assetVersion,
-    streamId: resolved.streamId,
+    streamId: take.streamId,
     sampleRate,
     gain: track.gain ?? 1,
     sourceOriginTick: origin - clip.start,
     audible,
-    window,
+    window: queried,
   });
 }
 
 /** Rejects a malformed catalog or plan options before any clip is visited. */
-export function checkPlanInputs(catalog: TakeCatalog, options: PlanOptions | undefined): void {
-  if (
-    !isMap(catalog) ||
-    !validVersion(catalog.version) ||
-    (catalog.takes !== undefined && !isMap(catalog.takes)) ||
-    (catalog.streams !== undefined && !isMap(catalog.streams))
-  )
-    throw new TypeError("Expected a versioned take catalog");
+export function checkPlanInputs(catalog: StreamCatalog, options: PlanOptions | undefined): void {
+  if (!isMap(catalog) || !validVersion(catalog.version) || !isMap(catalog.streams))
+    throw new TypeError("Expected a versioned stream catalog");
   if (options === undefined) return;
   const overrides = isMap(options) ? options.takeOverrides : null;
   if (
@@ -156,7 +124,7 @@ export function planAudio(
   revision: number,
   tracks: readonly Track[],
   range: TickRange,
-  catalog: TakeCatalog,
+  catalog: StreamCatalog,
   visit: (trackId: string, emit: (clip: Clip) => void) => void,
   takes: (id: string) => Take | undefined,
   options?: PlanOptions,
@@ -178,47 +146,35 @@ export function planAudio(
           ? own(overrides, clip.id)
           : clip.activeTakeId;
       if (id === undefined || id === null) return;
-      const list = clip.takeIds;
-      const take = list !== undefined && validId(id) && list.includes(id) ? takes(id) : undefined;
-      const binding = list === undefined && validId(id) ? own(catalog.takes, id) : undefined;
-      if (!validId(id) || (take === undefined && binding === undefined)) {
+      // The editor keeps every listed take in the project.
+      const take = validId(id) && clip.takeIds?.includes(id) ? takes(id) : undefined;
+      if (!take) {
         issues.push(Object.freeze({ code: "unresolved-take", clipId: clip.id, takeId: id }));
         return;
       }
-      try {
-        let resolved: ResolvedTake;
-        if (take) {
-          const stream = own(own(catalog.streams, take.assetId), take.streamId);
-          if (stream === undefined) {
-            issues.push(
-              Object.freeze({
-                code: "unresolved-stream",
-                clipId: clip.id,
-                takeId: id,
-                assetId: take.assetId,
-                streamId: take.streamId,
-              }),
-            );
-            return;
-          }
-          resolved = {
+      const stream = own(own(catalog.streams, take.assetId), take.streamId);
+      if (stream === undefined) {
+        issues.push(
+          Object.freeze({
+            code: "unresolved-stream",
+            clipId: clip.id,
+            takeId: take.id,
             assetId: take.assetId,
             streamId: take.streamId,
-            stream: streamOf(stream),
-            sourceAtContentZero: take.sourceAtContentZero,
-          };
-        } else {
-          resolved = bindingOf(binding);
-        }
-        const span = planClip(clip, id, track, range, resolved);
+          }),
+        );
+        return;
+      }
+      try {
+        const span = planClip(clip, take, track, range, streamOf(stream));
         if (span) spans.push(span);
       } catch (error) {
         if (!(error instanceof RangeError)) throw error;
         issues.push(
           Object.freeze({
-            code: "invalid-take",
+            code: "invalid-stream",
             clipId: clip.id,
-            takeId: id,
+            takeId: take.id,
             reason: error.message,
           }),
         );

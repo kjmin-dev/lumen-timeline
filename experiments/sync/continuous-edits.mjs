@@ -1,6 +1,6 @@
 import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { VideoTransport } from "./transport.mjs";
-import { bufferCatalog } from "./buffer-fixture.mjs";
+import { bufferCatalog, bufferTakes, listTakes } from "./buffer-fixture.mjs";
 
 // Drive the scheduler with exact edit times, then render all reservations
 // through one native audio graph. No transport rebuild occurs between edits.
@@ -20,7 +20,8 @@ export async function verifyContinuousEdits(rate) {
     project: {
       schemaVersion: 1,
       tracks: [{ id: "music", gain: 0.5 }, { id: "dialogue" }],
-      clips: [
+      takes: bufferTakes(takes),
+      clips: listTakes([
         {
           id: "music",
           kind: "audio",
@@ -39,7 +40,7 @@ export async function verifyContinuousEdits(rate) {
           contentIn: 0,
           activeTakeId: "line",
         },
-      ],
+      ]),
     },
   });
   const player = Object.assign(new EventTarget(), {

@@ -24,13 +24,12 @@ Marker reads use the same pinned snapshot. `read.markersIn(range)` returns marke
 
 Supply a synchronous immutable catalog per version. Catalog and asset versions may be nonempty strings or nonnegative safe integers.
 
-- **Project takes.** A clip with `takeIds` plays its active [take](headless-editing.md#takes) through `streams[assetId][streamId]`. The take's source position is in project ticks, and the stream's availability boundaries are native sample indices.
-- **Host-aligned takes.** A clip without `takeIds` plays `takes[activeTakeId]`, whose source origin and availability boundaries are all native sample indices. Either map may be omitted.
-- **Overrides.** `takeOverrides` maps clip IDs to a take, or to `null` for silence, for one plan without editing the project, as an audition preview needs. A clip with `takeIds` accepts only a listed take.
-- **Candidates.** `read.takesOf(clipId)` returns a clip's takes in list order, or an empty list for a clip without `takeIds`. An unknown clip throws `missing-clip`.
+- **Streams.** A clip plays its active [take](headless-editing.md#takes) through `streams[take.assetId][take.streamId]`. The take's source position is in project ticks, and the stream's availability boundaries are native sample indices.
+- **Overrides.** `takeOverrides` maps clip IDs to another of the clip's candidates, or to `null` for silence, for one plan without editing the project, as an audition preview needs. A take the clip does not list is reported as `unresolved-take`.
+- **Candidates.** `read.takesOf(clipId)` returns a clip's takes in list order, and `read.clipsListing(takeId)` the IDs of the clips that list a take. An unknown clip throws `missing-clip`, and an unknown take `missing-take`.
 
 Each audible span reports clip, track, take, asset/version, stream, sample rate and linear track gain. The span also exposes the optional clip continuity group as `chainId` and its source position at project tick zero as `sourceOriginTick`. Its `audible` object covers the complete available placement. Its `window` object covers only the requested intersection. Both carry project ticks in `start/end` and half-open native sample indices in `sourceStart/sourceEnd`. A scheduler can discover a voice from a short window and reserve through its audible end.
 
-An absent active take or a zero-sample interval produces silence. Missing and invalid selected bindings appear in `issues` with the clip and take ID. A project take whose stream the catalog lacks reports `unresolved-stream` with its asset and stream IDs. Default track gain is unity. Muted tracks and zero gain are silent, and when any track is soloed only unmuted solo tracks contribute. A query leaves the revision, subscriptions and undo history untouched.
+An absent active take or a zero-sample interval produces silence. A take whose stream the catalog lacks reports `unresolved-stream` with its asset and stream IDs, and a malformed stream binding reports `invalid-stream`. Both appear in `issues` with the clip and take ID. Default track gain is unity. Muted tracks and zero gain are silent, and when any track is soloed only unmuted solo tracks contribute. A query leaves the revision, subscriptions and undo history untouched.
 
 Run `npm test` for the seeded brute-force query comparison, pinned reads and sample-boundary fixtures. Run `node experiments/query/run.mjs` for the 40-track, 20,000-clip sparse and dense benchmark. It reports visited tree roots, matches and warm public query p95 for one named track.

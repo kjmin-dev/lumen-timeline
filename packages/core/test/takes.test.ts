@@ -7,12 +7,14 @@ import type {
   Editor,
   Project,
   ProjectSnapshot,
-  TakeCatalog,
+  StreamCatalog,
+  Take,
 } from "@lumen-timeline/core";
 import { codeOf, commit, pass } from "./support.ts";
 import type { Draft } from "./support.ts";
 
 const hz = TICKS_PER_SECOND;
+const week = 7 * 86400 * hz;
 const project = (): Draft<Project> => ({
   schemaVersion: 1,
   duration: 60 * hz,
@@ -46,10 +48,12 @@ const project = (): Draft<Project> => ({
       start: 0,
       duration: 20 * hz,
       contentIn: 0,
-      activeTakeId: "bed-mix",
+      takeIds: ["m"],
+      activeTakeId: "m",
     },
   ],
   takes: [
+    { id: "m", assetId: "bed-mix", streamId: "a0", sourceAtContentZero: 0 },
     { id: "b", assetId: "line-b", streamId: "a0", sourceAtContentZero: -1.5 * hz, note: "kept" },
     { id: "a", assetId: "line-a", streamId: "a0", sourceAtContentZero: 0, label: "First" },
   ],
@@ -57,64 +61,72 @@ const project = (): Draft<Project> => ({
 const editor = (p: Draft<Project> = project()): Editor => createEditor({ project: p });
 const clip = (e: Editor, id: string): Clip | undefined =>
   e.getSnapshot().clips.find((c) => c.id === id);
+const take = (e: Editor, id: string): Take | undefined =>
+  e.getSnapshot().takes?.find((t) => t.id === id);
 const takeIds = (e: Editor): string[] => (e.getSnapshot().takes ?? []).map((t) => t.id);
 const reopen = (snapshot: ProjectSnapshot): Editor =>
   createEditor({ project: JSON.parse(JSON.stringify(snapshot)) });
 const fresh = { assetId: "line-c", streamId: "a0", sourceAtContentZero: -3 * hz };
+const ignore = { history: "ignore" } as const;
+const add = (clipIds: string[], id: string, activate?: boolean): EditCommand =>
+  commands.addTake({ clipIds, take: { id, ...fresh }, activate });
+const candidates = (e: Editor, id: string) => {
+  const c = clip(e, id);
+  return [c?.takeIds, c?.activeTakeId];
+};
 
-test("takes load sorted by ID with unknown fields, and empty lists vanish", () => {
+test("takes load sorted by ID with unknown fields, and each clip state has one form", () => {
   const e = editor();
-  assert.deepEqual(takeIds(e), ["a", "b"]);
-  assert.equal(e.getSnapshot().takes?.[1]?.["note"], "kept");
-  assert.deepEqual(clip(e, "line")?.takeIds, ["b", "a"]);
+  assert.deepEqual(takeIds(e), ["a", "b", "m"]);
+  assert.equal(take(e, "b")?.["note"], "kept");
+  assert.deepEqual(candidates(e, "line"), [["b", "a"], "a"]);
   assert.ok(Object.isFrozen(e.getSnapshot().takes) && Object.isFrozen(clip(e, "line")?.takeIds));
   assert.deepEqual(reopen(e.getSnapshot()).getSnapshot(), e.getSnapshot());
 
+  // No candidates: neither field. Candidates but none active: an explicit null.
+  const p = project();
+  const [line, other] = p.clips;
+  assert.ok(line && other);
+  delete line.activeTakeId;
+  other.takeIds = [];
+  other.activeTakeId = null;
+  p.takes = [
+    ...(p.takes ?? []),
+    { id: "spare", assetId: "x", streamId: "a0", sourceAtContentZero: 0 },
+  ];
+  const loaded = editor(p);
+  assert.deepEqual(candidates(loaded, "line"), [["b", "a"], null]);
+  assert.ok(!Object.hasOwn(clip(loaded, "other") ?? {}, "takeIds"));
+  assert.ok(!Object.hasOwn(clip(loaded, "other") ?? {}, "activeTakeId"));
+  // A take that no clip lists waits in the project until it is pruned.
+  assert.deepEqual(takeIds(loaded), ["a", "b", "m", "spare"]);
+  assert.deepEqual(reopen(loaded.getSnapshot()).getSnapshot(), loaded.getSnapshot());
+
   const empty = project();
   empty.takes = [];
-  const first = empty.clips[0];
-  assert.ok(first);
-  first.takeIds = [];
-  first.activeTakeId = null;
-  const loaded = editor(empty).getSnapshot();
-  assert.ok(!Object.hasOwn(loaded, "takes"));
-  assert.ok(!Object.hasOwn(loaded.clips[0] ?? {}, "takeIds"));
+  for (const c of empty.clips) {
+    delete c.takeIds;
+    delete c.activeTakeId;
+  }
+  assert.ok(!Object.hasOwn(editor(empty).getSnapshot(), "takes"));
 });
 
 test("every invalid take or candidate list is rejected with invalid-take", () => {
+  const extra = { id: "c", assetId: "x", streamId: "a0", sourceAtContentZero: 0 };
   const cases: ((p: Draft<Project>) => void)[] = [
-    (p) => {
-      p.takes?.push({ id: "a", assetId: "x", streamId: "a0", sourceAtContentZero: 0 });
-    },
-    (p) => {
-      // @ts-expect-error -- A take requires an asset ID.
-      p.takes?.push({ id: "c", streamId: "a0", sourceAtContentZero: 0 });
-    },
-    (p) => {
-      // @ts-expect-error -- A take requires a stream ID.
-      p.takes?.push({ id: "c", assetId: "x", sourceAtContentZero: 0 });
-    },
-    (p) => {
-      p.takes?.push({ id: "c", assetId: "x", streamId: "a0", sourceAtContentZero: 0.5 });
-    },
-    (p) => {
-      // @ts-expect-error -- A label is a string.
-      p.takes?.push({ id: "c", assetId: "x", streamId: "a0", sourceAtContentZero: 0, label: 1 });
-    },
-    (p) => {
-      p.takes?.push({
-        id: "c",
-        assetId: "x",
-        streamId: "a0",
-        sourceAtContentZero: 0,
-        // @ts-expect-error -- Extensions are a map.
-        extensions: [],
-      });
-    },
-    (p) => {
-      // An unlisted take.
-      p.takes?.push({ id: "c", assetId: "x", streamId: "a0", sourceAtContentZero: 0 });
-    },
+    (p) => p.takes?.push({ ...extra, id: "a" }),
+    // @ts-expect-error -- A take requires an asset ID.
+    (p) => p.takes?.push({ id: "c", streamId: "a0", sourceAtContentZero: 0 }),
+    // @ts-expect-error -- A take requires a stream ID.
+    (p) => p.takes?.push({ id: "c", assetId: "x", sourceAtContentZero: 0 }),
+    (p) => p.takes?.push({ ...extra, sourceAtContentZero: 0.5 }),
+    (p) => p.takes?.push({ ...extra, sourceAtContentZero: week + 1 }),
+    (p) => p.takes?.push({ ...extra, sourceAtContentZero: -week - 1 }),
+    // @ts-expect-error -- A label is a string.
+    (p) => p.takes?.push({ ...extra, label: 1 }),
+    (p) => p.takes?.push({ ...extra, forkedFrom: "" }),
+    // @ts-expect-error -- Extensions are a map.
+    (p) => p.takes?.push({ ...extra, extensions: [] }),
     (p) => {
       const first = p.clips[0];
       if (first) first.takeIds = ["a", "a"];
@@ -130,7 +142,12 @@ test("every invalid take or candidate list is rejected with invalid-take", () =>
     (p) => {
       const first = p.clips[0];
       // A listed active take is required.
-      if (first) first.activeTakeId = "bed-mix";
+      if (first) first.activeTakeId = "m";
+    },
+    (p) => {
+      const second = p.clips[1];
+      // An active take without candidates names nothing.
+      if (second) second.activeTakeId = "a";
     },
     (p) => {
       const first = p.clips[0];
@@ -147,6 +164,14 @@ test("every invalid take or candidate list is rejected with invalid-take", () =>
   // @ts-expect-error -- Takes are an array.
   p.takes = {};
   assert.throws(() => editor(p), { code: "invalid-project" });
+  const far = project();
+  const first = far.clips[0];
+  if (first) first.contentIn = week + 1;
+  assert.throws(() => editor(far), { code: "invalid-range" });
+  assert.equal(
+    pass(editor().dispatch(commands.updateTake({ takeId: "a", sourceAtContentZero: week }))).ok,
+    true,
+  );
 });
 
 test("add-take appends a candidate without applying it unless asked", () => {
@@ -154,36 +179,36 @@ test("add-take appends a candidate without applying it unless asked", () => {
   const result = commit(
     e.dispatch(commands.addTake({ clipIds: ["line"], take: { id: "c", ...fresh, label: "C" } })),
   );
-  assert.deepEqual(clip(e, "line")?.takeIds, ["b", "a", "c"]);
-  assert.equal(clip(e, "line")?.activeTakeId, "a");
+  assert.deepEqual(candidates(e, "line"), [["b", "a", "c"], "a"]);
   assert.deepEqual(result.takePatches, [
     { id: "c", before: undefined, after: { id: "c", ...fresh, label: "C" } },
   ]);
   assert.deepEqual(result.changedIds, ["line"]);
+  // A first candidate gives the clip an explicit "none active".
+  commit(e.dispatch(commands.addTake({ clipIds: ["other"], takeId: "b" })));
+  assert.deepEqual(candidates(e, "other"), [["b"], null]);
   commit(e.dispatch(commands.addTake({ clipIds: ["line", "other"], takeId: "c", activate: true })));
-  assert.deepEqual(clip(e, "line")?.takeIds, ["b", "a", "c"]);
-  assert.deepEqual(clip(e, "other")?.takeIds, ["c"]);
-  assert.equal(clip(e, "other")?.activeTakeId, "c");
-  assert.equal(clip(e, "line")?.activeTakeId, "c");
-  assert.equal(pass(e.dispatch(commands.addTake({ clipIds: ["line"], takeId: "c" }))).ok, true);
-  assert.equal(
-    "unchanged" in pass(e.dispatch(commands.addTake({ clipIds: ["line"], takeId: "c" }))),
-    true,
-  );
+  assert.deepEqual(candidates(e, "line"), [["b", "a", "c"], "c"]);
+  assert.deepEqual(candidates(e, "other"), [["b", "c"], "c"]);
+  assert.ok("unchanged" in pass(e.dispatch(commands.addTake({ clipIds: ["line"], takeId: "c" }))));
   const generated = commit(e.dispatch(commands.addTake({ clipIds: ["other"], take: fresh })));
   const id = generated.takePatches[0]?.id;
   assert.ok(id && clip(e, "other")?.takeIds?.includes(id));
 });
 
-test("add-take rejects bad input, locked tracks and an unlisted active take", () => {
+test("add-take rejects bad input and locked tracks", () => {
   const e = editor();
   const rejected: [EditCommand, string][] = [
     [commands.addTake({ clipIds: ["line"] }), "invalid-take"],
     [commands.addTake({ clipIds: ["line"], take: fresh, takeId: "a" }), "invalid-take"],
-    [commands.addTake({ clipIds: ["line"], take: { id: "a", ...fresh } }), "invalid-take"],
+    [add(["line"], "a"), "invalid-take"],
     [commands.addTake({ clipIds: ["line"], take: { ...fresh, streamId: "" } }), "invalid-take"],
     [
       commands.addTake({ clipIds: ["line"], take: { ...fresh, sourceAtContentZero: 0.25 } }),
+      "invalid-take",
+    ],
+    [
+      commands.addTake({ clipIds: ["line"], take: { ...fresh, sourceAtContentZero: week + 1 } }),
       "invalid-take",
     ],
     [commands.addTake({ clipIds: ["line"], takeId: "missing" }), "missing-take"],
@@ -194,44 +219,26 @@ test("add-take rejects bad input, locked tracks and an unlisted active take", ()
   ];
   for (const [command, code] of rejected)
     assert.equal(codeOf(e.dispatch(command)), code, JSON.stringify(command));
-  // A host-aligned active take must be registered before other candidates join it.
-  const p = project();
-  const free = p.tracks[1];
-  if (free) free.locked = false;
-  const host = editor(p);
-  assert.equal(
-    codeOf(host.dispatch(commands.addTake({ clipIds: ["bed"], takeId: "a" }))),
-    "invalid-take",
-  );
-  commit(
-    host.dispatch(
-      commands.addTake({
-        clipIds: ["bed"],
-        take: { id: "bed-mix", assetId: "bed", streamId: "a0", sourceAtContentZero: 0 },
-      }),
-    ),
-  );
-  assert.deepEqual(clip(host, "bed")?.takeIds, ["bed-mix"]);
   assert.equal(e.getSnapshot().revision, 0);
 });
 
-test("select, reorder and remove act on one clip's candidates", () => {
+test("select, reorder and remove act on one clip, and removed takes stay until pruned", () => {
   const e = editor();
   assert.equal(
-    codeOf(e.dispatch(commands.selectTake({ clipId: "line", takeId: "zzz" }))),
+    codeOf(e.dispatch(commands.selectTake({ clipId: "line", takeId: "m" }))),
     "missing-take",
   );
   assert.ok("unchanged" in pass(e.dispatch(commands.selectTake({ clipId: "line", takeId: "a" }))));
+  assert.ok(
+    "unchanged" in pass(e.dispatch(commands.selectTake({ clipId: "other", takeId: null }))),
+  );
   commit(e.dispatch(commands.selectTake({ clipId: "line", takeId: "b" })));
   assert.equal(clip(e, "line")?.activeTakeId, "b");
-  assert.equal(
-    codeOf(e.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a"] }))),
-    "invalid-take",
-  );
-  assert.equal(
-    codeOf(e.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a", "a"] }))),
-    "invalid-take",
-  );
+  for (const takeIds of [["a"], ["a", "a"], ["a", "m"]])
+    assert.equal(
+      codeOf(e.dispatch(commands.reorderTakes({ clipId: "line", takeIds }))),
+      "invalid-take",
+    );
   commit(e.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a", "b"] })));
   assert.deepEqual(clip(e, "line")?.takeIds, ["a", "b"]);
   assert.equal(
@@ -244,20 +251,86 @@ test("select, reorder and remove act on one clip's candidates", () => {
       commands.removeTake({ clipId: "line", takeId: "b" }),
     ]),
   );
-  assert.deepEqual(clip(e, "line")?.takeIds, ["a"]);
-  assert.deepEqual(takeIds(e), ["a"]);
-  assert.deepEqual(
-    removed.takePatches.map((p) => [p.id, p.after]),
-    [["b", undefined]],
-  );
+  assert.deepEqual(candidates(e, "line"), [["a"], null]);
+  assert.deepEqual(removed.takePatches, []);
+  assert.deepEqual(takeIds(e), ["a", "b", "m"]);
+  // The last candidate takes both fields with it.
   commit(e.dispatch(commands.removeTake({ clipId: "line", takeId: "a" })));
   assert.ok(!Object.hasOwn(clip(e, "line") ?? {}, "takeIds"));
-  assert.equal(clip(e, "line")?.activeTakeId, null);
-  assert.ok(!Object.hasOwn(e.getSnapshot(), "takes"));
+  assert.ok(!Object.hasOwn(clip(e, "line") ?? {}, "activeTakeId"));
+  assert.deepEqual(takeIds(e), ["a", "b", "m"]);
   assert.equal(
     codeOf(e.dispatch(commands.selectTake({ clipId: "bed", takeId: null }))),
     "locked-track",
   );
+});
+
+test("pruning removes exactly the takes no clip lists", () => {
+  const e = editor();
+  assert.ok("unchanged" in pass(e.dispatch(commands.pruneTakes())));
+  assert.equal(codeOf(e.dispatch(commands.pruneTakes({ takeIds: ["a"] }))), "listed-take");
+  assert.equal(codeOf(e.dispatch(commands.pruneTakes({ takeIds: ["ghost"] }))), "missing-take");
+  assert.equal(codeOf(e.dispatch(commands.pruneTakes({ takeIds: ["a", "a"] }))), "invalid-take");
+  commit(e.dispatch([add(["other"], "c"), add(["other"], "d")]));
+  commit(
+    e.dispatch([
+      commands.removeTake({ clipId: "other", takeId: "c" }),
+      commands.removeTake({ clipId: "other", takeId: "d" }),
+    ]),
+  );
+  assert.deepEqual(takeIds(e), ["a", "b", "c", "d", "m"]);
+  const one = commit(e.dispatch(commands.pruneTakes({ takeIds: ["c"] })));
+  assert.deepEqual(
+    one.takePatches.map((p) => [p.id, p.after]),
+    [["c", undefined]],
+  );
+  assert.deepEqual(one.changedIds, []);
+  commit(e.dispatch(commands.pruneTakes()));
+  assert.deepEqual(takeIds(e), ["a", "b", "m"]);
+  pass(e.history.undo());
+  pass(e.history.undo());
+  assert.deepEqual(takeIds(e), ["a", "b", "c", "d", "m"]);
+  // A take unlisted earlier in the same transaction is already prunable.
+  commit(
+    e.dispatch([
+      commands.addTake({ clipIds: ["other"], takeId: "c" }),
+      commands.removeTake({ clipId: "other", takeId: "c" }),
+      commands.pruneTakes({ takeIds: ["c"] }),
+    ]),
+  );
+  assert.deepEqual(takeIds(e), ["a", "b", "d", "m"]);
+});
+
+test("net-zero take edits in one transaction leave the project unchanged", () => {
+  const e = editor();
+  for (const batch of [
+    [
+      add(["line"], "c"),
+      commands.removeTake({ clipId: "line", takeId: "c" }),
+      commands.pruneTakes(),
+    ],
+    [
+      commands.selectTake({ clipId: "line", takeId: "b" }),
+      commands.selectTake({ clipId: "line", takeId: "a" }),
+    ],
+    [
+      add(["other"], "c", true),
+      commands.selectTake({ clipId: "other", takeId: null }),
+      commands.removeTake({ clipId: "other", takeId: "c" }),
+      commands.pruneTakes({ takeIds: ["c"] }),
+    ],
+    [
+      commands.reorderTakes({ clipId: "line", takeIds: ["a", "b"] }),
+      commands.reorderTakes({ clipId: "line", takeIds: ["b", "a"] }),
+    ],
+  ])
+    assert.ok("unchanged" in pass(e.dispatch(batch)), JSON.stringify(batch));
+  assert.equal(e.getSnapshot().revision, 0);
+  // Selecting and clearing a take returns to the same JSON as before.
+  const before = JSON.stringify(clip(e, "line"));
+  commit(e.dispatch(commands.selectTake({ clipId: "line", takeId: null })));
+  commit(e.dispatch(commands.selectTake({ clipId: "line", takeId: "a" })));
+  assert.equal(JSON.stringify(clip(e, "line")), before);
 });
 
 test("a split shares candidates, and a take added to one half stays there", () => {
@@ -266,8 +339,7 @@ test("a split shares candidates, and a take added to one half stays there", () =
     e.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz, rightId: "r" })),
   );
   assert.deepEqual(split.takePatches, []);
-  assert.deepEqual(clip(e, "r")?.takeIds, ["b", "a"]);
-  assert.equal(clip(e, "r")?.activeTakeId, "a");
+  assert.deepEqual(candidates(e, "r"), [["b", "a"], "a"]);
   commit(
     e.dispatch(
       commands.addTake({
@@ -277,14 +349,13 @@ test("a split shares candidates, and a take added to one half stays there", () =
       }),
     ),
   );
-  assert.deepEqual(clip(e, "line")?.takeIds, ["b", "a"]);
-  assert.equal(clip(e, "line")?.activeTakeId, "a");
-  assert.deepEqual(clip(e, "r")?.takeIds, ["b", "a", "c"]);
+  assert.deepEqual(candidates(e, "line"), [["b", "a"], "a"]);
+  assert.deepEqual(candidates(e, "r"), [["b", "a", "c"], "c"]);
   const edited = e.getSnapshot();
   assert.deepEqual(reopen(edited).getSnapshot(), edited);
   pass(e.history.undo());
-  assert.deepEqual(takeIds(e), ["a", "b"]);
-  assert.deepEqual(clip(e, "r")?.takeIds, ["b", "a"]);
+  assert.deepEqual(takeIds(e), ["a", "b", "m"]);
+  assert.deepEqual(candidates(e, "r"), [["b", "a"], "a"]);
   pass(e.history.undo());
   assert.equal(clip(e, "r"), undefined);
   pass(e.history.redo());
@@ -293,59 +364,12 @@ test("a split shares candidates, and a take added to one half stays there", () =
   assert.deepEqual(e.getSnapshot().takes, edited.takes);
 });
 
-test("net-zero take edits in one transaction leave the clip unchanged", () => {
-  const e = editor();
-  for (const batch of [
-    [
-      commands.addTake({ clipIds: ["line"], take: { id: "c", ...fresh } }),
-      commands.removeTake({ clipId: "line", takeId: "c" }),
-    ],
-    [
-      commands.selectTake({ clipId: "line", takeId: "b" }),
-      commands.selectTake({ clipId: "line", takeId: "a" }),
-    ],
-    [
-      commands.addTake({ clipIds: ["other"], take: { id: "c", ...fresh }, activate: true }),
-      commands.selectTake({ clipId: "other", takeId: null }),
-      commands.removeTake({ clipId: "other", takeId: "c" }),
-    ],
-    [
-      commands.reorderTakes({ clipId: "line", takeIds: ["a", "b"] }),
-      commands.reorderTakes({ clipId: "line", takeIds: ["b", "a"] }),
-    ],
-  ])
-    assert.ok("unchanged" in pass(e.dispatch(batch)), JSON.stringify(batch));
-  assert.equal(e.getSnapshot().revision, 0);
-});
-
-test("a take leaves the project with its last listing and undo restores it", () => {
-  const e = editor();
-  assert.ok(
-    "unchanged" in
-      pass(
-        e.dispatch([
-          commands.addTake({ clipIds: ["other"], take: { id: "c", ...fresh } }),
-          commands.removeTake({ clipId: "other", takeId: "c" }),
-        ]),
-      ),
-  );
-  commit(e.dispatch(commands.addTake({ clipIds: ["other"], take: { id: "c", ...fresh } })));
-  commit(e.dispatch(commands.removeTake({ clipId: "other", takeId: "c" })));
-  assert.deepEqual(takeIds(e), ["a", "b"]);
-  pass(e.history.undo());
-  assert.deepEqual(takeIds(e), ["a", "b", "c"]);
-  assert.deepEqual(clip(e, "other")?.takeIds, ["c"]);
-  pass(e.history.undo());
-  assert.deepEqual(takeIds(e), ["a", "b"]);
-  assert.ok(!Object.hasOwn(clip(e, "other") ?? {}, "takeIds"));
-});
-
 test("update-take remaps every listing clip, and a label alone remaps none", () => {
   const e = editor();
   commit(e.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz, rightId: "r" })));
   const label = commit(e.dispatch(commands.updateTake({ takeId: "a", label: "Approved" })));
   assert.deepEqual(label.changedIds, []);
-  assert.equal(e.getSnapshot().takes?.[0]?.label, "Approved");
+  assert.equal(take(e, "a")?.label, "Approved");
   const moved = commit(e.dispatch(commands.updateTake({ takeId: "b", sourceAtContentZero: -hz })));
   assert.deepEqual([...moved.changedIds].sort(), ["line", "r"]);
   assert.deepEqual(
@@ -356,14 +380,80 @@ test("update-take remaps every listing clip, and a label alone remaps none", () 
     ],
   );
   assert.deepEqual(moved.patches, []);
-  assert.equal(
-    codeOf(e.dispatch(commands.updateTake({ takeId: "zzz", label: "x" }))),
-    "missing-take",
+  const rejected: [EditCommand, string][] = [
+    [commands.updateTake({ takeId: "zzz", label: "x" }), "missing-take"],
+    [commands.updateTake({ takeId: "a", sourceAtContentZero: 1.5 }), "invalid-take"],
+    [commands.updateTake({ takeId: "a", sourceAtContentZero: week + 1 }), "invalid-take"],
+    [commands.updateTake({ takeId: "a", newId: "a2", label: "x" }), "invalid-take"],
+  ];
+  for (const [command, code] of rejected)
+    assert.equal(codeOf(e.dispatch(command)), code, JSON.stringify(command));
+});
+
+test("an update of some clips copies a shared take and leaves the others alone", () => {
+  const e = editor();
+  commit(e.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz, rightId: "r" })));
+  assert.deepEqual(e.read().clipsListing("a"), ["line", "r"]);
+  const forked = commit(
+    e.dispatch(
+      commands.updateTake({ takeId: "a", clipIds: ["r"], newId: "a2", sourceAtContentZero: hz }),
+    ),
   );
-  assert.equal(
-    codeOf(e.dispatch(commands.updateTake({ takeId: "a", sourceAtContentZero: 1.5 }))),
-    "invalid-take",
+  // The copy takes the original's place and stays active where it was.
+  assert.deepEqual(candidates(e, "r"), [["b", "a2"], "a2"]);
+  assert.deepEqual(candidates(e, "line"), [["b", "a"], "a"]);
+  assert.deepEqual(take(e, "a2"), {
+    id: "a2",
+    assetId: "line-a",
+    streamId: "a0",
+    sourceAtContentZero: hz,
+    label: "First",
+    forkedFrom: "a",
+  });
+  assert.equal(take(e, "a")?.sourceAtContentZero, 0);
+  assert.deepEqual(forked.changedIds, ["r"]);
+  assert.deepEqual(e.read().clipsListing("a"), ["line"]);
+  assert.deepEqual(e.read().clipsListing("a2"), ["r"]);
+  assert.deepEqual(reopen(e.getSnapshot()).getSnapshot(), e.getSnapshot());
+
+  // A scope that covers every listing changes the take in place.
+  const inPlace = commit(
+    e.dispatch(commands.updateTake({ takeId: "a2", clipIds: ["r"], newId: "unused", label: "R" })),
   );
+  assert.equal(take(e, "a2")?.label, "R");
+  assert.equal(take(e, "unused"), undefined);
+  assert.deepEqual(inPlace.changedIds, []);
+  commit(e.dispatch(commands.updateTake({ takeId: "b", clipIds: ["line", "r"], label: "Both" })));
+  assert.equal(take(e, "b")?.label, "Both");
+  assert.deepEqual(takeIds(e), ["a", "a2", "b", "m"]);
+
+  // A copy without other changes detaches the clip, and its ID can be generated.
+  const detached = commit(e.dispatch(commands.updateTake({ takeId: "b", clipIds: ["line"] })));
+  const copy = detached.takePatches[0]?.after;
+  assert.ok(copy && copy.forkedFrom === "b" && copy.id !== "b");
+  assert.deepEqual(candidates(e, "line"), [[copy.id, "a"], "a"]);
+
+  // Undo removes the copy and puts the original back in the clip.
+  const f = editor();
+  commit(f.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz, rightId: "r" })));
+  const rejected: [EditCommand, string][] = [
+    [commands.updateTake({ takeId: "a", clipIds: ["other"], label: "x" }), "missing-take"],
+    [commands.updateTake({ takeId: "a", clipIds: [], label: "x" }), "invalid-selection"],
+    [commands.updateTake({ takeId: "a", clipIds: ["r", "r"], label: "x" }), "invalid-selection"],
+    [commands.updateTake({ takeId: "a", clipIds: ["ghost"], label: "x" }), "missing-clip"],
+    [commands.updateTake({ takeId: "m", clipIds: ["bed"], label: "x" }), "locked-track"],
+    [commands.updateTake({ takeId: "b", clipIds: ["r"], newId: "a" }), "invalid-take"],
+    [commands.updateTake({ takeId: "b", clipIds: ["r"], newId: "" }), "invalid-take"],
+  ];
+  for (const [command, code] of rejected)
+    assert.equal(codeOf(f.dispatch(command)), code, JSON.stringify(command));
+  assert.equal(f.getSnapshot().revision, 1);
+  commit(f.dispatch(commands.updateTake({ takeId: "a", clipIds: ["r"], newId: "a2", label: "R" })));
+  pass(f.history.undo());
+  assert.deepEqual(candidates(f, "r"), [["b", "a"], "a"]);
+  assert.equal(take(f, "a2"), undefined);
+  pass(f.history.redo());
+  assert.deepEqual(candidates(f, "r"), [["b", "a2"], "a2"]);
 });
 
 test("expectations guard a transaction against stale state", () => {
@@ -373,13 +463,13 @@ test("expectations guard a transaction against stale state", () => {
   const generated = (revision: number): EditCommand[] => [
     commands.expectData({ scope, id: "line", key: "revision", value: revision }),
     commands.expectClip({ clipId: "line", fields: { contentIn: hz, extensions: undefined } }),
-    commands.addTake({ clipIds: ["line"], take: { id: "c", ...fresh } }),
+    add(["line"], "c"),
   ];
   commit(e.dispatch(commands.setEntityData({ scope, id: "line", key: "revision", value: 4 })));
   const stale = e.dispatch(generated(3));
   assert.equal(codeOf(stale), "expectation-failed");
   assert.equal(stale.ok ? null : stale.target, "line");
-  assert.deepEqual(takeIds(e), ["a", "b"]);
+  assert.deepEqual(takeIds(e), ["a", "b", "m"]);
   assert.equal(
     codeOf(e.dispatch(commands.expectClip({ clipId: "line", fields: { contentIn: 0 } }))),
     "expectation-failed",
@@ -389,7 +479,7 @@ test("expectations guard a transaction against stale state", () => {
     "expectation-failed",
   );
   commit(e.dispatch(generated(4)));
-  assert.deepEqual(takeIds(e), ["a", "b", "c"]);
+  assert.deepEqual(takeIds(e), ["a", "b", "c", "m"]);
   // Expectations read the transaction's staged state.
   commit(
     e.dispatch([
@@ -416,228 +506,92 @@ test("expectations guard a transaction against stale state", () => {
 test("history replays take edits field by field and conflicts on owned ones", () => {
   const e = editor();
   commit(e.dispatch(commands.updateTake({ takeId: "a", label: "Second" })));
-  commit(e.dispatch(commands.updateTake({ takeId: "a", sourceAtContentZero: hz })));
-  e.history.discard("undo");
-  // The label undo keeps the later origin, which it does not own.
+  commit(e.dispatch(commands.updateTake({ takeId: "a", sourceAtContentZero: hz }), ignore));
+  // The label undo keeps the later position, which it does not own.
   pass(e.history.undo());
-  assert.equal(e.getSnapshot().takes?.[0]?.label, "First");
-  assert.equal(e.getSnapshot().takes?.[0]?.sourceAtContentZero, hz);
+  assert.equal(take(e, "a")?.label, "First");
+  assert.equal(take(e, "a")?.sourceAtContentZero, hz);
 
+  // Undoing an addition would remove a take that changed since.
   const f = editor();
-  commit(f.dispatch(commands.addTake({ clipIds: ["other"], take: { id: "c", ...fresh } })));
-  commit(f.dispatch(commands.updateTake({ takeId: "c", label: "Edited" })));
-  f.history.discard("undo");
-  // Undoing the addition would remove a take that changed since.
+  commit(f.dispatch(add(["other"], "c")));
+  commit(f.dispatch(commands.updateTake({ takeId: "c", label: "Edited" }), ignore));
   assert.equal(codeOf(f.history.undo()), "history-conflict");
-  assert.deepEqual(takeIds(f), ["a", "b", "c"]);
+  assert.deepEqual(takeIds(f), ["a", "b", "c", "m"]);
 
-  // Undo cannot remove a take that a later, discarded edit listed elsewhere.
-  const h = editor();
-  commit(h.dispatch(commands.addTake({ clipIds: ["other"], take: { id: "c", ...fresh } })));
-  commit(h.dispatch(commands.addTake({ clipIds: ["line"], takeId: "c" })));
-  h.history.discard("undo");
-  assert.equal(codeOf(h.history.undo()), "history-conflict");
-  assert.deepEqual(clip(h, "line")?.takeIds, ["b", "a", "c"]);
-
-  // Nor relist a take that a later, discarded edit removed from the project.
-  const k = editor();
-  commit(k.dispatch(commands.addTake({ clipIds: ["other", "line"], take: { id: "c", ...fresh } })));
-  commit(k.dispatch(commands.removeTake({ clipId: "line", takeId: "c" })));
-  commit(k.dispatch(commands.removeTake({ clipId: "other", takeId: "c" })));
-  k.history.discard("undo");
-  assert.equal(codeOf(k.history.undo()), "history-conflict");
-  assert.deepEqual(takeIds(k), ["a", "b"]);
-
+  // Selection and order are separate fields.
   const g = editor();
   commit(g.dispatch(commands.selectTake({ clipId: "line", takeId: "b" })));
-  commit(g.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a", "b"] })));
-  g.history.discard("undo");
-  // Selection and order are separate fields.
+  commit(g.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a", "b"] }), ignore));
   pass(g.history.undo());
-  assert.equal(clip(g, "line")?.activeTakeId, "a");
-  assert.deepEqual(clip(g, "line")?.takeIds, ["a", "b"]);
+  assert.deepEqual(candidates(g, "line"), [["a", "b"], "a"]);
 });
 
-const stream = (sampleRate: number, seconds: number) => ({
-  assetVersion: 1,
-  sampleRate,
-  availableStart: 0,
-  availableEnd: sampleRate * seconds,
-});
-const catalog: TakeCatalog = {
-  version: 1,
-  streams: { "line-a": { a0: stream(48000, 10) }, "line-b": { a0: stream(44100, 2) } },
-  takes: {
-    "bed-mix": {
-      assetId: "bed",
-      streamId: "a0",
-      sourceAtContentZero: 0,
-      ...stream(48000, 30),
-    },
-    a: { assetId: "ignored", streamId: "a0", sourceAtContentZero: 0, ...stream(48000, 1) },
-  },
-};
-
-test("planning plays a listed take through its stream at its tick alignment", () => {
+test("a take's presence follows its listings when history replays", () => {
+  // Another clip listed the take since: undo unlists it here and keeps the take.
   const e = editor();
-  const read = e.read();
-  const plan = read.planAudio({ start: 0, end: 60 * hz }, catalog);
-  assert.deepEqual(plan.issues, []);
-  const line = plan.spans.find((s) => s.clipId === "line");
-  assert.equal(line?.takeId, "a");
-  assert.equal(line?.assetId, "line-a");
-  assert.deepEqual(line?.audible, {
-    start: 12 * hz,
-    end: 16 * hz,
-    sourceStart: 48000,
-    sourceEnd: 5 * 48000,
-  });
-  assert.equal(plan.spans.find((s) => s.clipId === "bed")?.assetId, "bed");
+  commit(e.dispatch(add(["other"], "c")));
+  commit(e.dispatch(commands.addTake({ clipIds: ["line"], takeId: "c" }), ignore));
+  const undone = commit(e.history.undo());
+  assert.deepEqual(undone.takePatches, []);
+  assert.ok(!Object.hasOwn(clip(e, "other") ?? {}, "takeIds"));
+  assert.deepEqual(candidates(e, "line"), [["b", "a", "c"], "a"]);
+  assert.deepEqual(takeIds(e), ["a", "b", "c", "m"]);
+  // Redo lists it again without adding a second take.
+  const redone = commit(e.history.redo());
+  assert.deepEqual(redone.takePatches, []);
+  assert.deepEqual(candidates(e, "other"), [["c"], null]);
+  // With the other listing gone, undo removes the take as recorded.
+  commit(e.dispatch(commands.removeTake({ clipId: "line", takeId: "c" }), ignore));
+  pass(e.history.undo());
+  assert.deepEqual(takeIds(e), ["a", "b", "m"]);
 
-  // The design's worked edit: take B, origin -1.5 s, audio [0, 2) s, contentIn 1 s.
-  const b = read.planAudio({ start: 0, end: 60 * hz }, catalog, { takeOverrides: { line: "b" } });
-  assert.deepEqual(b.spans.find((s) => s.clipId === "line")?.audible, {
-    start: 12.5 * hz,
-    end: 14.5 * hz,
-    sourceStart: 0,
-    sourceEnd: 2 * 44100,
-  });
-  assert.equal(e.getSnapshot().clips[0]?.activeTakeId, "a");
+  // Undo cannot list a take that was pruned since.
+  const f = editor();
+  commit(f.dispatch(add(["other", "line"], "c")));
+  commit(f.dispatch(commands.removeTake({ clipId: "line", takeId: "c" })));
+  commit(
+    f.dispatch(
+      [commands.removeTake({ clipId: "other", takeId: "c" }), commands.pruneTakes()],
+      ignore,
+    ),
+  );
+  assert.equal(codeOf(f.history.undo()), "history-conflict");
+  assert.deepEqual(takeIds(f), ["a", "b", "m"]);
 
-  const muted = read.planAudio({ start: 0, end: 60 * hz }, catalog, {
-    takeOverrides: { line: null },
-  });
-  assert.equal(
-    muted.spans.find((s) => s.clipId === "line"),
-    undefined,
-  );
-  commit(e.dispatch(commands.addTake({ clipIds: ["other"], take: { id: "c", ...fresh } })));
-  const elsewhere = e.read().planAudio({ start: 0, end: 60 * hz }, catalog, {
-    takeOverrides: { line: "c" },
-  });
-  assert.deepEqual(elsewhere.issues, [{ code: "unresolved-take", clipId: "line", takeId: "c" }]);
-  const unlisted = read.planAudio({ start: 0, end: 60 * hz }, catalog, {
-    takeOverrides: { line: "bed-mix" },
-  });
-  assert.deepEqual(unlisted.issues, [
-    { code: "unresolved-take", clipId: "line", takeId: "bed-mix" },
-  ]);
-  const missing = read.planAudio({ start: 0, end: 60 * hz }, { ...catalog, streams: {} });
-  assert.deepEqual(missing.issues, [
-    { code: "unresolved-stream", clipId: "line", takeId: "a", assetId: "line-a", streamId: "a0" },
-  ]);
-  const broken = read.planAudio(
-    { start: 0, end: 60 * hz },
-    { ...catalog, streams: { "line-a": { a0: { ...stream(48000, 1), sampleRate: 0 } } } },
-  );
-  assert.equal(broken.issues[0]?.code, "invalid-take");
-  assert.throws(
-    () =>
-      // @ts-expect-error -- Override values are take IDs or null.
-      read.planAudio({ start: 0, end: hz }, catalog, { takeOverrides: { line: 3 } }),
-    TypeError,
-  );
-  assert.deepEqual(
-    read.takesOf("line").map((t) => t.id),
-    ["b", "a"],
-  );
-  assert.deepEqual(read.takesOf("other"), []);
-  assert.throws(() => read.takesOf("ghost"), { code: "missing-clip" });
-});
+  // Undoing a prune restores the take; redoing it skips a take listed since.
+  const g = editor();
+  commit(g.dispatch([add(["other"], "c"), commands.removeTake({ clipId: "other", takeId: "c" })]));
+  commit(g.dispatch(commands.pruneTakes()));
+  pass(g.history.undo());
+  assert.deepEqual(takeIds(g), ["a", "b", "c", "m"]);
+  commit(g.dispatch(commands.addTake({ clipIds: ["other"], takeId: "c" }), ignore));
+  pass(g.history.redo());
+  assert.deepEqual(takeIds(g), ["a", "b", "c", "m"]);
+  assert.deepEqual(candidates(g, "other"), [["c"], null]);
 
-// A seeded random walk over take commands. After every step the references
-// are exact, the snapshot reopens identically, and full undo and redo return
-// to the first and last snapshots.
-test("seeded take edits keep references exact through history and reopen", () => {
-  let seed = 7;
-  const random = (n: number): number => {
-    seed = (seed * 1103515245 + 12345) % 2147483648;
-    return seed % n;
-  };
-  for (let trial = 0; trial < 40; trial++) {
-    const e = editor();
-    const initial = e.getSnapshot();
-    let counter = 0;
-    for (let step = 0; step < 25; step++) {
-      const clips = e.getSnapshot().clips.filter((c) => c.trackId === "voice");
-      const target = clips[random(clips.length)];
-      assert.ok(target);
-      const listed = target.takeIds ?? [];
-      const all = takeIds(e);
-      const pick = <T>(items: readonly T[]): T | undefined => items[random(items.length)];
-      const choice = random(7);
-      let command: EditCommand;
-      if (choice === 0)
-        command = commands.addTake({
-          clipIds: [target.id],
-          take: { id: "n" + ++counter, ...fresh },
-          activate: random(2) === 0,
-        });
-      else if (choice === 1 && all.length)
-        command = commands.addTake({ clipIds: [target.id], takeId: pick(all) ?? "" });
-      else if (choice === 2)
-        command = commands.selectTake({ clipId: target.id, takeId: pick(listed) ?? null });
-      else if (choice === 3 && listed.length)
-        command = commands.removeTake({ clipId: target.id, takeId: pick(listed) ?? "" });
-      else if (choice === 4)
-        command = commands.reorderTakes({ clipId: target.id, takeIds: [...listed].reverse() });
-      else if (choice === 5 && all.length)
-        command = commands.updateTake({
-          takeId: pick(all) ?? "",
-          sourceAtContentZero: random(5) * hz,
-        });
-      else
-        command = commands.splitClip({
-          clipId: target.id,
-          at: target.start + 1 + random(target.duration - 1),
-          rightId: "s" + ++counter,
-        });
-      const result = e.dispatch(command);
-      if (!result.ok)
-        assert.ok(["active-take", "invalid-take"].includes(result.code), JSON.stringify(result));
-      const snapshot = e.getSnapshot();
-      const counts = new Map<string, number>();
-      for (const c of snapshot.clips) {
-        for (const id of c.takeIds ?? []) counts.set(id, (counts.get(id) ?? 0) + 1);
-        if (c.takeIds) assert.ok(c.activeTakeId == null || c.takeIds.includes(c.activeTakeId));
-      }
-      assert.deepEqual([...counts.keys()].sort(), takeIds(e));
-      assert.deepEqual(reopen(snapshot).getSnapshot(), snapshot);
-    }
-    const final = e.getSnapshot();
-    while (e.history.canUndo) pass(e.history.undo());
-    assert.deepEqual(e.getSnapshot().clips, initial.clips);
-    assert.deepEqual(e.getSnapshot().takes, initial.takes);
-    while (e.history.canRedo) pass(e.history.redo());
-    assert.deepEqual(e.getSnapshot().clips, final.clips);
-    assert.deepEqual(e.getSnapshot().takes, final.takes);
-  }
+  // Redoing a prune also skips a take that is already gone.
+  const h = editor();
+  commit(h.dispatch([add(["other"], "c"), commands.removeTake({ clipId: "other", takeId: "c" })]));
+  commit(h.dispatch(commands.pruneTakes()));
+  pass(h.history.undo());
+  commit(h.dispatch(commands.pruneTakes(), ignore));
+  assert.deepEqual(commit(h.history.redo()).takePatches, []);
+  assert.deepEqual(takeIds(h), ["a", "b", "m"]);
 });
 
 test("replay owns the fields an edit removed and compares lists by value", () => {
-  const ignore = { history: "ignore" } as const;
-  // Undoing the first candidate removes the list from a clip that moved since.
+  // Undoing the first candidate removes both fields from a clip that moved since.
   const e = editor();
-  commit(e.dispatch(commands.addTake({ clipIds: ["other"], take: { id: "c", ...fresh } })));
+  commit(e.dispatch(add(["other"], "c", true)));
   commit(e.dispatch(commands.moveClips({ clipIds: ["other"], delta: hz }), ignore));
   pass(e.history.undo());
   assert.ok(!Object.hasOwn(clip(e, "other") ?? {}, "takeIds"));
+  assert.ok(!Object.hasOwn(clip(e, "other") ?? {}, "activeTakeId"));
   assert.equal(clip(e, "other")?.start, 31 * hz);
-  assert.deepEqual(takeIds(e), ["a", "b"]);
+  assert.deepEqual(takeIds(e), ["a", "b", "m"]);
   pass(e.history.redo());
-  assert.deepEqual(clip(e, "other")?.takeIds, ["c"]);
-
-  // Undoing a first selection removes the field again, not only its value.
-  const p = project();
-  const second = p.clips[1];
-  assert.ok(second);
-  second.takeIds = ["a"];
-  const f = editor(p);
-  commit(f.dispatch(commands.selectTake({ clipId: "other", takeId: "a" })));
-  commit(f.dispatch(commands.moveClips({ clipIds: ["other"], delta: hz }), ignore));
-  pass(f.history.undo());
-  assert.ok(!Object.hasOwn(clip(f, "other") ?? {}, "activeTakeId"));
-  assert.equal(clip(f, "other")?.start, 31 * hz);
+  assert.deepEqual(candidates(e, "other"), [["c"], "c"]);
 
   // A list that returned to the same IDs through other edits is unchanged.
   const g = editor();
@@ -655,4 +609,184 @@ test("replay owns the fields an edit removed and compares lists by value", () =>
   pass(h.history.undo());
   assert.equal(clip(h, "r"), undefined);
   assert.equal(clip(h, "line")?.duration, 4 * hz);
+});
+
+const stream = (sampleRate: number, seconds: number) => ({
+  assetVersion: 1,
+  sampleRate,
+  availableStart: 0,
+  availableEnd: sampleRate * seconds,
+});
+const catalog: StreamCatalog = {
+  version: 1,
+  streams: {
+    "line-a": { a0: stream(48000, 10) },
+    "line-b": { a0: stream(44100, 2) },
+    "bed-mix": { a0: stream(48000, 30) },
+  },
+};
+
+test("planning plays a listed take through its stream at its tick alignment", () => {
+  const e = editor();
+  const read = e.read();
+  const all = { start: 0, end: 60 * hz };
+  const plan = read.planAudio(all, catalog);
+  assert.deepEqual(plan.issues, []);
+  const line = plan.spans.find((s) => s.clipId === "line");
+  assert.equal(line?.takeId, "a");
+  assert.equal(line?.assetId, "line-a");
+  assert.deepEqual(line?.audible, {
+    start: 12 * hz,
+    end: 16 * hz,
+    sourceStart: 48000,
+    sourceEnd: 5 * 48000,
+  });
+  assert.equal(plan.spans.find((s) => s.clipId === "bed")?.assetId, "bed-mix");
+
+  // The design's worked edit: take B, origin -1.5 s, audio [0, 2) s, contentIn 1 s.
+  const b = read.planAudio(all, catalog, { takeOverrides: { line: "b" } });
+  assert.deepEqual(b.spans.find((s) => s.clipId === "line")?.audible, {
+    start: 12.5 * hz,
+    end: 14.5 * hz,
+    sourceStart: 0,
+    sourceEnd: 2 * 44100,
+  });
+  assert.equal(clip(e, "line")?.activeTakeId, "a");
+
+  const muted = read.planAudio(all, catalog, { takeOverrides: { line: null } });
+  assert.equal(
+    muted.spans.find((s) => s.clipId === "line"),
+    undefined,
+  );
+  // A take the clip does not list cannot be previewed in it.
+  const unlisted = read.planAudio(all, catalog, { takeOverrides: { line: "m", other: "a" } });
+  assert.deepEqual(unlisted.issues, [
+    { code: "unresolved-take", clipId: "line", takeId: "m" },
+    { code: "unresolved-take", clipId: "other", takeId: "a" },
+  ]);
+  const { "line-a": _missing, ...rest } = catalog.streams;
+  assert.deepEqual(read.planAudio(all, { version: 2, streams: rest }).issues, [
+    { code: "unresolved-stream", clipId: "line", takeId: "a", assetId: "line-a", streamId: "a0" },
+  ]);
+  const broken = read.planAudio(all, {
+    version: 3,
+    streams: { ...rest, "line-a": { a0: { ...stream(48000, 1), sampleRate: 0 } } },
+  });
+  assert.deepEqual(
+    broken.issues.map((i) => i.code),
+    ["invalid-stream"],
+  );
+  assert.throws(
+    () =>
+      // @ts-expect-error -- Override values are take IDs or null.
+      read.planAudio(all, catalog, { takeOverrides: { line: 3 } }),
+    TypeError,
+  );
+  // @ts-expect-error -- A catalog maps assets to streams.
+  assert.throws(() => read.planAudio(all, { version: 1 }), TypeError);
+});
+
+test("reads list a clip's candidates and the clips that list a take", () => {
+  const e = editor();
+  commit(e.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz, rightId: "r" })));
+  commit(e.dispatch([add(["other"], "c"), commands.removeTake({ clipId: "other", takeId: "c" })]));
+  const read = e.read();
+  assert.deepEqual(
+    read.takesOf("line").map((t) => t.id),
+    ["b", "a"],
+  );
+  assert.deepEqual(read.takesOf("other"), []);
+  assert.throws(() => read.takesOf("ghost"), { code: "missing-clip" });
+  assert.deepEqual(read.clipsListing("a"), ["line", "r"]);
+  assert.deepEqual(read.clipsListing("m"), ["bed"]);
+  assert.deepEqual(read.clipsListing("c"), []);
+  assert.throws(() => read.clipsListing("ghost"), { code: "missing-take" });
+});
+
+// A seeded random walk over take commands. After every step the references
+// hold, each clip state has its one form, and the snapshot reopens identically.
+// Full undo and redo return to the first and last snapshots.
+test("seeded take edits keep references exact through history and reopen", () => {
+  let seed = 7;
+  // The high bits of this generator are well mixed; its low bits repeat quickly.
+  const random = (n: number): number => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return Math.floor((seed / 2147483648) * n);
+  };
+  const kinds = new Map<string, number>();
+  for (let trial = 0; trial < 40; trial++) {
+    const e = editor();
+    const initial = e.getSnapshot();
+    let counter = 0;
+    for (let step = 0; step < 30; step++) {
+      const clips = e.getSnapshot().clips.filter((c) => c.trackId === "voice");
+      const target = clips[random(clips.length)];
+      assert.ok(target);
+      const listed = target.takeIds ?? [];
+      const all = takeIds(e);
+      const pick = <T>(items: readonly T[]): T | undefined => items[random(items.length)];
+      const choice = random(9);
+      let command: EditCommand;
+      if (choice === 0) command = add([target.id], "n" + ++counter, random(2) === 0);
+      else if (choice === 1)
+        command = commands.addTake({ clipIds: [target.id], takeId: pick(all) ?? "" });
+      else if (choice === 2)
+        command = commands.selectTake({ clipId: target.id, takeId: pick(listed) ?? null });
+      else if (choice === 3 && listed.length)
+        command = commands.removeTake({ clipId: target.id, takeId: pick(listed) ?? "" });
+      else if (choice === 4)
+        command = commands.reorderTakes({ clipId: target.id, takeIds: [...listed].reverse() });
+      else if (choice === 5)
+        command = commands.updateTake({
+          takeId: pick(all) ?? "",
+          sourceAtContentZero: random(5) * hz,
+        });
+      else if (choice === 6 && listed.length)
+        command = commands.updateTake({
+          takeId: pick(listed) ?? "",
+          clipIds: [target.id],
+          newId: "f" + ++counter,
+          label: "fork " + counter,
+        });
+      else if (choice === 7) command = commands.pruneTakes();
+      else
+        command = commands.splitClip({
+          clipId: target.id,
+          at: target.start + 1 + random(target.duration - 1),
+          rightId: "s" + ++counter,
+        });
+      const result = e.dispatch(command);
+      if (!result.ok) assert.equal(result.code, "active-take", JSON.stringify(result));
+      else if (!result.unchanged) kinds.set(command.type, (kinds.get(command.type) ?? 0) + 1);
+      const snapshot = e.getSnapshot();
+      const known = new Set(takeIds(e));
+      for (const c of snapshot.clips) {
+        const ids = c.takeIds;
+        assert.equal(ids === undefined, !Object.hasOwn(c, "activeTakeId"), c.id);
+        if (!ids) continue;
+        assert.ok(ids.length > 0 && ids.every((id) => known.has(id)), c.id);
+        assert.ok(c.activeTakeId === null || ids.includes(c.activeTakeId ?? ""), c.id);
+        for (const id of ids) assert.ok(e.read().clipsListing(id).includes(c.id));
+      }
+      assert.deepEqual(reopen(snapshot).getSnapshot(), snapshot);
+    }
+    const final = e.getSnapshot();
+    while (e.history.canUndo) pass(e.history.undo());
+    assert.deepEqual(e.getSnapshot().clips, initial.clips);
+    assert.deepEqual(e.getSnapshot().takes, initial.takes);
+    while (e.history.canRedo) pass(e.history.redo());
+    assert.deepEqual(e.getSnapshot().clips, final.clips);
+    assert.deepEqual(e.getSnapshot().takes, final.takes);
+  }
+  // Every kind of command took effect many times.
+  for (const type of [
+    "add-take",
+    "select-take",
+    "remove-take",
+    "reorder-takes",
+    "update-take",
+    "prune-takes",
+    "split",
+  ])
+    assert.ok((kinds.get(type) ?? 0) >= 10, type + ": " + kinds.get(type));
 });

@@ -47,7 +47,7 @@ On a successful `dispatch(command)`, observers receive the committed revision, a
 
 ## Document, commands and subscriptions
 
-The project document is the sole durable source of editing data. A clip stores its placement, content offset, candidate take IDs and active take ID. A take refers to an asset, a stream and a source position in project ticks. The host catalog supplies the asset version and available samples. Clips share takes by ID, as both halves of a split do. Session selection and the transport's currently audible clip IDs are independent. Playing through an unselected line must leave the inspector's selection and text focus intact.
+The project document is the sole durable source of editing data. A clip stores its placement, content offset, candidate take IDs and active take ID. A take refers to an asset, a stream and a source position in project ticks. The host's stream catalog supplies the asset version and available samples. Clips share takes by ID, as both halves of a split do, and a take that no clip lists stays in the document until it is pruned. Session selection and the transport's currently audible clip IDs are independent. Playing through an unselected line must leave the inspector's selection and text focus intact.
 
 | Change                             | Write path                       | Subscribers                                                                              |
 | ---------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------- |

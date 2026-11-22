@@ -49,10 +49,10 @@ export class ClipDraft {
     return this.edited.get(id) ?? (index === undefined ? undefined : this.clips[index]);
   }
 
-  /** The clip as it was before this transaction, if it existed. */
-  original(id: string): Clip | undefined {
-    const index = this.positions.get(id);
-    return index === undefined ? undefined : this.clips[index];
+  /** Each clip this transaction touched so far, with the clips that now stand in its place. */
+  *changes(): Iterable<readonly [Clip, readonly Clip[]]> {
+    for (const [index, group] of this.groups)
+      yield [defined(this.clips[index], "original clip"), group];
   }
 
   // `clip` is the current version of a clip from `get`, so it has an owner slot.

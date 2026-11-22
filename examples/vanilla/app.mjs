@@ -25,6 +25,7 @@ const videoProject = {
       duration: 4 * hz,
       contentIn: hz,
       contentBounds: { start: 0, end: 8 * hz },
+      takeIds: ["line"],
       activeTakeId: "line",
     },
     {
@@ -36,6 +37,7 @@ const videoProject = {
       duration: 3 * hz,
       contentIn: hz,
       contentBounds: { start: 0, end: 8 * hz },
+      takeIds: ["line"],
       activeTakeId: "line",
     },
     {
@@ -47,8 +49,13 @@ const videoProject = {
       duration: 24 * hz,
       contentIn: 0,
       contentBounds: { start: 0, end: 24 * hz },
+      takeIds: ["bed"],
       activeTakeId: "bed",
     },
+  ],
+  takes: [
+    { id: "line", assetId: "line", streamId: "mono", sourceAtContentZero: 0, label: "Dialogue" },
+    { id: "bed", assetId: "bed", streamId: "mono", sourceAtContentZero: 0, label: "Music bed" },
   ],
   markers: [
     { id: "marker-line", start: 12 * hz, label: "Tidal line" },
@@ -62,6 +69,7 @@ const audioProject = {
     { ...videoProject.clips[0], name: "Field narration", start: 2 * hz },
     { ...videoProject.clips[2], name: "Low water bed" },
   ],
+  takes: videoProject.takes,
   markers: [
     { id: "marker-narration", start: 2 * hz, label: "Narration" },
     { id: "marker-fade", start: 20 * hz, label: "Fade" },
@@ -148,7 +156,7 @@ try {
   throw error;
 }
 
-const storageKey = video ? "lumen-timeline:vanilla:project:v1" : "lumen-timeline:audio:project:v1";
+const storageKey = video ? "lumen-timeline:vanilla:project:v2" : "lumen-timeline:audio:project:v2";
 const save = document.querySelector("#save"),
   reopen = document.querySelector("#reopen");
 const status = document.querySelector("#status");

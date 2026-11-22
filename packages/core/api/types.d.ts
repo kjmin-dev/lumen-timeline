@@ -46,10 +46,13 @@ export interface Clip {
     readonly contentBounds?: ContentBounds;
     /**
      * The clip's candidate takes, in display order. Each ID names an entry of
-     * `project.takes`. With a list, `activeTakeId` is `null` or one of its IDs.
-     * Without one, `activeTakeId` names a binding in the host's `TakeCatalog`.
+     * `project.takes`. A snapshot omits an empty list.
      */
     readonly takeIds?: readonly string[];
+    /**
+     * The candidate the clip plays, or `null` for none. A snapshot carries this
+     * field exactly when the clip has candidates.
+     */
     readonly activeTakeId?: string | null;
     readonly continuityId?: string | null;
     /** Plugin data. A clip with extensions cannot be split until a split policy exists. */
@@ -72,8 +75,9 @@ export interface Marker {
 /**
  * One candidate for a clip's slot: a media stream aligned to content time.
  * Clips list takes by ID, and several clips can share one, as both halves of
- * a split do. The editor preserves additional JSON fields without
- * interpreting them.
+ * a split do. A take that no clip lists stays in the project until it is
+ * pruned. The editor preserves additional JSON fields without interpreting
+ * them.
  */
 export interface Take {
     readonly id: string;
@@ -83,6 +87,8 @@ export interface Take {
     readonly sourceAtContentZero: Tick;
     /** Display name. Views fall back to the ID. */
     readonly label?: string;
+    /** The take this one was copied from when an update applied to only some of its clips. */
+    readonly forkedFrom?: string;
     readonly extensions?: JsonObject;
     readonly [field: string]: unknown;
 }
@@ -203,8 +209,8 @@ export interface SelectTakeCommand {
 }
 /**
  * Removes a candidate from one clip. The active take cannot be removed; select
- * another in the same transaction first. A take that no clip lists any more
- * leaves the project.
+ * another in the same transaction first. The take itself stays in the project
+ * until it is pruned.
  */
 export interface RemoveTakeCommand {
     readonly type: "remove-take";
@@ -218,14 +224,31 @@ export interface ReorderTakesCommand {
     readonly takeIds: readonly string[];
 }
 /**
- * Changes only the fields given, for every clip that lists the take. A take's
- * asset and stream are fixed; add a new take for different media.
+ * Changes only the fields given. A take's asset and stream are fixed; add a
+ * new take for different media.
+ *
+ * Without `clipIds` the change reaches every clip that lists the take. With
+ * `clipIds`, each of which must list the take, it reaches only those clips:
+ * if another clip lists the take too, the take is copied first. The copy
+ * replaces the take in the named clips, at the same list position and as the
+ * active take where it was active, and records its source in `forkedFrom`.
  */
 export interface UpdateTakeCommand {
     readonly type: "update-take";
     readonly takeId: string;
+    readonly clipIds?: readonly string[] | undefined;
+    /** ID of the copy, when one is made. Omitted or `undefined` generates one. */
+    readonly newId?: string | undefined;
     readonly label?: string | undefined;
     readonly sourceAtContentZero?: Tick | undefined;
+}
+/**
+ * Removes takes that no clip lists. Without `takeIds` it removes every such
+ * take. A listed take in `takeIds` rejects the command with `listed-take`.
+ */
+export interface PruneTakesCommand {
+    readonly type: "prune-takes";
+    readonly takeIds?: readonly string[] | undefined;
 }
 /**
  * Rejects the whole transaction with `expectation-failed` unless the clip
@@ -254,12 +277,12 @@ export interface ExpectDataCommand {
 export type ClipCommand = MoveCommand | TrimCommand | SplitCommand;
 export type DataCommand = SetDataCommand | RemoveDataCommand;
 export type MarkerCommand = AddMarkerCommand | MoveMarkerCommand | UpdateMarkerCommand | RemoveMarkerCommand;
-export type TakeCommand = AddTakeCommand | SelectTakeCommand | RemoveTakeCommand | ReorderTakesCommand | UpdateTakeCommand;
+export type TakeCommand = AddTakeCommand | SelectTakeCommand | RemoveTakeCommand | ReorderTakesCommand | UpdateTakeCommand | PruneTakesCommand;
 export type ExpectCommand = ExpectClipCommand | ExpectDataCommand;
 export type EditCommand = ClipCommand | DataCommand | MarkerCommand | TakeCommand | ExpectCommand;
 export type PreviewCommand = MoveCommand | TrimCommand;
 /** Every code an `EditError` or a rejected edit can carry. */
-export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "invalid-edge" | "invalid-range" | "split-policy-required" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker" | "missing-take" | "invalid-take" | "active-take" | "invalid-expectation" | "expectation-failed";
+export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "invalid-edge" | "invalid-range" | "split-policy-required" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker" | "missing-take" | "invalid-take" | "active-take" | "listed-take" | "invalid-expectation" | "expectation-failed";
 export type HistoryPolicy = "record" | "ignore";
 export type CommitHistory = HistoryPolicy | "undo" | "redo";
 export interface RevisionOptions {
@@ -375,33 +398,20 @@ export interface StreamBinding {
     readonly availableStart: number;
     readonly availableEnd: number;
 }
-/** Maps a host-aligned take to a decoded audio stream. */
-export interface TakeBinding extends StreamBinding {
-    readonly assetId: string;
-    readonly streamId: string;
-    /** Signed source sample index at content time zero. */
-    readonly sourceAtContentZero: number;
-}
-/**
- * Runtime media facts for planning. A clip with `takeIds` plays a project take
- * through `streams[assetId][streamId]`. A clip without one plays
- * `takes[activeTakeId]`, which the host aligns itself.
- */
-export interface TakeCatalog {
+/** Runtime media facts for planning: the decoded stream behind each take's asset. */
+export interface StreamCatalog {
     readonly version: Version;
-    readonly takes?: {
-        readonly [takeId: string]: TakeBinding;
-    } | undefined;
-    readonly streams?: {
+    readonly streams: {
         readonly [assetId: string]: {
             readonly [streamId: string]: StreamBinding;
         };
-    } | undefined;
+    };
 }
 export interface PlanOptions {
     /**
-     * Plays a different take, or none for `null`, in the named clips without
-     * editing the project. A clip with `takeIds` accepts only a listed take.
+     * Plays a different candidate, or none for `null`, in the named clips
+     * without editing the project. A take the clip does not list is reported as
+     * `unresolved-take`.
      */
     readonly takeOverrides?: {
         readonly [clipId: string]: string | null;
@@ -445,7 +455,7 @@ export type PlanIssue = {
     readonly assetId: string;
     readonly streamId: string;
 } | {
-    readonly code: "invalid-take";
+    readonly code: "invalid-stream";
     readonly clipId: string;
     readonly takeId: string;
     readonly reason: string;
@@ -460,12 +470,18 @@ export interface AudioPlan {
 export interface ReadHandle {
     readonly revision: number;
     clipsIn(range: TickRange, options?: ClipQueryOptions): readonly Clip[];
-    planAudio(range: TickRange, catalog: TakeCatalog, options?: PlanOptions): AudioPlan;
+    planAudio(range: TickRange, catalog: StreamCatalog, options?: PlanOptions): AudioPlan;
     /**
-     * The clip's candidate takes in list order. Empty for a clip without
-     * `takeIds`. Throws an `EditError` with `missing-clip` for an unknown clip.
+     * The clip's candidate takes in list order. Throws an `EditError` with
+     * `missing-clip` for an unknown clip.
      */
     takesOf(clipId: string): readonly Take[];
+    /**
+     * IDs of the clips that list the take, in snapshot order. Empty for a take
+     * awaiting pruning. Throws an `EditError` with `missing-take` for an
+     * unknown take.
+     */
+    clipsListing(takeId: string): readonly string[];
     /** Markers with `range.start <= start < range.end`, in snapshot order. */
     markersIn(range: TickRange): readonly Marker[];
     /** The first marker after `tick`. */

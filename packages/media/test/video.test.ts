@@ -21,7 +21,7 @@ test("public video transport accepts ticks and releases borrowed resources witho
     editor,
     context,
     video,
-    catalog: { version: 1, takes: {} },
+    catalog: { version: 1, streams: {} },
     // The empty project never resolves a buffer.
     resolveBuffer: () => ({ sampleRate: 48000, length: 0 }),
   });
@@ -60,7 +60,7 @@ function videoFixture(editor: Editor): { video: FakeVideo; player: VideoTranspor
     editor,
     context,
     video,
-    catalog: { version: 1, takes: {} },
+    catalog: { version: 1, streams: {} },
     resolveBuffer: () => ({ sampleRate: 48000, length: 0 }),
   });
   return { video, player };

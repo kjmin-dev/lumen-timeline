@@ -6,7 +6,7 @@ import type {
   PlanIssue,
   ProjectSnapshot,
   ReadHandle,
-  TakeCatalog,
+  StreamCatalog,
   Tick,
   TickRange,
 } from "@lumen-timeline/core";
@@ -50,7 +50,7 @@ export interface VoiceSchedulerOptions {
   readonly context: AudioContextLike;
   readonly output?: AudioNodeLike | undefined;
   readonly editor: Editor;
-  readonly catalog: TakeCatalog;
+  readonly catalog: StreamCatalog;
   readonly resolveBuffer: ResolveBuffer;
   readonly onError?: MediaErrorHandler | undefined;
   readonly onWake?: (() => void) | undefined;
@@ -96,7 +96,7 @@ export class VoiceScheduler {
   readonly context: AudioContextLike;
   readonly output: AudioNodeLike;
   read: ReadHandle;
-  catalog: TakeCatalog;
+  catalog: StreamCatalog;
   readonly resolveBuffer: ResolveBuffer;
   readonly onError: MediaErrorHandler;
   generation: number;
@@ -356,7 +356,7 @@ export class VoiceScheduler {
     for (const voice of this.voices.values()) this.cancel(voice, disconnect);
   }
 
-  setCatalog(catalog: TakeCatalog): void {
+  setCatalog(catalog: StreamCatalog): void {
     this.read.planAudio({ start: 0, end: 0 }, catalog);
     this.catalog = catalog;
     this.fill(true);

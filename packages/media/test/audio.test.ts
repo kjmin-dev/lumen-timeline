@@ -7,7 +7,7 @@ import {
   TICKS_PER_SECOND as hz,
   watchMarkerCrossings,
 } from "@lumen-timeline/core";
-import type { Clip, Marker, PresentationSource, TakeCatalog } from "@lumen-timeline/core";
+import type { Clip, Marker, PresentationSource, StreamCatalog } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
 import type { AudioBufferLike, ResolveBuffer } from "@lumen-timeline/media";
 import type { TestContext } from "node:test";
@@ -17,6 +17,7 @@ const sec = (n: number): number => Math.round(n * hz);
 const clip = (id: string, start: number, duration: number, contentIn = 0): Clip => ({
   id,
   trackId: id,
+  takeIds: [id],
   activeTakeId: id,
   kind: "audio",
   start: sec(start),
@@ -40,24 +41,25 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
       schemaVersion: 1,
       tracks: clips.map((c) => ({ id: c.id })),
       clips,
+      // One take per clip, each on an asset of the same name.
+      takes: clips.map((c) => ({
+        id: c.id,
+        assetId: c.id,
+        streamId: "mono",
+        sourceAtContentZero: 0,
+      })),
       ...(options.duration === undefined ? {} : { duration: sec(options.duration) }),
       ...(options.markers === undefined ? {} : { markers: options.markers }),
     },
   });
   const rate = context.sampleRate;
-  const catalog: TakeCatalog = {
+  const catalog: StreamCatalog = {
     version: 1,
-    takes: Object.fromEntries(
+    streams: Object.fromEntries(
       clips.map((c) => [
         c.id,
         {
-          assetId: c.id,
-          assetVersion: 1,
-          streamId: "mono",
-          sampleRate: rate,
-          sourceAtContentZero: 0,
-          availableStart: 0,
-          availableEnd: rate * 10,
+          mono: { assetVersion: 1, sampleRate: rate, availableStart: 0, availableEnd: rate * 10 },
         },
       ]),
     ),

@@ -1,4 +1,4 @@
-import type { AudioSpan, Editor, PlanIssue, ReadHandle, TakeCatalog, Tick, TickRange } from "@lumen-timeline/core";
+import type { AudioSpan, Editor, PlanIssue, ReadHandle, StreamCatalog, Tick, TickRange } from "@lumen-timeline/core";
 import type { AudioBufferLike, AudioContextLike, AudioNodeLike, BufferSourceLike, GainNodeLike, MediaErrorHandler, ResolveBuffer, TransportDiagnostics } from "./types.ts";
 /** A project tick paired with the audio-context time at which it plays. */
 export interface Anchor {
@@ -26,7 +26,7 @@ export interface VoiceSchedulerOptions {
     readonly context: AudioContextLike;
     readonly output?: AudioNodeLike | undefined;
     readonly editor: Editor;
-    readonly catalog: TakeCatalog;
+    readonly catalog: StreamCatalog;
     readonly resolveBuffer: ResolveBuffer;
     readonly onError?: MediaErrorHandler | undefined;
     readonly onWake?: (() => void) | undefined;
@@ -42,7 +42,7 @@ export declare class VoiceScheduler {
     readonly context: AudioContextLike;
     readonly output: AudioNodeLike;
     read: ReadHandle;
-    catalog: TakeCatalog;
+    catalog: StreamCatalog;
     readonly resolveBuffer: ResolveBuffer;
     readonly onError: MediaErrorHandler;
     generation: number;
@@ -64,7 +64,7 @@ export declare class VoiceScheduler {
     fail(voice: Voice, error: unknown): void;
     cancel(voice: Voice, disconnect?: boolean): void;
     invalidate(disconnect?: boolean): void;
-    setCatalog(catalog: TakeCatalog): void;
+    setCatalog(catalog: StreamCatalog): void;
     diagnostics(clipId: string): TransportDiagnostics;
     dispose(): void;
 }

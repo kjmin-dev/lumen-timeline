@@ -2,23 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { VideoTransport, presentationTime } from "./transport.mjs";
 import { createEditor } from "@lumen-timeline/core";
-import { bufferCatalog } from "./buffer-fixture.mjs";
+import { bufferCatalog, bufferTakes } from "./buffer-fixture.mjs";
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
 
 function makeTransport(player, context, output, clips, takes) {
-  const editor = createEditor({
-    project: {
-      schemaVersion: 1,
-      tracks: [{ id: "voice" }],
-      clips: clips.map((c) => ({
-        ...c,
-        id: String(c.id),
-        activeTakeId: c.take,
-        trackId: "voice",
-        kind: "audio",
-      })),
-    },
-  });
   const buffers = Object.fromEntries(
     Object.entries(takes).map(([id, t]) => [
       id,
@@ -30,6 +17,21 @@ function makeTransport(player, context, output, clips, takes) {
       },
     ]),
   );
+  const editor = createEditor({
+    project: {
+      schemaVersion: 1,
+      tracks: [{ id: "voice" }],
+      clips: clips.map((c) => ({
+        ...c,
+        id: String(c.id),
+        takeIds: [c.take],
+        activeTakeId: c.take,
+        trackId: "voice",
+        kind: "audio",
+      })),
+      takes: bufferTakes(buffers),
+    },
+  });
   return new VideoTransport(player, context, output, {
     editor,
     catalog: bufferCatalog(buffers),

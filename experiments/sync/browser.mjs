@@ -1,6 +1,6 @@
 import { TICKS_PER_SECOND as hz, sourceWindow, ticksToUnits } from "@lumen-timeline/core";
 import { splitClip } from "@lumen-timeline/core/internal";
-import { bufferCatalog } from "./buffer-fixture.mjs";
+import { bufferCatalog, bufferTakes, listTakes } from "./buffer-fixture.mjs";
 import { createEditor, commands } from "@lumen-timeline/core";
 import { VideoTransport, scheduleWindow, presentationTime } from "./transport.mjs";
 
@@ -202,7 +202,9 @@ export async function run(audioDelaySeconds = 0) {
     project: {
       schemaVersion: 1,
       tracks: [{ id: "dialogue" }],
-      clips: [a, b].map((clip) => ({ ...clip, kind: "audio", trackId: "dialogue" })),
+      clips: listTakes([a, b].map((clip) => ({ ...clip, kind: "audio", trackId: "dialogue" }))),
+      // The fresh recording waits in the project until the right half takes it.
+      takes: bufferTakes(takes),
     },
   });
   const catalog = bufferCatalog(takes);
@@ -299,15 +301,17 @@ export async function run(audioDelaySeconds = 0) {
       commands.splitClip({ clipId: b.id, at: sec(14), rightId: "right" }),
     );
     check(cut.ok, "Split dispatch failed");
-    // Audition an updated recording bound to the selected take.
-    transport.setCatalog({ version: 2, takes: { ...catalog.takes, line: catalog.takes.fresh } });
+    // Apply a fresh recording to the right half only.
+    const applied = editor.dispatch(
+      commands.addTake({ clipIds: ["right"], takeId: "fresh", activate: true }),
+    );
+    check(applied.ok, "Take dispatch failed");
     await until(() => video.currentTime > 16.35, "Take edit failed to play");
     held(editStart, 3, 1);
     compare(editStart, [[16, 3, 2]]);
 
     const undoStart = performance.now();
-    check(editor.history.undo().ok, "Undo dispatch failed");
-    transport.setCatalog(catalog);
+    check(editor.history.undo().ok && editor.history.undo().ok, "Undo dispatch failed");
     await until(() => video.currentTime > 17.35, "Undo failed to play");
     held(undoStart, 2, 5);
     compare(undoStart, [[17, 2, 6]]);
