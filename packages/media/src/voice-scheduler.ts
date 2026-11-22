@@ -394,6 +394,37 @@ export class VoiceScheduler {
     this.until = until;
   }
 
+  /**
+   * Moves the stop to `until` or earlier while playback holds an anchor. A
+   * voice booked past it is cut at its output sample. A later stop needs a new
+   * anchor, because booked voices already end at the earlier one.
+   */
+  stopAt(until: Tick): void {
+    this.until = until;
+    const anchor = this.anchor;
+    if (!anchor) return;
+    const origin = anchor.audio - anchor.tick / hz;
+    const rate = this.context.sampleRate;
+    for (const voice of this.voices.values()) {
+      const { node, bookedStart, bookedEnd, startSample } = voice;
+      if (
+        !node ||
+        voice.ended ||
+        voice.failed ||
+        bookedStart === undefined ||
+        bookedEnd === undefined ||
+        startSample === undefined ||
+        bookedEnd <= until
+      )
+        continue;
+      // A voice that would start after the stop never sounds.
+      const endSample = Math.max(startSample, Math.round((origin + until / hz) * rate));
+      node.stop(endSample / rate);
+      voice.bookedEnd = Math.max(bookedStart, until);
+      voice.endSample = endSample;
+    }
+  }
+
   setCatalog(catalog: StreamCatalog): void {
     this.read.planAudio({ start: 0, end: 0 }, catalog, this.options);
     this.catalog = catalog;

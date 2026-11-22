@@ -279,6 +279,80 @@ header a {
 #line-panel {
   margin-top: 14px;
 }
+.line-list {
+  margin: 14px 0;
+  background: #1b2326;
+  border: 1px solid #3a4548;
+  border-radius: 10px;
+  overflow: hidden;
+}
+/* A constant height below the timeline. The list scrolls inside itself. */
+.line-rows {
+  position: relative;
+  height: 196px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.line-rows li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 0 12px 0 0;
+  border-bottom: 1px solid #2c3639;
+  border-left: 3px solid transparent;
+}
+.line-rows li[aria-current="true"] {
+  background: #233034;
+  border-left-color: #87d6cb;
+}
+.line-rows li.playing {
+  border-left-color: #ffd7a4;
+}
+.line-pick {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 12px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.line-meta {
+  font-size: 12px;
+  color: #aebbbd;
+}
+.line-meta strong {
+  color: #e7ebe5;
+}
+.line-text {
+  overflow: hidden;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.line-text[lang="fr"] {
+  font-style: italic;
+  color: #aebbbd;
+}
+.line-state {
+  min-width: 50px;
+  font-size: 11px;
+  color: #ffd7a4;
+}
+.line-play {
+  color: #e4e9e3;
+  background: #253034;
+  border: 1px solid #445257;
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
 .line-panel {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);

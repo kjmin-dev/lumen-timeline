@@ -94,6 +94,13 @@ export interface TransportDiagnostics {
     readonly endSample: number | undefined;
 }
 export type SeekResult = "arrived" | "superseded";
+export interface PlayOptions {
+    /**
+     * Pauses here instead of playing on to the sequence end. It must follow the
+     * position playback starts or continues from.
+     */
+    readonly until?: Tick | undefined;
+}
 /** `mix` plays the candidate with the rest of the project, `isolated` plays it alone. */
 export type AuditionMode = "mix" | "isolated";
 export interface AuditionRequest {
@@ -133,12 +140,20 @@ export interface AudioTransportState {
     readonly segmentStart: Tick;
     /** The audition in progress, during which presentation follows the auditioned clip. */
     readonly audition: Audition | null;
+    /** Where playback pauses, as `play({ until })` set it. `null` plays to the end. */
+    readonly until: Tick | null;
 }
 export interface AudioTransport {
     snapshot(): AudioTransportState;
     subscribe(listener: (state: AudioTransportState) => void): () => void;
-    /** Resolves `empty` for an empty sequence and `superseded` after a later command. */
-    play(): Promise<"playing" | "empty" | "superseded">;
+    /**
+     * Resolves `empty` for an empty sequence and `superseded` after a later
+     * command. With `until`, playback pauses there. Called while playing, it
+     * moves the stop, or with no `until` clears it. A pause, a seek or an
+     * audition clears it too. Rejects with a `RangeError` for a stop that does
+     * not follow the playback position.
+     */
+    play(options?: PlayOptions): Promise<"playing" | "empty" | "superseded">;
     pause(): void;
     seek(tick: Tick): Promise<SeekResult>;
     /**
@@ -166,12 +181,18 @@ export interface VideoTransportState {
     readonly segmentStart: Tick;
     /** The audition in progress, during which the element plays the auditioned clip. */
     readonly audition: Audition | null;
+    /** Where playback pauses, as `play({ until })` set it. `null` plays to the end. */
+    readonly until: Tick | null;
 }
 export interface VideoTransport {
     snapshot(): VideoTransportState;
     /** The disposer returns whether the listener was still subscribed. */
     subscribe(listener: (state: VideoTransportState) => void): () => boolean;
-    play(): Promise<void>;
+    /**
+     * Behaves as on the audio transport. A stop pauses the element at the first
+     * frame at or past it, then presents the stop tick itself.
+     */
+    play(options?: PlayOptions): Promise<void>;
     pause(): void;
     seek(tick: Tick): Promise<SeekResult>;
     /** Behaves as on the audio transport, with the element as the clock. */

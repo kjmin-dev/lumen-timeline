@@ -499,16 +499,21 @@ export function mountTimeline(
     message,
     config,
   });
-  listen(navigator, "change", () => {
-    const clip = snapshot.clips.find((c) => c.id === navigator.value);
-    editor.session.select(clip ? [clip.id] : []);
-    if (!clip) return;
-    const row = rows.find((r) => r.track.id === clip.trackId);
-    if (!row) return;
+  // Scrolls a clip's lane into view and, when its start is offscreen, pans to it.
+  function reveal(clipId: string): boolean {
+    const clip = snapshot.clips.find((c) => c.id === clipId);
+    const row = clip && rows.find((r) => r.track.id === clip.trackId);
+    if (!clip || !row || disposed) return false;
     const y = row.top + rowInset + laneHeight * (row.lanes.get(clip.id) ?? 0);
     if (y < scroll.scrollTop || y + laneHeight > scroll.scrollTop + height) scroll.scrollTop = y;
     if (clip.start < view.startTick || clip.start >= tickAt(width, view))
       setViewport({ startTick: clip.start });
+    return true;
+  }
+  listen(navigator, "change", () => {
+    const clip = snapshot.clips.find((c) => c.id === navigator.value);
+    editor.session.select(clip ? [clip.id] : []);
+    if (clip) reveal(clip.id);
   });
   listen(play, "click", async () => {
     try {
@@ -624,6 +629,7 @@ export function mountTimeline(
   return {
     setViewport,
     getViewport: () => ({ ...view }),
+    reveal,
     getDiagnostics: () => ({ ...diagnostics, previewClipCount: ghosts.length }),
     dispose() {
       if (disposed) return;

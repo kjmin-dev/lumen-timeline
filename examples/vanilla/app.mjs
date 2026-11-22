@@ -6,6 +6,7 @@ import {
 } from "@lumen-timeline/core";
 import { mountTimeline } from "@lumen-timeline/timeline";
 import { createGeneration, mountLinePanel } from "./generation.mjs";
+import { mountLineList } from "./lines.mjs";
 import { attachPlayer } from "./player.mjs";
 import { mountTakePanel } from "./takes.mjs";
 
@@ -13,9 +14,11 @@ const video = document.querySelector("video");
 const videoProject = {
   schemaVersion: 1,
   duration: 24 * hz,
+  // One track per speaker, plus the music.
   tracks: [
-    { id: "dialogue", name: "Dialogue", overlap: "exclusive" },
+    { id: "dialogue", name: "Narrator", overlap: "exclusive" },
     { id: "music", name: "Music", locked: true },
+    { id: "keeper", name: "Keeper", overlap: "exclusive" },
   ],
   clips: [
     {
@@ -56,6 +59,19 @@ const videoProject = {
       takeIds: ["bed"],
       activeTakeId: "bed",
     },
+    {
+      id: "reply",
+      name: "Keeper's question",
+      trackId: "keeper",
+      kind: "audio",
+      start: 5 * hz,
+      duration: 3 * hz,
+      contentIn: 0,
+      contentBounds: { start: 0, end: 6 * hz },
+      takeIds: ["reply"],
+      activeTakeId: "reply",
+      lineId: "line-3",
+    },
   ],
   // Three candidates for the first line: the recording, the same recording a
   // quarter second later, and a synthesized guide.
@@ -70,6 +86,8 @@ const videoProject = {
     },
     { id: "guide", assetId: "guide", streamId: "mono", sourceAtContentZero: 0, label: "Guide" },
     { id: "bed", assetId: "bed", streamId: "mono", sourceAtContentZero: 0, label: "Music bed" },
+    // The keeper's placeholder read reuses the guide recording from 2 s.
+    { id: "reply", assetId: "guide", streamId: "mono", sourceAtContentZero: 2 * hz, label: "Read" },
   ],
   markers: [
     { id: "marker-line", start: 12 * hz, label: "Tidal line" },
@@ -88,12 +106,17 @@ const videoProject = {
         text: "And it leaves again.",
         revision: 0,
       },
+      "line-3": {
+        source: "Tu entends le courant ?",
+        text: "Can you hear the current?",
+        revision: 0,
+      },
     },
   },
 };
 const audioProject = {
   schemaVersion: 1,
-  tracks: videoProject.tracks,
+  tracks: videoProject.tracks.slice(0, 2),
   clips: [
     { ...videoProject.clips[0], name: "Field narration", start: 2 * hz },
     { ...videoProject.clips[2], name: "Low water bed" },
@@ -186,6 +209,13 @@ export async function openProject(data) {
     words,
     report,
   });
+  const offList = mountLineList(document.querySelector("#line-list"), {
+    editor,
+    transport,
+    view,
+    words,
+    report,
+  });
   const clockLabel = document.querySelector("#clock-mode");
   function showClock(state) {
     if (!clockLabel) return;
@@ -216,6 +246,7 @@ export async function openProject(data) {
       deselect();
       offTakes();
       offLines();
+      offList();
       offClock();
       offCrossings();
       view.dispose();

@@ -132,6 +132,7 @@ async function editSession(context) {
     [right.id]: "line",
     return: "line",
     bed: "bed",
+    reply: "reply",
   });
 
   // Save, reopen into a fresh editor and recover the same document.

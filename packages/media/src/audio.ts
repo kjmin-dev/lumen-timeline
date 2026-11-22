@@ -12,6 +12,7 @@ import type {
   AudioTransportStatus,
   ClockPrecision,
   MediaOptions,
+  PlayOptions,
   SeekResult,
 } from "./types.ts";
 
@@ -72,6 +73,8 @@ export function createAudioTransport({
   let seeking: (Request<SeekResult> & { readonly tick: Tick }) | null = null;
   let frame: number | null = null;
   let audition: ActiveAudition | null = null;
+  // Where playback pauses, as `play({ until })` set it.
+  let until: Tick | null = null;
   let state: AudioTransportState = Object.freeze({
     status: "paused",
     playing: false,
@@ -81,6 +84,7 @@ export function createAudioTransport({
     segment,
     segmentStart,
     audition: null,
+    until: null,
   });
   const listeners = new Set<(state: AudioTransportState) => void>();
   const scheduler = new VoiceScheduler({
@@ -125,7 +129,8 @@ export function createAudioTransport({
         state.requestedTick === requestedTick &&
         state.precision === precision &&
         state.segment === segment &&
-        state.audition === (audition?.state ?? null))
+        state.audition === (audition?.state ?? null) &&
+        state.until === until)
     )
       return;
     const next = Object.freeze({
@@ -137,6 +142,7 @@ export function createAudioTransport({
       segment,
       segmentStart,
       audition: audition?.state ?? null,
+      until,
     });
     state = next;
     // oxlint-disable-next-line unicorn/no-useless-spread -- Listeners may unsubscribe or issue commands during delivery, so iterate a snapshot.
@@ -167,9 +173,11 @@ export function createAudioTransport({
     const anchor = scheduler.anchor;
     if (seeking && anchor && outputClock(context).time >= anchor.audio) jump(seeking.tick);
   }
-  // Playback stops at the sequence end, or at the end of an auditioned clip.
+  // Playback stops at the sequence end, at a stop tick or at the end of an
+  // auditioned clip.
   function limit(): Tick {
-    return audition ? Math.min(end, audition.state.range.end) : end;
+    if (audition) return Math.min(end, audition.state.range.end);
+    return until === null ? end : Math.min(end, until);
   }
   function currentTick(time: number = outputClock(context).time): Tick {
     const anchor = scheduler.anchor;
@@ -204,8 +212,33 @@ export function createAudioTransport({
     supersede();
     cancelFrame();
     scheduler.invalidate();
+    clearStop();
     position = tick;
     publish(status);
+  }
+  // Forgets the stop tick. Callers have released the anchor.
+  function clearStop(): void {
+    until = null;
+    if (!audition) scheduler.stopAt(Infinity);
+  }
+  // Moves the stop while playback may hold an anchor. Voices booked past an
+  // earlier stop are cut there. A later stop books them again from where
+  // presentation is, as a seek there would.
+  function setStop(next: Tick | null): void {
+    const previous = until;
+    const later = previous !== null && (next === null || next > previous);
+    if (!later || !scheduler.anchor) {
+      until = next;
+      scheduler.stopAt(next ?? Infinity);
+      return;
+    }
+    land();
+    const from = seeking?.tick ?? currentTick();
+    if (!seeking) position = from;
+    until = next;
+    scheduler.invalidate();
+    scheduler.stopAt(next ?? Infinity);
+    anchorAt(from);
   }
   // Ends the audition, stops its voices and settles its promise. With
   // `restore`, presentation returns to the position the audition left.
@@ -243,6 +276,7 @@ export function createAudioTransport({
     if (audition && position >= limit())
       endAudition((request) => request.resolve("finished"), true);
     else if (position >= end) stop(end, end ? "ended" : "paused");
+    else if (until !== null && position >= until) stop(until, "paused");
     else publish("playing", null, clock.precision);
   }
   function contextChanged(): void {
@@ -294,13 +328,29 @@ export function createAudioTransport({
         if (!listeners.size) cancelFrame();
       };
     },
-    play(): Promise<PlayResult> {
+    play(options?: PlayOptions): Promise<PlayResult> {
       if (disposed || context.state === "closed")
         return Promise.reject(new Error("Transport unavailable"));
+      const stopTick = options?.until ?? null;
+      if (stopTick !== null && !(Number.isSafeInteger(stopTick) && stopTick >= 0))
+        return Promise.reject(new RangeError("Invalid stop tick"));
+      // Playback continues from here: where an audition returns to, or the
+      // playhead, or zero from the end. Nothing changes before the stop is checked.
+      const returning = audition ? Math.min(audition.state.returnTick, end) : null;
+      const moving =
+        returning === null && (starting !== null || scheduler.anchor !== null || seeking !== null);
+      const at = returning ?? position;
+      const from = seeking?.tick ?? (moving ? currentTick() : at === end ? 0 : at);
+      if (end && stopTick !== null && stopTick <= from)
+        return Promise.reject(new RangeError("Stop tick must follow the playback position"));
       endAudition(cancelled, true);
       if (!end) return Promise.resolve("empty");
-      if (starting) return starting.promise;
-      if (scheduler.anchor || seeking) return Promise.resolve("playing");
+      if (moving) {
+        setStop(stopTick);
+        publish(state.status, state.requestedTick, state.precision);
+        return starting ? starting.promise : Promise.resolve("playing");
+      }
+      setStop(stopTick);
       if (position === end) jump(0);
       const op = (starting = request<PlayResult>());
       wantPlay = true;
@@ -353,6 +403,7 @@ export function createAudioTransport({
       supersede();
       cancelFrame();
       scheduler.invalidate();
+      clearStop();
       if (!active || tick === end) {
         wantPlay = interrupted && tick < end;
         jump(tick);
@@ -386,6 +437,7 @@ export function createAudioTransport({
       supersede();
       cancelFrame();
       scheduler.invalidate();
+      until = null;
       scheduler.setPlan(plan.options, plan.range.end);
       const active: ActiveAudition = {
         state: auditionState(plan, returnTick),
@@ -438,6 +490,7 @@ export function createAudioTransport({
         segment,
         segmentStart,
         audition: null,
+        until: null,
       });
       const error = new Error("Transport disposed");
       starting?.reject(error);

@@ -43,6 +43,7 @@ test("public video transport accepts ticks and releases borrowed resources witho
     segment: 1,
     segmentStart: 3 * hz,
     audition: null,
+    until: null,
   });
   player.dispose();
   player.dispose();
@@ -89,6 +90,7 @@ test("native seeks publish their target and start a segment; frames advance with
     segment: 0,
     segmentStart: hz,
     audition: null,
+    until: null,
   });
   video.present(1.5);
   video.present(2.5);
@@ -108,6 +110,7 @@ test("native seeks publish their target and start a segment; frames advance with
     segment: 1,
     segmentStart: 5.5 * hz,
     audition: null,
+    until: null,
   });
   // Seeking invalidated the clock, so the first callback after it only re-arms.
   video.present(5.5);
@@ -129,6 +132,7 @@ test("native seeks publish their target and start a segment; frames advance with
     segment: 2,
     segmentStart: 2 * hz,
     audition: null,
+    until: null,
   });
   // As above, the first callback after the seek only re-arms.
   video.present(2.4);
@@ -153,6 +157,7 @@ test("native seeks publish their target and start a segment; frames advance with
     segment: 3,
     segmentStart: 4 * hz,
     audition: null,
+    until: null,
   });
   assert.equal(stop(), true);
 });

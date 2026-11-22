@@ -66,6 +66,12 @@ export interface TimelineDiagnostics {
 export interface TimelineView {
     setViewport(viewport: Partial<Viewport>): void;
     getViewport(): Viewport;
+    /**
+     * Scrolls the clip's lane into view and pans to its start when that is
+     * offscreen. Selection is the host's. Returns false for a clip the project
+     * does not hold.
+     */
+    reveal(clipId: string): boolean;
     getDiagnostics(): TimelineDiagnostics;
     /** Releases this mount's DOM, observers and subscriptions. The host owns the editor and transport. */
     dispose(): void;

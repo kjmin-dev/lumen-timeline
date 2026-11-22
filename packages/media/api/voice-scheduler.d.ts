@@ -76,6 +76,12 @@ export declare class VoiceScheduler {
      * them while no anchor is held.
      */
     setPlan(options: PlanOptions | undefined, until?: Tick): void;
+    /**
+     * Moves the stop to `until` or earlier while playback holds an anchor. A
+     * voice booked past it is cut at its output sample. A later stop needs a new
+     * anchor, because booked voices already end at the earlier one.
+     */
+    stopAt(until: Tick): void;
     setCatalog(catalog: StreamCatalog): void;
     diagnostics(clipId: string): TransportDiagnostics;
     dispose(): void;
