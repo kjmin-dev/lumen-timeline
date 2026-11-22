@@ -16,7 +16,7 @@ Each line is one probe. The table records what each showed when the audit ran an
 | ----- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | 1     | Undoing a left trim conflicts after an unrelated move            | Resolved: replay owns placement in content space, where a trim and a move write different values. |
 | 2     | A list equal by value but not by identity conflicts              | Resolved: fields compare by value.                                                                |
-| 3     | Undoing an added take conflicts after another take was added     | Open. A candidate list is one value.                                                              |
+| 3     | Undoing an added take conflicts after another take was added     | Resolved: a candidate list replays by element.                                                    |
 | 4     | Undo kept a field it had to remove, or reported a false conflict | Resolved: replay owns the fields an edit removed.                                                 |
 | 5     | "No active take" had two spellings                               | Resolved: a clip carries both candidate fields or neither.                                        |
 | 6     | A new take under an old ID inherited its entity data             | Resolved: takes stay until pruned, so the ID is taken. Prune and retire data together.            |

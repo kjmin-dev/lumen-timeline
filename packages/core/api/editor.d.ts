@@ -1,5 +1,5 @@
 import type { AddMarkerCommand, AddTakeCommand, Editor, EditorOptions, ExpectClipCommand, ExpectDataCommand, MoveMarkerCommand, MoveCommand, PruneTakesCommand, RemoveDataCommand, RemoveMarkerCommand, RemoveTakeCommand, ReorderTakesCommand, SelectTakeCommand, SetDataCommand, SplitCommand, TrimCommand, UpdateMarkerCommand, UpdateTakeCommand } from "./types.ts";
-type Arguments<C> = Omit<C, "type">;
+type Arguments<C> = C extends unknown ? Omit<C, "type"> : never;
 export interface Commands {
     addMarker(args: Arguments<AddMarkerCommand>): AddMarkerCommand;
     moveMarker(args: Arguments<MoveMarkerCommand>): MoveMarkerCommand;

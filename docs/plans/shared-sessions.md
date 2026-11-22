@@ -104,8 +104,8 @@ Each item is useful without sync, and none adds a dependency or network code to 
   - The ID counter never moves back across a replacement, so a dropped transaction's IDs are not issued again.
 - **A dispatch gate.** `editor.setGate(gate)` installs a host function that sees each validated transaction, including undo and redo, and lets it commit, rejects it with `read-only`, or holds it. A held transaction returns its commands and target IDs without a revision. The sync package uses the gate for `online` and `confirmed`. A host uses it alone for a viewer, a review lock or a save in progress.
 - **Undo that travels.** A commit from undo or redo has no commands. A `replay` command carrying clip, marker, take and data patches would apply them under the existing value-checked replay rules. An undo commit then lists one `replay` command, which another editor or a saved log can apply like any other.
-- **Split at a content position.** `splitClip({ at })` names a timeline tick. After a concurrent move the same tick is another point in the clip, or outside it. An `atContent` form names the point in the clip's own content time, which a move does not change.
-- **Candidate lists by element.** A clip's `takeIds` is one value, so undoing an added take conflicts after another take was added (audit probe 3). Replay should own the elements an edit added, removed or moved. Local undo benefits as much as sharing does.
+- **Split at a content position.** `splitClip({ at })` names a timeline tick. After a concurrent move the same tick is another point in the clip, or outside it. An `atContent` form names the point in the clip's own content time, which a move does not change. _Delivered in S5: commits record every split by `atContent`._
+- **Candidate lists by element.** A clip's `takeIds` is one value, so undoing an added take conflicts after another take was added (audit probe 3). Replay should own the elements an edit added, removed or moved. Local undo benefits as much as sharing does. _Delivered in S5._
 
 ## Outside the document
 
