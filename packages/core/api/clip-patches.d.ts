@@ -1,4 +1,5 @@
 import type { Clip, ClipFieldChanges, ClipPatch } from "./types.ts";
+export declare function sameFields(a: Clip, b: Clip): boolean;
 /** What a clip patch changed, field by field, with placement in content space. */
 export declare function clipFieldChanges(patch: ClipPatch): ClipFieldChanges;
 export declare function inverse(patches: readonly ClipPatch[]): readonly ClipPatch[];

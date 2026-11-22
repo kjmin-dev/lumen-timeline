@@ -30,22 +30,32 @@ function lastCounter(actor: string, project: ProjectSnapshot): number {
   return last;
 }
 
+/** The IDs an editing session generates. */
+export interface IdAllocator {
+  /** The next unused ID. `taken` rejects an ID that is in use. */
+  next(taken: (id: string) => boolean): string;
+  /** Moves the counter past every ID of this actor that `project` carries. It never moves back. */
+  advance(project: ProjectSnapshot): void;
+}
+
 /**
  * Allocates the IDs an editing session generates: `<actor>-<n>`, counting on
  * from the IDs the project already carries for that actor. One counter serves
- * clips, markers and takes. `taken` rejects an ID that is in use.
+ * clips, markers and takes.
  */
-export function idAllocator(
-  actor: string | undefined,
-  project: ProjectSnapshot,
-): (taken: (id: string) => boolean) => string {
+export function idAllocator(actor: string | undefined, project: ProjectSnapshot): IdAllocator {
   const name = actor ?? randomActor();
   let counter = lastCounter(name, project);
-  return (taken) => {
-    let id;
-    do {
-      id = name + "-" + ++counter;
-    } while (taken(id));
-    return id;
+  return {
+    next(taken) {
+      let id;
+      do {
+        id = name + "-" + ++counter;
+      } while (taken(id));
+      return id;
+    },
+    advance(next) {
+      counter = Math.max(counter, lastCounter(name, next));
+    },
   };
 }
