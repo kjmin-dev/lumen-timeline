@@ -115,7 +115,7 @@ test("a recorded batch has one revision, final-state collision checks and stable
   assert.equal(calls, 1);
   const edited = e.getSnapshot();
   const undo = commit(e.history.undo());
-  assert.equal(undo.patches, result.inversePatches);
+  assert.equal(undo.clipPatches, result.inverseClipPatches);
   assert.deepEqual(e.getSnapshot().clips, project.clips);
   assert.equal(e.getSnapshot().entityData, undefined);
   pass(e.history.redo());
@@ -167,7 +167,7 @@ test("stable-ID replay survives an ignored earlier split and keeps other fields 
   const undo = commit(e.history.undo());
   const c = e.getSnapshot().clips.at(-1);
   assert.ok(c);
-  assert.deepEqual([c.id, c.start, c.duration, undo.patches[0].index], ["c", 24, 6, 4]);
+  assert.deepEqual([c.id, c.start, c.duration, undo.clipPatches[0]?.id], ["c", 24, 6, "c"]);
   pass(e.history.redo());
   assert.deepEqual(
     e.getSnapshot().clips.map((c) => [c.id, c.start, c.duration]),

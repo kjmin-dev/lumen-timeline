@@ -534,7 +534,7 @@ export function mountTimeline(
       snapshot = next;
       read = editor.read(next);
       if (change.markerPatches.length) updateMarkers();
-      if (!change.patches.length) {
+      if (!change.clipPatches.length) {
         if (!change.markerPatches.length) return;
         // A marker can change an implicit extent; otherwise only markers repaint.
         const oldDuration = duration;
@@ -550,7 +550,8 @@ export function mountTimeline(
       const oldRows = rows,
         oldDuration = duration;
       rebuildRows(dirty);
-      if (change.patches.some((p) => p.before.length !== p.after.length)) updateNavigator();
+      if (change.clipPatches.some((p) => p.before === undefined || p.after === undefined))
+        updateNavigator();
       if (duration !== oldDuration || rows.some((r, i) => r.height !== oldRows[i]?.height))
         return refresh();
       if (change.markerPatches.length) paintRuler();

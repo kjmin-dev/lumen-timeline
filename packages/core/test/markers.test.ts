@@ -113,7 +113,7 @@ test("add, move, rename and remove commit marker patches without touching clips"
   assert.deepEqual(added.inverseMarkerPatches, [
     { id: "drop", before: { id: "drop", start: 60, label: "Drop" }, after: undefined },
   ]);
-  assert.deepEqual([added.changedIds, added.createdIds, added.patches], [[], [], []]);
+  assert.deepEqual([added.changedIds, added.createdIds, added.clipPatches], [[], [], []]);
   assert.deepEqual(ids(e), ["intro", "cue", "drop", "outro"]);
   commit(e.dispatch(move("drop", -25)));
   assert.equal(marker(e, "drop")?.start, 35);

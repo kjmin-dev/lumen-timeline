@@ -1,6 +1,6 @@
 import { openProject, orderTrack, validateClip } from "./document.ts";
 import type { TrackLayout } from "./document.ts";
-import { ClipDraft, inverse, rebase } from "./clip-patches.ts";
+import { ClipDraft, applyClips, inverse, rebase } from "./clip-patches.ts";
 import { DataDraft, applyData, invertData } from "./entity-data.ts";
 import { expectClip, expectData } from "./expect.ts";
 import { defined } from "./invariant.ts";
@@ -390,19 +390,10 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     after: readonly Clip[],
   ): Geometry {
     const layout = stageTracks(before, after);
-    const clips: Clip[] = [];
-    let cursor = 0;
-    // Patch indices are sorted and lie within the current clip array.
-    for (const patch of patches) {
-      for (const clip of snapshot.clips.slice(cursor, patch.index)) clips.push(clip);
-      cursor = Math.max(cursor, patch.index);
-      for (const clip of patch.after) clips.push(clip);
-      cursor += patch.before.length;
-    }
-    for (const clip of snapshot.clips.slice(cursor)) clips.push(clip);
+    const clips = applyClips(snapshot.clips, patches);
     // Placement-only changes keep every ID at its existing array position.
-    const structural = patches.some((p) => p.before.length !== p.after.length);
-    return { clips: Object.freeze(clips), layout, positions: structural ? positions(clips) : byId };
+    const structural = patches.some((p) => p.before === undefined || p.after === undefined);
+    return { clips, layout, positions: structural ? positions(clips) : byId };
   }
 
   function checkRevision(options: RevisionOptions | undefined): void {
@@ -443,10 +434,10 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         stageClip(command, draft);
       }
       const patches = draft.patches();
-      const placements = Object.freeze(patches.flatMap((p) => p.after));
+      const placements = Object.freeze(patches.flatMap((p) => (p.after ? [p.after] : [])));
       if (patches.length) {
         stageTracks(
-          patches.flatMap((p) => p.before),
+          patches.flatMap((p) => (p.before ? [p.before] : [])),
           placements,
         );
         nextRevision();
@@ -563,8 +554,8 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         policy = mode;
       }
 
-      const before = patches.flatMap((p) => p.before);
-      const after = patches.flatMap((p) => p.after);
+      const before = patches.flatMap((p) => (p.before ? [p.before] : []));
+      const after = patches.flatMap((p) => (p.after ? [p.after] : []));
       const geometry = patches.length ? prepareLayout(patches, before, after) : null;
       const entityData = applyData(snapshot.entityData, data);
       const markerList = applyMarkers(snapshot.markers, markerPatches);
@@ -587,8 +578,8 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         ok: true,
         revision,
         history: policy,
-        patches,
-        inversePatches: inverses,
+        clipPatches: patches,
+        inverseClipPatches: inverses,
         dataPatches: data,
         inverseDataPatches: inverseData,
         changedIds: Object.freeze([

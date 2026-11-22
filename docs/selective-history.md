@@ -46,23 +46,31 @@ Policy applies to the entire call. Arrays run synchronously in order against a p
 
 ## What history retains
 
-- A history entry contains forward and inverse clip splices, stable IDs and before/after values for touched data fields. The splices reference immutable clip records and share their nested objects. Undo and redo create fresh document revisions. Saving and reopening restores the current document with empty session history.
+- A history entry contains forward and inverse clip patches by ID, and before/after values for touched data fields. The patches reference immutable clip records and share their nested objects. Undo and redo create fresh document revisions. Saving and reopening restores the current document with empty session history.
 - Durable host data lives in `snapshot.entityData[scope][id][key]`. A key is the unit of conflict. Store independently updated values under separate keys. Values are cloned, frozen JSON. `null` is a value. `commands.removeEntityData({ scope, id, key })` removes a field and empty containers are pruned. Scope and entity IDs are host-defined.
 - The entity data store is independent of clip existence. If undo removes a split child, its analysis or take-generation result stays addressable by ID. Redo restores the child with its original ID. Use stable IDs and explicitly remove metadata when retiring its underlying entity.
 - The defaults are **200 transactions and an estimated 16 MiB across both stacks**. Recording a new edit clears the redo branch and evicts oldest undo entries until both limits fit. A single oversized newest transaction stays undoable in full. A zero limit disables recording. `undoDepth`, `redoDepth` and `estimatedBytes` expose the policy in use. Byte accounting estimates logical payload size, caches immutable object weights and can charge shared values multiple times. Use heap profiling to measure actual retained memory.
 
 ## Replay against the current document
 
-1. Resolve recorded clip IDs to their current indices. An ignored split on another track can shift an index without affecting the validity of the entry.
-2. For a retained clip, compare the current values of the fields the edit owned with their expected values, then restore only those fields. A moved clip can keep a later, independent change to its duration. Use a value precondition for each touched host-data key. JSON object equality is independent of property order.
-3. Undoing a split also removes its children. Verify their IDs, adjacency and complete clip records before removing them. Redo checks that the required new IDs are available. Recheck sequence, source and track overlap constraints on the merged result.
-4. If a field was superseded, a required structure changed, or an exclusive interval would overlap, return `history-conflict` with the target and reason. Both stacks and the document stay intact. The host can resolve the conflict and retry, explicitly discard that entry or clear history when replacing a project. This is value-checked session history. Concurrent multi-user text or sequence merging would need a separate reconciliation layer.
+1. Find each recorded clip by ID. An ignored split elsewhere changes no ID, so it does not affect the entry.
+2. For a retained clip, compare the current values of the fields the edit owned with their expected values, then restore only those fields. Use a value precondition for each touched host-data key. JSON equality is independent of property order and of object identity.
+3. Compare placement in content space, where edits own separate values.
+   - `origin` is where content time zero sits on the timeline: `start − contentIn`. A move owns it.
+   - `in` is the left content edge, `contentIn`. A left trim owns it.
+   - `out` is the right content edge, `contentIn + duration`. A right trim and the left half of a split own it.
+
+   Undoing a left trim after an unrelated move therefore restores the edge and leaves the clip where the move put it. Two edits of the same value still conflict.
+
+4. Undoing a split also removes the clips it added. Each must equal its recorded clip by value. Redo checks that the required new IDs are available, and places each clip after the one it followed.
+5. Recheck sequence, source and track overlap constraints on the merged result.
+6. If a field was superseded, a clip is missing or changed, or an exclusive interval would overlap, return `history-conflict` with the target and reason. Both stacks and the document stay intact. The host can resolve the conflict and retry, explicitly discard that entry or clear history when replacing a project. This is value-checked session history. Concurrent multi-user text or sequence merging would need a separate reconciliation layer.
 
 The policy follows selective capture by origin in Yjs, replay of history across excluded transactions in ProseMirror, and transaction grouping and bounded history in Qt. Here the mapping uses timeline entity IDs, field preconditions and exact clip boundaries. [Yjs UndoManager](https://docs.yjs.dev/api/undo-manager) · [ProseMirror history implementation](https://github.com/ProseMirror/prosemirror-history/blob/master/src/history.ts) · [Qt undo stack](https://doc.qt.io/qt-6/qundostack.html)
 
 ## Rendering and playback consequences
 
-One successful batch publishes one immutable snapshot and change result. `result.history` identifies record, ignore, undo or redo. Clip changes publish current-index splices and old/new track intervals. Host-data changes publish `dataPatches` and `inverseDataPatches` with scope, ID, key and before/after values. A missing before or after value represents field absence.
+One successful batch publishes one immutable snapshot and change result. `result.history` identifies record, ignore, undo or redo. Clip changes publish patches by clip ID and old/new track intervals. Host-data changes publish `dataPatches` and `inverseDataPatches` with scope, ID, key and before/after values. A missing before or after value represents field absence.
 
 A metadata-only transaction preserves the clip array and track indexes, emits empty geometry intervals and does no clip scan. Document selectors still evaluate once per revision. A clip panel using a stable selector receives no callback when its value is unchanged. A status panel can subscribe directly to its take field. Changes affecting playback through a host plugin can use the data patch keys to invalidate that plugin's derived plan. Placement edits reuse the ID index when array positions are stable. Publishing a new flat clip array still takes work proportional to its length.
 
