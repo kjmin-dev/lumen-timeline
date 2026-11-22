@@ -55,6 +55,36 @@ export interface TimelineLabels {
   readonly none?: string | undefined;
 }
 
+/**
+ * The part of a take's source that the view draws for one clip, in source
+ * time: the clip's content time plus the take's `sourceAtContentZero`. The
+ * range divides into `buckets` equal slices, one per CSS pixel column.
+ */
+export interface WaveformRequest {
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly start: Tick;
+  readonly end: Tick;
+  readonly buckets: number;
+}
+
+/**
+ * Peaks for the waveforms the view draws inside clips. The view asks for the
+ * visible part of each clip's active take whenever it paints that clip.
+ */
+export interface WaveformProvider {
+  /**
+   * `buckets` minimum and maximum pairs in -1 to 1, as `[min0, max0, min1,
+   * max1, …]`, or `null` to draw no waveform for this source yet.
+   */
+  peaks(request: WaveformRequest): ArrayLike<number> | null;
+  /**
+   * Called with an asset ID when its peaks become available or change. The view
+   * repaints the tracks whose clips play that asset. Call it outside `peaks`.
+   */
+  subscribe?(listener: (assetId: string) => void): () => unknown;
+}
+
 export interface TimelineOptions {
   readonly editor: Editor;
   readonly transport: TimelineTransport;
@@ -62,6 +92,8 @@ export interface TimelineOptions {
   readonly startTick?: Tick | undefined;
   readonly snap?: SnapOptions | undefined;
   readonly labels?: TimelineLabels | undefined;
+  /** Draws a waveform in each clip whose active take the provider has peaks for. */
+  readonly waveforms?: WaveformProvider | undefined;
 }
 
 export interface TimelineDiagnostics {

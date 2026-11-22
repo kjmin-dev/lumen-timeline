@@ -12,6 +12,7 @@ import type {
   Track,
 } from "@lumen-timeline/core";
 import { captionWords, takeCaption } from "./captions.ts";
+import { placeWaveform, unit } from "./waveforms.ts";
 import { element } from "./dom.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
@@ -64,7 +65,15 @@ function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
 
 export function mountTimeline(
   container: HTMLElement,
-  { editor, transport, pixelsPerSecond = 48, startTick = 0, snap, labels }: TimelineOptions,
+  {
+    editor,
+    transport,
+    pixelsPerSecond = 48,
+    startTick = 0,
+    snap,
+    labels,
+    waveforms,
+  }: TimelineOptions,
 ): TimelineView {
   const config = snapConfig(snap);
   const words = captionWords(labels);
@@ -275,7 +284,49 @@ export function mountTimeline(
     ruler.setAttribute("aria-valuenow", String(t / hz));
     ruler.setAttribute("aria-valuetext", formatTime(t));
   }
+  // The active take's peaks across the clip's visible columns, behind its name.
+  function drawWaveform(ctx: CanvasRenderingContext2D, b: Box<Clip>, color: string): void {
+    const clip = b.clip;
+    if (!waveforms || typeof clip.activeTakeId !== "string") return;
+    const take = read.takesOf(clip.id).find((t) => t.id === clip.activeTakeId);
+    const placed = take && placeWaveform(clip, take, b.x, b.endX, view);
+    if (!placed) return;
+    const { buckets } = placed.request;
+    const peaks = waveforms.peaks(placed.request);
+    if (!peaks || peaks.length < 2 * buckets) return;
+    // Below the stripe, with the name drawn over it.
+    const mid = b.y + 3 + (b.height - 3) / 2;
+    const half = (b.height - 7) / 2;
+    ctx.fillStyle = color;
+    for (let i = 0; i < buckets; i++) {
+      const top = mid - unit(peaks[2 * i + 1]) * half;
+      const bottom = mid - unit(peaks[2 * i]) * half;
+      ctx.fillRect(placed.x + i, top, 1, Math.max(1, bottom - top));
+    }
+  }
+  // Tracks with a clip whose active take plays `assetId`.
+  function playing(assetId: string): ReadonlySet<string> {
+    const tracks = new Set<string>();
+    for (const clip of snapshot.clips) {
+      const id = clip.activeTakeId;
+      if (
+        typeof id === "string" &&
+        read.takesOf(clip.id).some((t) => t.id === id && t.assetId === assetId)
+      )
+        tracks.add(clip.trackId);
+    }
+    return tracks;
+  }
+  let painting = false;
   function paint(dirty?: ReadonlySet<string>): void {
+    painting = true;
+    try {
+      paintClips(dirty);
+    } finally {
+      painting = false;
+    }
+  }
+  function paintClips(dirty?: ReadonlySet<string>): void {
     const ctx = setup(body, width, height);
     const range = { start: view.startTick, end: Math.min(maxTick, tickAt(width, view) + 1) };
     if (!dirty) {
@@ -301,6 +352,7 @@ export function mountTimeline(
         ctx.fillRect(b.x, b.y, b.endX - b.x, b.height);
         ctx.fillStyle = stripe;
         ctx.fillRect(b.x, b.y, b.endX - b.x, 3);
+        drawWaveform(ctx, b, stripe + "66");
         ctx.save();
         ctx.beginPath();
         ctx.rect(b.x + 3, b.y, Math.max(0, b.endX - b.x - 6), b.height);
@@ -549,10 +601,14 @@ export function mountTimeline(
       snapshot = next;
       read = editor.read(next);
       if (change.markerPatches.length) updateMarkers();
-      const captions = relabeled(change);
+      // Tracks drawn differently with no clip patch: a relabeled active take, or a
+      // take that now plays other media under a waveform.
+      const restyled = new Set(relabeled(change));
+      if (waveforms && !change.clipPatches.length)
+        for (const r of change.affected.after) restyled.add(r.trackId);
       if (!change.clipPatches.length) {
         if (!change.markerPatches.length) {
-          if (captions.size) paint(captions);
+          if (restyled.size) paint(restyled);
           return;
         }
         // A marker can change an implicit extent; otherwise only markers repaint.
@@ -560,13 +616,13 @@ export function mountTimeline(
         duration = sequenceDuration(snapshot);
         if (duration !== oldDuration) return refresh();
         paintRuler();
-        if (captions.size) paint(captions);
+        if (restyled.size) paint(restyled);
         else paintOverlay();
         return;
       }
       const dirty = new Set([
         ...[...change.affected.before, ...change.affected.after].map((r) => r.trackId),
-        ...captions,
+        ...restyled,
       ]);
       const oldRows = rows,
         oldDuration = duration;
@@ -584,7 +640,7 @@ export function mountTimeline(
       // An offscreen overlap can change a visible clip's lane.
       if (
         intersects ||
-        captions.size > 0 ||
+        restyled.size > 0 ||
         visible.some(
           (r) =>
             dirty.has(r.track.id) &&
@@ -612,6 +668,16 @@ export function mountTimeline(
   }
   const offSelection = editor.session.subscribeSelection(selected);
   const offFrame = transport.subscribe(frame);
+  // New peaks repaint only the tracks that draw them, after any paint in progress.
+  const offWaveforms =
+    waveforms?.subscribe?.((assetId) => {
+      const repaint = (): void => {
+        const tracks = playing(assetId);
+        if (!disposed && tracks.size) paint(tracks);
+      };
+      if (painting) queueMicrotask(repaint);
+      else repaint();
+    }) ?? (() => {});
   const resize = new win.ResizeObserver(refresh);
   resize.observe(surface);
   resize.observe(scroll);
@@ -640,6 +706,7 @@ export function mountTimeline(
       offDoc();
       offSelection();
       offFrame();
+      offWaveforms();
       root.remove();
     },
   };

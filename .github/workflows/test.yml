@@ -41,3 +41,4 @@ jobs:
       - run: npm run verify:takes
       - run: npm run verify:studio
       - run: npm run verify:lines
+      - run: npm run verify:waveforms

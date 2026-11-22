@@ -37,6 +37,7 @@ export function createDemoAssets(audio) {
     line[i] = Math.sin(phase) * 0.12 * phrase * Math.min(1, t * 4, (8 - t) * 4);
   }
   const rate = audio.sampleRate;
+  const stem = referenceStem(audio);
   // The project's takes name these assets. The catalog describes their decoded streams.
   const stream = (length) =>
     Object.freeze({
@@ -53,15 +54,18 @@ export function createDemoAssets(audio) {
       line: stream(8 * rate),
       guide: stream(guide.length),
       bed: stream(music.length),
+      stem: stream(stem.length),
     }),
   });
-  const decoded = { guide, bed: music };
+  const decoded = { guide, bed: music, stem };
   let current = catalog;
   return {
     get catalog() {
       return current;
     },
     resolveBuffer: (span) => (span.assetId === "line" ? loadDialogue() : decoded[span.assetId]),
+    /** The decoded reference stem, which the timeline draws as a waveform. */
+    stem,
     // Adds a decoded asset, such as a generated take, and returns the next catalog.
     register(assetId, buffer) {
       decoded[assetId] = buffer;
@@ -73,4 +77,37 @@ export function createDemoAssets(audio) {
     },
     dispose: () => assets.abort(),
   };
+}
+
+// A stand-in for the original-language dialogue stem: voiced phrases where the
+// picture's lines are spoken, over a faint room tone. Deterministic, so every
+// engine draws and plays the same samples.
+function referenceStem(audio) {
+  const rate = audio.sampleRate;
+  const buffer = audio.createBuffer(1, 24 * rate, rate);
+  const samples = buffer.getChannelData(0);
+  const phrases = [
+    [5.1, 7.7],
+    [12.2, 15.8],
+    [19.1, 21.6],
+  ];
+  let seed = 7;
+  let phase = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const t = i / rate;
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const noise = seed / 4294967296 - 0.5;
+    let value = 0.012 * noise;
+    const phrase = phrases.find(([from, to]) => t >= from && t < to);
+    if (phrase) {
+      const [from, to] = phrase;
+      const edge = Math.min(1, (t - from) * 8, (to - t) * 8);
+      const syllable = Math.abs(Math.sin(Math.PI * 4.3 * (t - from))) ** 1.5;
+      phase += (2 * Math.PI * (150 + 30 * Math.sin(2 * Math.PI * 0.7 * t))) / rate;
+      value +=
+        edge * syllable * (0.34 * Math.sin(phase) + 0.12 * Math.sin(2 * phase) + 0.08 * noise);
+    }
+    samples[i] = value;
+  }
+  return buffer;
 }

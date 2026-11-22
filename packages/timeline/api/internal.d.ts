@@ -3,3 +3,5 @@ export type { Box, Packed, Span } from "./geometry.ts";
 export { handleAt, snapDelta } from "./gestures.ts";
 export type { SnapHold, SnapRead } from "./gestures.ts";
 export { captionWords, takeCaption } from "./captions.ts";
+export { placeWaveform, unit } from "./waveforms.ts";
+export type { PlacedWaveform } from "./waveforms.ts";
