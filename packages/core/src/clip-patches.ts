@@ -1,3 +1,4 @@
+import { jsonEqual } from "./entity-data.ts";
 import { defined } from "./invariant.ts";
 import type { Clip, ClipPatch } from "./types.ts";
 import { requireEdit } from "./validation.ts";
@@ -17,11 +18,12 @@ export function inverse(patches: readonly ClipPatch[]): readonly ClipPatch[] {
   );
 }
 
+// Fields compare by value, so a candidate list rebuilt with the same IDs is unchanged.
 function sameFields(a: Clip, b: Clip): boolean {
   return (
     a === b ||
     (Object.keys(a).length === Object.keys(b).length &&
-      Object.keys(a).every((key) => Object.hasOwn(b, key) && Object.is(a[key], b[key])))
+      Object.keys(a).every((key) => Object.hasOwn(b, key) && jsonEqual(a[key], b[key])))
   );
 }
 
@@ -110,11 +112,17 @@ export function rebase(
     const current = defined(before[0], "current target");
     if (current !== expected) {
       const merged: { -readonly [K in keyof Clip]: Clip[K] } = { ...current };
-      for (const key of Object.keys(desired)) {
-        if (Object.is(expected[key], desired[key])) continue;
-        if (!Object.is(current[key], expected[key]))
+      // An edit owns the fields it changed, including the ones it removed.
+      const keys = [
+        ...Object.keys(desired),
+        ...Object.keys(expected).filter((key) => !Object.hasOwn(desired, key)),
+      ];
+      for (const key of keys) {
+        if (jsonEqual(expected[key], desired[key])) continue;
+        if (!jsonEqual(current[key], expected[key]))
           conflict(expected.id, "History field changed: " + key);
-        merged[key] = desired[key];
+        if (Object.hasOwn(desired, key)) merged[key] = desired[key];
+        else delete merged[key];
       }
       head = Object.freeze(merged);
     }

@@ -1,3 +1,4 @@
+import { jsonEqual } from "./entity-data.ts";
 import { requireEdit } from "./validation.ts";
 
 /** A record keyed by a stable ID, such as a marker or a take. */
@@ -13,12 +14,12 @@ export interface RecordPatch<T extends Entity> {
   readonly after: T | undefined;
 }
 
-/** Shallow field equality, which is exact for frozen JSON records. */
+/** Field-by-field equality of JSON values, independent of object identity. */
 export function sameRecord(a: Entity, b: Entity): boolean {
   return (
     a === b ||
     (Object.keys(a).length === Object.keys(b).length &&
-      Object.keys(a).every((key) => Object.hasOwn(b, key) && Object.is(a[key], b[key])))
+      Object.keys(a).every((key) => Object.hasOwn(b, key) && jsonEqual(a[key], b[key])))
   );
 }
 
@@ -85,8 +86,8 @@ export function rebaseRecords<T extends Entity>(
       ...Object.keys(after).filter((k) => !Object.hasOwn(before, k)),
     ];
     for (const key of keys) {
-      if (Object.is(before[key], after[key])) continue;
-      if (!Object.is(found[key], before[key])) conflict(patch.id, "History field changed: " + key);
+      if (jsonEqual(before[key], after[key])) continue;
+      if (!jsonEqual(found[key], before[key])) conflict(patch.id, "History field changed: " + key);
       if (Object.hasOwn(after, key)) Reflect.set(merged, key, after[key]);
       else Reflect.deleteProperty(merged, key);
     }

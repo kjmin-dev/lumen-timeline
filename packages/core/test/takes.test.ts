@@ -613,3 +613,46 @@ test("seeded take edits keep references exact through history and reopen", () =>
     assert.deepEqual(e.getSnapshot().takes, final.takes);
   }
 });
+
+test("replay owns the fields an edit removed and compares lists by value", () => {
+  const ignore = { history: "ignore" } as const;
+  // Undoing the first candidate removes the list from a clip that moved since.
+  const e = editor();
+  commit(e.dispatch(commands.addTake({ clipIds: ["other"], take: { id: "c", ...fresh } })));
+  commit(e.dispatch(commands.moveClips({ clipIds: ["other"], delta: hz }), ignore));
+  pass(e.history.undo());
+  assert.ok(!Object.hasOwn(clip(e, "other") ?? {}, "takeIds"));
+  assert.equal(clip(e, "other")?.start, 31 * hz);
+  assert.deepEqual(takeIds(e), ["a", "b"]);
+  pass(e.history.redo());
+  assert.deepEqual(clip(e, "other")?.takeIds, ["c"]);
+
+  // Undoing a first selection removes the field again, not only its value.
+  const p = project();
+  const second = p.clips[1];
+  assert.ok(second);
+  second.takeIds = ["a"];
+  const f = editor(p);
+  commit(f.dispatch(commands.selectTake({ clipId: "other", takeId: "a" })));
+  commit(f.dispatch(commands.moveClips({ clipIds: ["other"], delta: hz }), ignore));
+  pass(f.history.undo());
+  assert.ok(!Object.hasOwn(clip(f, "other") ?? {}, "activeTakeId"));
+  assert.equal(clip(f, "other")?.start, 31 * hz);
+
+  // A list that returned to the same IDs through other edits is unchanged.
+  const g = editor();
+  commit(g.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a", "b"] })));
+  commit(g.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["b", "a"] }), ignore));
+  commit(g.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a", "b"] }), ignore));
+  pass(g.history.undo());
+  assert.deepEqual(clip(g, "line")?.takeIds, ["b", "a"]);
+
+  // The same holds for a split child that undo removes.
+  const h = editor();
+  commit(h.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz, rightId: "r" })));
+  commit(h.dispatch(commands.reorderTakes({ clipId: "r", takeIds: ["a", "b"] }), ignore));
+  commit(h.dispatch(commands.reorderTakes({ clipId: "r", takeIds: ["b", "a"] }), ignore));
+  pass(h.history.undo());
+  assert.equal(clip(h, "r"), undefined);
+  assert.equal(clip(h, "line")?.duration, 4 * hz);
+});
