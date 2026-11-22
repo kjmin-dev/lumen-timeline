@@ -56,9 +56,21 @@ export function createDemoAssets(audio) {
     }),
   });
   const decoded = { guide, bed: music };
+  let current = catalog;
   return {
-    catalog,
+    get catalog() {
+      return current;
+    },
     resolveBuffer: (span) => (span.assetId === "line" ? loadDialogue() : decoded[span.assetId]),
+    // Adds a decoded asset, such as a generated take, and returns the next catalog.
+    register(assetId, buffer) {
+      decoded[assetId] = buffer;
+      current = Object.freeze({
+        version: current.version + 1,
+        streams: Object.freeze({ ...current.streams, [assetId]: stream(buffer.length) }),
+      });
+      return current;
+    },
     dispose: () => assets.abort(),
   };
 }

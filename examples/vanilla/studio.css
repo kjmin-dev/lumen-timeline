@@ -275,3 +275,78 @@ header a {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+#line-panel {
+  margin-top: 14px;
+}
+.line-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 14px;
+}
+.line-edit,
+.line-jobs {
+  background: #1b2326;
+  border: 1px solid #3a4548;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.line-source {
+  margin: 12px 16px 6px;
+  font-size: 13px;
+  font-style: italic;
+  color: #aebbbd;
+}
+.line-edit form {
+  display: grid;
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+.line-edit label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #aebbbd;
+}
+.line-edit textarea {
+  font: inherit;
+  color: #e7ebe5;
+  background: #121a1d;
+  border: 1px solid #445257;
+  border-radius: 5px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+.line-actions {
+  display: flex;
+  gap: 8px;
+}
+.line-actions button {
+  color: #e4e9e3;
+  background: #253034;
+  border: 1px solid #445257;
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.line-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.line-jobs ol {
+  margin: 0;
+  padding: 8px 16px 12px 34px;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+}
+.line-jobs li[data-status="rejected"] {
+  color: #ffb184;
+}
+.line-jobs li[data-status="applied"] {
+  color: #b3dfce;
+}
+@media (max-width: 690px) {
+  .line-panel {
+    grid-template-columns: 1fr;
+  }
+}

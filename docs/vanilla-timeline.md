@@ -33,6 +33,18 @@ The example's **Takes** panel lists the selected clip's candidates in order. Eac
 
 `npm run verify:takes` checks the caption and repaint rules, an isolated and a cancelled audition with the video returning to its position, apply, reorder, remove, undo and reopen in the video workspace, and a mix audition and the renamed words in the audio workspace. Pass `firefox` or `webkit` to `node examples/vanilla/verify-takes.mjs` for the other engines.
 
+## Lines and generation
+
+The example's `studio.generation` plugin, in `examples/vanilla/generation.mjs`, shows how a host adds a take generator without anything in the core knowing of it.
+
+- **Lines.** A clip names its line in a custom `lineId` field, which a split copies to both halves. The line's source text, translation and text revision live in entity data under `studio.line`. **Save text** writes the translation and advances the revision in one edit.
+- **Requests.** **Generate take** snapshots the clip's line, text revision and content range. The simulated host generator derives audio from that request alone, after a configurable latency.
+- **Results.** The plugin commits each result as one transaction: `expectData` on the text revision, `expectClip` on the clip's `lineId`, then `addTake` with the request in the take's `studio.generation` extension. A result whose line changed meanwhile is rejected whole with `expectation-failed`, so a late result never overwrites newer work. Applying a generated take stays a separate edit.
+- **Job log.** Every job stays in the panel's **Generation jobs** log, applied or rejected, with its asset.
+- **Reopen.** A saved project carries each generated take's request, so a reopened project rebuilds the take's audio from it before playback.
+
+`npm run verify:studio` walks milestone 3's exit criteria in the video workspace, and CI runs it. It edits the line, generates and auditions a take and applies it, splits at 14 s and regenerates only the right half. It then undoes the apply and reopens. Afterwards it checks that the left half's candidates, plan and generated samples are unchanged. Last, it edits the text while a slow job runs and checks the rejection, the unchanged line and the job log. Pass `firefox` or `webkit` to `node examples/vanilla/verify-studio.mjs` for the other engines.
+
 ## Edit clips
 
 Drag a clip body to move the selection. Drag a visible endpoint to trim it. Shift-click adds or removes a clip from the selection. A clipped edge of the viewport still picks the body when the true trim handle is offscreen. The music track in the example is locked. The dialogue track rejects overlapping placements.

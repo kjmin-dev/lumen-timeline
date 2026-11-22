@@ -12,6 +12,8 @@ export async function attachPlayer(video, editor, onError) {
       : createAudioTransport(options);
     return {
       transport: player,
+      context,
+      assets,
       dispose() {
         player.dispose();
         assets.dispose();
