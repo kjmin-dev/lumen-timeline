@@ -42,12 +42,26 @@ export interface SnapConfig extends SnapOptions {
   readonly tolerancePx: number;
 }
 
+/**
+ * The host's words for a clip's candidates, which the view draws after the
+ * name of each clip that lists any: the active candidate's label and the count.
+ */
+export interface TimelineLabels {
+  /** One candidate. Defaults to "take". */
+  readonly take?: string | undefined;
+  /** Several candidates. Defaults to `take` followed by "s". */
+  readonly takes?: string | undefined;
+  /** Shown when no candidate is active. Defaults to "No " followed by `take`. */
+  readonly none?: string | undefined;
+}
+
 export interface TimelineOptions {
   readonly editor: Editor;
   readonly transport: TimelineTransport;
   readonly pixelsPerSecond?: number | undefined;
   readonly startTick?: Tick | undefined;
   readonly snap?: SnapOptions | undefined;
+  readonly labels?: TimelineLabels | undefined;
 }
 
 export interface TimelineDiagnostics {

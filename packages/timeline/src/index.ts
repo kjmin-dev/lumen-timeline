@@ -11,6 +11,7 @@ import type {
   Tick,
   Track,
 } from "@lumen-timeline/core";
+import { captionWords, takeCaption } from "./captions.ts";
 import { element } from "./dom.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
@@ -63,9 +64,10 @@ function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
 
 export function mountTimeline(
   container: HTMLElement,
-  { editor, transport, pixelsPerSecond = 48, startTick = 0, snap }: TimelineOptions,
+  { editor, transport, pixelsPerSecond = 48, startTick = 0, snap, labels }: TimelineOptions,
 ): TimelineView {
   const config = snapConfig(snap);
+  const words = captionWords(labels);
   const doc = container.ownerDocument;
   const windowProxy = doc.defaultView;
   if (!windowProxy) throw new Error("Mount the timeline in a document with a window");
@@ -305,7 +307,15 @@ export function mountTimeline(
         ctx.clip();
         ctx.font = "500 12px system-ui, sans-serif";
         ctx.fillStyle = "#faf6e9";
-        ctx.fillText(clip.name ?? clip.id, b.x + 9, b.y + 21);
+        const name = clip.name ?? clip.id;
+        ctx.fillText(name, b.x + 9, b.y + 21);
+        const caption = takeCaption(clip, (id) => read.takesOf(id), words);
+        if (caption) {
+          const x = b.x + 9 + ctx.measureText(name).width + 10;
+          ctx.font = "11px system-ui, sans-serif";
+          ctx.fillStyle = stripe;
+          ctx.fillText(caption, x, b.y + 21);
+        }
         ctx.restore();
       }
       count++;
@@ -534,19 +544,25 @@ export function mountTimeline(
       snapshot = next;
       read = editor.read(next);
       if (change.markerPatches.length) updateMarkers();
+      const captions = relabeled(change);
       if (!change.clipPatches.length) {
-        if (!change.markerPatches.length) return;
+        if (!change.markerPatches.length) {
+          if (captions.size) paint(captions);
+          return;
+        }
         // A marker can change an implicit extent; otherwise only markers repaint.
         const oldDuration = duration;
         duration = sequenceDuration(snapshot);
         if (duration !== oldDuration) return refresh();
         paintRuler();
-        paintOverlay();
+        if (captions.size) paint(captions);
+        else paintOverlay();
         return;
       }
-      const dirty = new Set(
-        [...change.affected.before, ...change.affected.after].map((r) => r.trackId),
-      );
+      const dirty = new Set([
+        ...[...change.affected.before, ...change.affected.after].map((r) => r.trackId),
+        ...captions,
+      ]);
       const oldRows = rows,
         oldDuration = duration;
       rebuildRows(dirty);
@@ -563,6 +579,7 @@ export function mountTimeline(
       // An offscreen overlap can change a visible clip's lane.
       if (
         intersects ||
+        captions.size > 0 ||
         visible.some(
           (r) =>
             dirty.has(r.track.id) &&
@@ -574,6 +591,20 @@ export function mountTimeline(
         paint(dirty);
     },
   );
+  // Tracks whose clips show a relabeled take as their active candidate.
+  function relabeled(change: EditCommit): ReadonlySet<string> {
+    const ids = new Set(
+      change.takePatches
+        .filter((p) => p.before && p.after && p.before.label !== p.after.label)
+        .map((p) => p.id),
+    );
+    const tracks = new Set<string>();
+    if (!ids.size) return tracks;
+    for (const clip of snapshot.clips)
+      if (typeof clip.activeTakeId === "string" && ids.has(clip.activeTakeId))
+        tracks.add(clip.trackId);
+    return tracks;
+  }
   const offSelection = editor.session.subscribeSelection(selected);
   const offFrame = transport.subscribe(frame);
   const resize = new win.ResizeObserver(refresh);

@@ -1,6 +1,6 @@
 # Candidate takes per clip
 
-**Status.** PR T delivered in [#24](https://github.com/kjmin-dev/lumen-timeline/pull/24) and PR U in [#28](https://github.com/kjmin-dev/lumen-timeline/pull/28). PRs V and W are planned.
+**Status.** PR T delivered in [#24](https://github.com/kjmin-dev/lumen-timeline/pull/24), PR U in [#28](https://github.com/kjmin-dev/lumen-timeline/pull/28) and PR V in [#30](https://github.com/kjmin-dev/lumen-timeline/pull/30). PR W is planned.
 
 **User outcome.** Any host can keep several candidates for one clip slot and choose between them: a dubbing studio's generated lines, an ADR session's recorded takes, a musician's comped passes, a game's variations or a reviewer's vendor versions. A split shares the candidates with both halves, a new candidate on one half stays there, and every choice is one undoable edit that survives save and reopen. A late asynchronous result cannot overwrite newer work. [Design](../design.md#time-and-project-format) · [Milestone 3](../../ROADMAP.md#milestones)
 
@@ -63,6 +63,7 @@ There is no separate take-set record. The candidate list is a field of the clip,
 - **PR U — Audition in the transports.** `transport.audition({ clipId, takeId, mode })` pauses project playback, remembers the playhead and plays one candidate, either in the mix or isolated, through `takeOverrides`. Finishing or cancelling restores the position. Applying stays a separate `selectTake`.
   - _Delivered._ Isolation is a plan option, `isolate`, that ignores mute and solo but keeps the track's gain. The scheduler stops every voice at the clip's end, so the mix does not run past it. An edit that removes the clip, moves an edge or unlists the take cancels the audition. [Audition guide](../media-transports.md#audition)
 - **PR V — Candidates in the view.** The timeline draws a candidate count and the active take's label on each clip that has a list. A `labels` option renames "take" for the host's domain. The vanilla example gains a take panel with audition, apply, reorder and remove.
+  - _Delivered._ The caption follows the clip's name. A relabeled active take repaints only its tracks. The example's panel keeps a constant height, because a panel that grew on selection moved the timeline during a drag. [Candidates in the view](../vanilla-timeline.md#candidates)
 - **PR W — Generation as a plugin.** A `studio.generation` example records request snapshots in take extensions, commits results with expectations and keeps rejected results in a host job log. The milestone 3 trace edits a line, auditions and applies a take, splits, regenerates only the right half, undoes and reopens. It then checks the left clip's audio and candidates and reproduces a stale result.
 
 ## Merge gates for PR T

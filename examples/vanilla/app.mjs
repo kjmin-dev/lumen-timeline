@@ -6,6 +6,7 @@ import {
 } from "@lumen-timeline/core";
 import { mountTimeline } from "@lumen-timeline/timeline";
 import { attachPlayer } from "./player.mjs";
+import { mountTakePanel } from "./takes.mjs";
 
 const video = document.querySelector("video");
 const videoProject = {
@@ -25,7 +26,7 @@ const videoProject = {
       duration: 4 * hz,
       contentIn: hz,
       contentBounds: { start: 0, end: 8 * hz },
-      takeIds: ["line"],
+      takeIds: ["line", "line-late", "guide"],
       activeTakeId: "line",
     },
     {
@@ -53,8 +54,18 @@ const videoProject = {
       activeTakeId: "bed",
     },
   ],
+  // Three candidates for the first line: the recording, the same recording a
+  // quarter second later, and a synthesized guide.
   takes: [
     { id: "line", assetId: "line", streamId: "mono", sourceAtContentZero: 0, label: "Dialogue" },
+    {
+      id: "line-late",
+      assetId: "line",
+      streamId: "mono",
+      sourceAtContentZero: -hz / 4,
+      label: "Dialogue, late",
+    },
+    { id: "guide", assetId: "guide", streamId: "mono", sourceAtContentZero: 0, label: "Guide" },
     { id: "bed", assetId: "bed", streamId: "mono", sourceAtContentZero: 0, label: "Music bed" },
   ],
   markers: [
@@ -76,6 +87,14 @@ const audioProject = {
   ],
 };
 export const project = video ? videoProject : audioProject;
+// Each workspace names candidates in its own words: takes for the picture edit,
+// versions for the audio-only one.
+export const words = video
+  ? { take: "take", takes: "takes", none: "No take" }
+  : { take: "version", takes: "versions", none: "No version" };
+const report = (text) => {
+  document.querySelector("#status").textContent = text;
+};
 
 export async function openProject(data) {
   const editor = createEditor({ project: data });
@@ -87,6 +106,7 @@ export async function openProject(data) {
     editor,
     transport,
     snap: { gridTicks: hz / 10 },
+    labels: words,
     pixelsPerSecond: Math.max(
       20,
       (document.querySelector("#timeline").clientWidth - 160) /
@@ -103,17 +123,38 @@ export async function openProject(data) {
       ? (c.start / hz).toFixed(3) + " – " + ((c.start + c.duration) / hz).toFixed(3) + " s"
       : "—";
     document.querySelector("#offset").textContent = c ? (c.contentIn / hz).toFixed(3) + " s" : "—";
-    document.querySelector("#take").textContent = c?.activeTakeId ?? "—";
+    const take = c?.activeTakeId
+      ? editor
+          .read()
+          .takesOf(c.id)
+          .find((t) => t.id === c.activeTakeId)
+      : undefined;
+    document.querySelector("#take").textContent = take
+      ? (take.label ?? take.id)
+      : c?.takeIds
+        ? words.none
+        : "—";
   }
   let off = () => {};
   function bindInspector() {
     off();
     const id = editor.session.getSelection().at(-1);
-    off = editor.subscribe((s) => s.clips.find((c) => c.id === id), inspector);
+    // The inspector shows the clip's fields and its active take's label.
+    off = editor.subscribe((s) => {
+      const c = s.clips.find((clip) => clip.id === id);
+      const take = s.takes?.find((t) => t.id === c?.activeTakeId);
+      return c && JSON.stringify([c, take?.label]);
+    }, inspector);
     inspector();
   }
   const deselect = editor.session.subscribeSelection(bindInspector);
   bindInspector();
+  const offTakes = mountTakePanel(document.querySelector("#take-panel"), {
+    editor,
+    transport,
+    words,
+    report,
+  });
   const clockLabel = document.querySelector("#clock-mode");
   function showClock(state) {
     if (!clockLabel) return;
@@ -140,6 +181,7 @@ export async function openProject(data) {
     async dispose() {
       off();
       deselect();
+      offTakes();
       offClock();
       offCrossings();
       view.dispose();

@@ -23,6 +23,16 @@ Drags snap to markers. Ties prefer the playhead, then a marker, then a neighbori
 
 Both example projects start with two markers. Save project and Reopen saved keep them. The title row shows the last marker that playback crossed. Seeking past a marker, by any means, does not change it. [Marker crossings](media-transports.md#marker-crossings) `npm run verify:timeline` steps through markers from the keyboard, adds, renames, removes and undoes one, checks that a marker added during playback leaves the music reservation alone, and reopens the saved project. It then plays from 11 s, seeks the video element directly to 18.6 s and checks that only the marker at 19 s is crossed.
 
+## Candidates
+
+Each clip that lists [candidate takes](headless-editing.md#takes) shows a caption after its name: the active take's label, or its ID, and the count, as in `Guide · 3 takes`. A clip with none active reads `No take · 3 takes`. Pass `labels: { take, takes, none }` to use the host's words, such as `{ take: "version" }` for `Guide · 3 versions` and `No version`. `takes` defaults to `take` followed by "s" and `none` to "No " followed by `take`, so a language without that plural passes all three.
+
+Selecting a take or changing a clip's list repaints the clip as any clip edit does. Relabeling a take repaints only the tracks where it is the active take of some clip. A label or data change that no caption shows repaints nothing.
+
+The example's **Takes** panel lists the selected clip's candidates in order. Each row can **Audition** the take through the [transport](media-transports.md#audition), in the mix or **Isolated**, and the same button stops it. **Apply** selects it, the arrows reorder the list and **Remove** takes it off the list. The active take cannot be removed. Each of these is one undoable edit, and Save project and Reopen saved keep the list. The first line has three candidates: the recording, the same recording a quarter second later and a synthesized guide. The audio workspace calls them versions. The panel keeps a constant height, so selecting a clip never moves the timeline under the pointer.
+
+`npm run verify:takes` checks the caption and repaint rules, an isolated and a cancelled audition with the video returning to its position, apply, reorder, remove, undo and reopen in the video workspace, and a mix audition and the renamed words in the audio workspace. Pass `firefox` or `webkit` to `node examples/vanilla/verify-takes.mjs` for the other engines.
+
 ## Edit clips
 
 Drag a clip body to move the selection. Drag a visible endpoint to trim it. Shift-click adds or removes a clip from the selection. A clipped edge of the viewport still picks the body when the true trim handle is offscreen. The music track in the example is locked. The dialogue track rejects overlapping placements.
