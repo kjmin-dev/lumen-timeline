@@ -23,6 +23,19 @@ export interface Frame {
   readonly atlas: LabelAtlas;
 }
 
+/** A region of the clip canvas in CSS pixels, and its pixels read back as RGBA bytes. */
+export interface PixelRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+export interface Pixels {
+  readonly width: number;
+  readonly height: number;
+  readonly data: Uint8Array;
+}
+
 /** A drawing backend. It owns its canvas and draws only what the layout lists. */
 export interface Renderer {
   readonly backend: RendererBackend;
@@ -30,7 +43,29 @@ export interface Renderer {
   /** Geometry buffers uploaded to the GPU. Canvas 2D uploads none. */
   readonly uploads: number;
   draw(frame: Frame): void;
+  /**
+   * Draws `frame` again through this backend's own pipeline and reads a region
+   * back, at device pixels. For tests: it reads the backend's drawing without a
+   * screenshot of the page.
+   */
+  read(frame: Frame, rect: PixelRect): Promise<Pixels>;
   dispose(): void;
+}
+
+/** A region in device pixels, clamped to the canvas. */
+export function devicePixels(
+  canvas: HTMLCanvasElement,
+  rect: PixelRect,
+  dpr: number,
+): { x: number; y: number; w: number; h: number } {
+  const x = Math.max(0, Math.min(canvas.width - 1, Math.round(rect.x * dpr)));
+  const y = Math.max(0, Math.min(canvas.height - 1, Math.round(rect.y * dpr)));
+  return {
+    x,
+    y,
+    w: Math.max(1, Math.min(canvas.width - x, Math.round(rect.width * dpr))),
+    h: Math.max(1, Math.min(canvas.height - y, Math.round(rect.height * dpr))),
+  };
 }
 
 /** Sizes a canvas's backing store to the viewport at the device pixel ratio. Returns true when it changed. */
@@ -74,6 +109,11 @@ export function createCanvas2DRenderer(canvas: HTMLCanvasElement): Renderer {
     backend: "canvas2d",
     canvas,
     uploads: 0,
+    read(frame: Frame, rect: PixelRect): Promise<Pixels> {
+      const { x, y, w, h } = devicePixels(canvas, rect, frame.dpr);
+      const data = new Uint8Array(ctx.getImageData(x, y, w, h).data.buffer);
+      return Promise.resolve({ width: w, height: h, data });
+    },
     draw({ width, height, dpr, rows, changed, atlas }: Frame): void {
       const resized = size(canvas, width, height, dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -120,4 +160,36 @@ export function createCanvas2DRenderer(canvas: HTMLCanvasElement): Renderer {
       canvas.width = canvas.height = 1;
     },
   };
+}
+
+/** All visible rows' quads in one pair of arrays, top row first, for one GPU upload. */
+export class Staging {
+  count = 0;
+  data: Float32Array<ArrayBuffer> = new Float32Array(1024 * quadFloats);
+  colors: Uint32Array<ArrayBuffer> = new Uint32Array(1024);
+
+  gather(rows: readonly RowQuads[]): number {
+    let total = 0;
+    for (const row of rows) total += row.quads.count;
+    if (total > this.colors.length) {
+      let capacity = this.colors.length;
+      while (capacity < total) capacity *= 2;
+      this.data = new Float32Array(capacity * quadFloats);
+      this.colors = new Uint32Array(capacity);
+    }
+    let at = 0;
+    for (const { quads } of rows) {
+      this.data.set(quads.data.subarray(0, quads.count * quadFloats), at * quadFloats);
+      this.colors.set(quads.colors.subarray(0, quads.count), at);
+      at += quads.count;
+    }
+    this.count = total;
+    return total;
+  }
+}
+
+/** How a GPU backend tells the view that its device went away or came back. */
+export interface DeviceEvents {
+  lost(): void;
+  restored(): void;
 }

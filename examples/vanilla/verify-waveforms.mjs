@@ -14,9 +14,15 @@ const errors = [];
 
 // Counts the pixels of a clip body, below its stripe, that differ from the fill
 // color, in the columns within three pixels of `x`, and returns the largest count.
+// It reads a 2D copy of the clip canvas, which holds a GPU backend's drawing in
+// the task that drew it, so call it right after a paint.
 const inkSource = `window.ink = (canvas, x, top, height, fill) => {
   const dpr = canvas.width / canvas.clientWidth;
-  const ctx = canvas.getContext("2d");
+  const copy = document.createElement("canvas");
+  copy.width = canvas.width;
+  copy.height = canvas.height;
+  const ctx = copy.getContext("2d");
+  ctx.drawImage(canvas, 0, 0);
   let best = 0;
   for (let cx = Math.round(x) - 3; cx <= Math.round(x) + 3; cx++) {
     const data = ctx.getImageData(Math.round(cx * dpr), Math.round(top * dpr), 1, Math.round(height * dpr)).data;
@@ -47,7 +53,10 @@ async function studio() {
   // The stem is the fourth row, one lane, below three one-lane rows.
   const stem = (seconds) =>
     page.evaluate((s) => {
-      const { startTick, pixelsPerSecond } = window.lumenApp.studio.view.getViewport();
+      const { view } = window.lumenApp.studio;
+      // Paint now, so the canvas holds the drawing in this task.
+      view.setViewport({});
+      const { startTick, pixelsPerSecond } = view.getViewport();
       const x = ((s * 282240000 - startTick) / 282240000) * pixelsPerSecond;
       return window.ink(document.querySelector(".lt-clips"), x, 3 * 46 + 9, 28, [43, 85, 85]);
     }, seconds);
@@ -143,12 +152,15 @@ async function provider() {
     document.body.prepend(host);
     const view = mountTimeline(host, { editor, transport, pixelsPerSecond: 50, waveforms });
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const canvas = host.querySelector(".lt-clips");
     // Sample past each clip's name and caption, which render wider on some systems.
-    const look = (seconds) => ({
-      a: window.ink(canvas, seconds * 50, 9, 28, [43, 85, 85]),
-      b: window.ink(canvas, seconds * 50, 46 + 9, 28, [96, 67, 50]),
-    });
+    // Paints first, so the canvas holds its drawing in this task.
+    const look = (seconds) => {
+      view.setViewport({});
+      return {
+        a: window.ink(host.querySelector(".lt-clips"), seconds * 50, 9, 28, [43, 85, 85]),
+        b: window.ink(host.querySelector(".lt-clips"), seconds * 50, 46 + 9, 28, [96, 67, 50]),
+      };
+    };
     const lastX = () => {
       const r = requests.filter((q) => q.assetId === "x").at(-1);
       return [r.start / hz, r.end / hz, r.buckets];

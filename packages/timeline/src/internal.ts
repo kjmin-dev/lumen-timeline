@@ -8,3 +8,5 @@ export { placeWaveform, unit } from "./waveforms.ts";
 export type { PlacedWaveform } from "./waveforms.ts";
 export { isImage, labelInset, labelTop, layoutRow, QuadList, quadFloats, rgba } from "./layout.ts";
 export type { LabelSlot, LabelSource, LayoutRow, RowLayout } from "./layout.ts";
+export { readPixels } from "./probe.ts";
+export type { PixelRect, Pixels } from "./renderer.ts";

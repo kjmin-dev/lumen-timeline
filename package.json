@@ -37,6 +37,7 @@
     "verify:waveforms": "node examples/vanilla/verify-waveforms.mjs",
     "verify:peaks": "node examples/vanilla/verify-peaks.mjs",
     "verify:scale": "node examples/vanilla/verify-scale.mjs",
+    "verify:renderers": "node examples/vanilla/verify-renderers.mjs",
     "verify:shared": "node examples/sync/verify.mjs"
   },
   "devDependencies": {

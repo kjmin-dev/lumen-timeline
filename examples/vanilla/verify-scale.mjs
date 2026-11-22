@@ -13,8 +13,9 @@ import { serve } from "./server.mjs";
 const engine = process.argv[2] ?? "chromium";
 const renderer = process.argv[3];
 const server = await serve();
+// Chromium runs in its new headless mode, where a WebGPU canvas survives being shown.
 const browser = await { chromium, firefox, webkit }[engine].launch(
-  engine === "chromium" ? { args: ["--enable-unsafe-webgpu"] } : {},
+  engine === "chromium" ? { channel: "chromium", args: ["--enable-unsafe-webgpu"] } : {},
 );
 const errors = [];
 
@@ -93,6 +94,11 @@ try {
     window.scale = { editor, view, notify: (id) => listeners.forEach((l) => l(id)) };
   }, renderer);
   const run = (fn, arg) => page.evaluate(fn, arg);
+  // WebGPU starts once its device is ready.
+  if (renderer)
+    await page.waitForFunction((r) => window.scale.view.getDiagnostics().backend === r, renderer, {
+      timeout: 15000,
+    });
   // The clips a layout must hold: visible tracks, read from the headers, and
   // clips that reach at least part of a pixel inside the range.
   const expected = () =>
@@ -136,7 +142,14 @@ try {
     assert.equal(laid, await expected(), `zoom ${pps}`);
     zooms.push(laid);
   }
-  assert.equal((await diagnostics()).backend, renderer ?? "canvas2d");
+  // Asked for nothing, the view draws through WebGL2 on a hardware GPU and Canvas 2D otherwise.
+  const drawn = await diagnostics();
+  if (renderer) assert.equal(drawn.backend, renderer);
+  else
+    assert.ok(
+      drawn.backend === "webgl2" || (drawn.backend === "canvas2d" && drawn.fallback),
+      JSON.stringify(drawn),
+    );
   assert.ok(
     zooms[1] >= 12 * 499 && zooms[1] < 20000,
     "zoomed out to the whole project: " + zooms[1],
