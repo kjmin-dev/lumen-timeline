@@ -18,7 +18,7 @@ A **tile** holds the peaks of 65,536 consecutive samples of one source stream at
 
 - **Key.** Asset ID, content version, stream ID and tile index. Placement, trim and viewport are not part of it, so a move or trim reuses every tile.
 - **Exact peaks.** A bucket's pair is the minimum and maximum of the finite samples in it, including the final partial bucket. A bucket with no finite sample is empty, `+∞` and `−∞`, which is the identity for both. Negative zero is stored as zero. Coarser levels fold four finer pairs, which gives the same values as reducing the samples directly.
-- **Columns.** For each pixel column the provider picks the coarsest level no wider than the column and combines the buckets it overlaps, at most six. A column whose tile is not ready, or that lies outside the source, is not drawn. Notifications coalesce, and the view repaints the tracks that draw the asset once per animation frame.
+- **Columns.** For each pixel column the provider picks the coarsest level no wider than the column and combines the buckets it overlaps, at most six. A column whose tile is not ready, or that lies outside the source, is not drawn. The first notification repaints the visible tracks that draw the asset at once, and any more before the next frame repaint together in it.
 - **Versions.** The host's source names a content version. A tile built for an earlier version is never stored or drawn, including a worker reply that arrives after the source changed.
 - **Budgets.** Tiles are evicted least recently used beyond a byte budget, 64 MiB by default. Tiles drawn in the current paint are never evicted. PCM stays the host's; the provider copies what it reads into scratch buffers it owns and transfers.
 

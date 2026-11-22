@@ -99,12 +99,14 @@ try {
   );
   console.log(engine + ": two tabs edited at once and converged");
 
-  // A rejected overlap: both move a clip onto the same free place of the
-  // narrator track. The leader's arrives first; the other is refused.
-  await Promise.all([
-    dispatch(a, ["moveClips", { clipIds: ["line"], delta: 6 * hz }]),
-    dispatch(b, ["moveClips", { clipIds: ["next"], delta: -3 * hz }]),
-  ]);
+  // A rejected overlap: each tab moves a clip onto the same free place of the
+  // narrator track before it sees the other's move. B's move waits offline so
+  // that A's reaches the sequencer first; had B already seen A's move, its own
+  // editor would refuse it locally and nothing would reach the sequencer.
+  await run(b, () => window.syncApp.goOffline());
+  assert.equal((await dispatch(b, ["moveClips", { clipIds: ["next"], delta: -3 * hz }])).ok, true);
+  assert.equal((await dispatch(a, ["moveClips", { clipIds: ["line"], delta: 6 * hz }])).ok, true);
+  await run(b, () => window.syncApp.goOnline());
   document = await same([a, b]);
   assert.equal(document.clips.find((c) => c.id === "line").start, 9 * hz);
   assert.equal(document.clips.find((c) => c.id === "next").start, 12 * hz);
