@@ -4,7 +4,7 @@ Run `npm ci` and `npm run example:vanilla`, then open the printed local address.
 
 Load `@lumen-timeline/timeline/style.css` and call `mountTimeline(element, { editor, transport })`. The view accepts a `TimelineTransport`: an adapter exposing `snapshot()`, `subscribe(listener)` (returning a disposer), `play()`, `pause()` and `seek(projectTick)`. Media transports satisfy it, and so can any player adapter that reports project ticks. Snapshots carry `playing`, `presentedTick` and a nullable `requestedTick`. The host publishes requests immediately and settles only the latest request. The example bridges the existing Web Audio scheduler and its video frame callback.
 
-`view.setViewport({startTick, pixelsPerSecond})` changes one mount. Ctrl/Command-wheel zooms at the pointer. Shift-wheel or the scroll slider pans. Use the ruler or its arrow keys to seek. Click a clip, Shift-click to change a group or use the native clip navigator. `editor.session.select(ids)`, `getSelection()` and `subscribeSelection(listener)` share a selection across views. Selection is ephemeral. Undo prunes missing IDs.
+`view.setViewport({startTick, pixelsPerSecond})` changes one mount. `view.reveal(clipId)` scrolls a clip's lane into view and pans to its start when that is offscreen, for a host list that selects clips. Ctrl/Command-wheel zooms at the pointer. Shift-wheel or the scroll slider pans. Use the ruler or its arrow keys to seek. Click a clip, Shift-click to change a group or use the native clip navigator. `editor.session.select(ids)`, `getSelection()` and `subscribeSelection(listener)` share a selection across views. Selection is ephemeral. Undo prunes missing IDs.
 
 The ruler and static clips are cached separately from selection and the moving playhead. Track subrows are assigned from complete track intervals and retained across horizontal pans. Painting and picking use CSS pixels; the backing canvas follows device pixel ratio. `view.getDiagnostics()` returns paint and layout counts. `view.dispose()` releases that mount's observers, subscriptions and DOM. The host owns its editor and transport.
 
@@ -32,6 +32,15 @@ Selecting a take or changing a clip's list repaints the clip as any clip edit do
 The example's **Takes** panel lists the selected clip's candidates in order. Each row can **Audition** the take through the [transport](media-transports.md#audition), in the mix or **Isolated**, and the same button stops it. **Apply** selects it, the arrows reorder the list and **Remove** takes it off the list. The active take cannot be removed. Each of these is one undoable edit, and Save project and Reopen saved keep the list. The first line has three candidates: the recording, the same recording a quarter second later and a synthesized guide. The audio workspace calls them versions. The panel keeps a constant height, so selecting a clip never moves the timeline under the pointer.
 
 `npm run verify:takes` checks the caption and repaint rules, an isolated and a cancelled audition with the video returning to its position, apply, reorder, remove, undo and reopen in the video workspace, and a mix audition and the renamed words in the audio workspace. Pass `firefox` or `webkit` to `node examples/vanilla/verify-takes.mjs` for the other engines.
+
+## Script
+
+The video workspace has one track per speaker, Narrator and Keeper, beside the music. The **Lines** list below the timeline, in `examples/vanilla/lines.mjs`, shows every clip that carries a line, in timeline order. Each row gives the speaker, which is the clip's track, the range, the active take, the source text and the translation. A split line shows each part, as in `part 1 of 2`.
+
+- **Select and reveal.** Clicking a row selects its clip, and `view.reveal(clipId)` brings it into view in the timeline. The inspector, take panel and line panel follow the selection. A clip selected in the timeline marks its row and scrolls it into view inside the list. The list has a constant height and never scrolls the page, so a selection made with the pointer moves nothing under it.
+- **Line play.** **Play line** seeks to the clip and calls [`play({ until })`](media-transports.md#play-to-a-stop) with the clip's end, so playback stops on the line's last tick. Ordinary playback still begins at the playhead. While playback is inside a line, its row reads **Playing**, whatever has focus.
+
+`npm run verify:lines` checks the rows, select and reveal, a selection from the timeline that leaves the page in place, line play stopping at the line's end, the parts of a split line, a text edit and undo in the video workspace, and line play in the audio workspace. Pass `firefox` or `webkit` to `node examples/vanilla/verify-lines.mjs` for the other engines.
 
 ## Lines and generation
 

@@ -19,7 +19,7 @@ The `catalog` is a [stream catalog](playback-read-api.md): `{ version, streams }
 
 The video driver observes presented frames and handles native seeking, buffering and clock reacquisition. A shared voice scheduler consumes its project-tick/context-time anchor. It owns its planning timer, editor subscription, gain and buffer source nodes, and abortable resolution requests. A clip edit preserves unrelated reservations and the active generation. A clock discontinuity invalidates the generation.
 
-The public video factory accepts seeks in integer project ticks. Use `snapshot()`, `subscribe(listener)`, `play()`, `pause()`, `seek(tick)`, [`audition(request)`](#audition), `setCatalog(catalog)` and `dispose()`. A seek started on the element itself, from native controls or a loop, is reported the same way: its target appears as `requestedTick` at `seeking`, and the landing position at `seeked`. `diagnostics(clipId)` reports the generation, sample rate and an opaque reservation identity and end sample for that clip. The experiment's seconds-based API remains available to its original probes.
+The public video factory accepts seeks in integer project ticks. Use `snapshot()`, `subscribe(listener)`, [`play(options)`](#play-to-a-stop), `pause()`, `seek(tick)`, [`audition(request)`](#audition), `setCatalog(catalog)` and `dispose()`. A seek started on the element itself, from native controls or a loop, is reported the same way: its target appears as `requestedTick` at `seeking`, and the landing position at `seeked`. `diagnostics(clipId)` reports the generation, sample rate and an opaque reservation identity and end sample for that clip. The experiment's seconds-based API remains available to its original probes.
 
 The host owns the editor, video element, AudioContext, output and asset cache. Disposing the factory detaches the driver and cancels its work; the host decides when to pause the element or close its context. [Scheduling behavior and probes](incremental-playback.md)
 
@@ -47,6 +47,20 @@ The audio driver supports 1× playback. On play or an active seek, it anchors th
 - **Seek.** Use safe integer project ticks within the extent. A paused seek returns `arrived` immediately. A playing seek exposes the requested tick and coalesces same-turn requests. The latest request returns `arrived` when the presentation clock reaches its anchor; earlier requests return `superseded`. Seeking directly to the end stops there. Pause or seek during a pending start supersedes that start. A stale completion cannot book a voice.
 - **Interruption.** When the context stops running, freeze the playhead, invalidate reservations and retain the latest play intent. Recovery uses a fresh anchor. A user pause while interrupted keeps the transport paused after recovery. If editing shrinks the extent behind playback, clamp to the new end and stop.
 - **Ownership.** Pass a host-owned context, editor, output node and asset resolver. Pause and disposal leave other users of the context running. Disposal cancels pending loads and rejects pending transport operations, clears callbacks and releases this driver's reservations. Samples already in the device output pipeline may still drain.
+
+## Play to a stop
+
+`play({ until })` plays from the playhead and pauses at `until`, for a host action such as playing one line. Both transports implement it.
+
+```js
+await transport.seek(clip.start);
+await transport.play({ until: clip.start + clip.duration });
+```
+
+- **Exact end.** Every voice is booked to stop at the output sample of `until`, so nothing after it sounds. The audio transport then presents `until` in the segment it played through. The video element pauses at the first frame at or past the stop and seeks back to it, so a stop between two frames is still presented exactly.
+- **While playing.** Calling `play({ until })` again moves the stop, and `play()` clears it. An earlier stop cuts the voices already booked. A later one books them again from the presented position, as a seek there would.
+- **What clears it.** Reaching it, `pause()`, `seek(tick)` and `audition(request)` each clear the stop. Snapshots report it as `until`, which is `null` when playback runs to the end. A stop at or past the sequence end ends playback there as usual.
+- **Validation.** `until` must be a safe integer after the position playback starts or continues from: the playhead, a pending seek's target, an audition's return position, or zero when replay restarts from the end. Otherwise `play` rejects with a `RangeError` and changes nothing.
 
 ## Audition
 

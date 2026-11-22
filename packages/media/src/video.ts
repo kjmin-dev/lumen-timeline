@@ -5,6 +5,7 @@ import { VideoTransport as VideoDriver } from "./video-driver.ts";
 import type {
   Audition,
   AuditionResult,
+  PlayOptions,
   SeekResult,
   VideoTransport,
   VideoTransportOptions,
@@ -37,6 +38,7 @@ export function createVideoTransport({
     segment: 0,
     segmentStart: initial,
     audition: null,
+    until: null,
   });
   let request = 0;
   let audition: ActiveAudition | null = null;
@@ -66,6 +68,7 @@ export function createVideoTransport({
       const tick = Math.round(seconds * hz);
       update({ presentedTick: tick });
       if (audition && tick >= audition.state.range.end) void endAudition(finished, true);
+      else if (state.until !== null && tick >= state.until) void stopped(state.until);
     },
   });
   for (const name of ["play", "pause", "ended"]) {
@@ -74,9 +77,30 @@ export function createVideoTransport({
       () => {
         update({ playing: !video.paused && !video.ended });
         if (name === "ended" && audition) void endAudition(finished, true);
+        else if (name === "ended") setStop(null);
       },
       { signal: events.signal },
     );
+  }
+  // Moves the stop. Voices booked past an earlier stop are cut there. A later
+  // one lets the next frame book them again.
+  function setStop(next: Tick | null): void {
+    const previous = state.until;
+    if (previous === next) return;
+    if (previous !== null && (next === null || next > previous)) driver.invalidate();
+    driver.scheduler.stopAt(next ?? Infinity);
+    update({ until: next });
+  }
+  // Playback reached its stop: pause there and present the stop tick itself,
+  // which can lie between frames.
+  async function stopped(tick: Tick): Promise<void> {
+    halt();
+    setStop(null);
+    try {
+      if (!events.signal.aborted) await move(tick);
+    } catch {
+      // The element reports a failed seek itself.
+    }
   }
   async function move(tick: Tick): Promise<SeekResult> {
     const token = ++request;
@@ -142,9 +166,17 @@ export function createVideoTransport({
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    async play(): Promise<void> {
+    async play(options?: PlayOptions): Promise<void> {
       if (events.signal.aborted) throw new Error("Transport disposed");
+      const stopTick = options?.until ?? null;
+      if (stopTick !== null && !(Number.isSafeInteger(stopTick) && stopTick >= 0))
+        throw new RangeError("Invalid stop tick");
+      // Nothing changes before the stop is checked against where playback continues from.
+      const from = audition?.state.returnTick ?? state.requestedTick ?? state.presentedTick;
+      if (stopTick !== null && stopTick <= from)
+        throw new RangeError("Stop tick must follow the playback position");
       if (audition) await endAudition(cancelled, true);
+      setStop(stopTick);
       const intent = ++playIntent;
       await context.resume();
       if (intent === playIntent) await video.play();
@@ -155,6 +187,7 @@ export function createVideoTransport({
       else {
         playIntent++;
         video.pause();
+        setStop(null);
       }
     },
     async seek(tick: Tick): Promise<SeekResult> {
@@ -162,6 +195,7 @@ export function createVideoTransport({
       if (!Number.isSafeInteger(tick) || tick < 0) throw new RangeError("Invalid project tick");
       // The seek target replaces the audition's return position.
       void endAudition(cancelled, false);
+      setStop(null);
       return move(tick);
     },
     async audition(input): Promise<AuditionResult> {
@@ -171,6 +205,7 @@ export function createVideoTransport({
       const returnTick = audition?.state.returnTick ?? state.requestedTick ?? state.presentedTick;
       void endAudition(cancelled, false);
       halt();
+      setStop(null);
       driver.scheduler.setPlan(plan.options, plan.range.end);
       const { promise, resolve, reject } = Promise.withResolvers<AuditionResult>();
       const active: ActiveAudition = {

@@ -40,3 +40,4 @@ jobs:
       - run: npm run verify:milestone
       - run: npm run verify:takes
       - run: npm run verify:studio
+      - run: npm run verify:lines
