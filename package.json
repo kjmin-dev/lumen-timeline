@@ -24,6 +24,8 @@
     "docs:check": "node scripts/docs-links.mjs",
     "verify:sync": "node experiments/sync/run.mjs",
     "bench:wasm": "node experiments/wasm/run.mjs",
+    "wasm:build": "node scripts/wasm.mjs",
+    "wasm:check": "node scripts/wasm.mjs --check",
     "verify:pcm": "node experiments/sync/run.mjs chromium --pcm",
     "example:vanilla": "node examples/vanilla/server.mjs",
     "verify:timeline": "node examples/vanilla/verify.mjs",
