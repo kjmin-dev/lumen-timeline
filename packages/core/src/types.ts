@@ -387,10 +387,12 @@ export type EditErrorCode =
   | "listed-take"
   | "invalid-expectation"
   | "expectation-failed"
-  | "invalid-replay";
+  | "invalid-replay"
+  | "read-only";
 
 export type HistoryPolicy = "record" | "ignore";
-export type CommitHistory = HistoryPolicy | "undo" | "redo";
+/** How a commit relates to history. `replace` is an adopted snapshot. */
+export type CommitHistory = HistoryPolicy | "undo" | "redo" | "replace";
 
 export interface RevisionOptions {
   /** Reject the request with `stale-revision` unless the project is at this revision. */
@@ -398,6 +400,15 @@ export interface RevisionOptions {
 }
 
 export interface EditOptions extends RevisionOptions {
+  /**
+   * An earlier commit of this editor that these commands replay after a
+   * replacement, as a sync layer replays an edit that is not yet confirmed.
+   * The transaction records no entry of its own. Instead the history entry
+   * that commit recorded, or moved by undo or redo, takes this transaction's
+   * records, so undo reverses what the edit did after the replay. Nothing in
+   * history changes when that entry is gone. Leave `history` unset.
+   */
+  readonly rebases?: EditCommit | undefined;
   /** `record` (default) adds an undo entry. `ignore` preserves both history stacks. */
   readonly history?: HistoryPolicy | undefined;
 }
@@ -513,6 +524,7 @@ export interface EditUnchanged {
 
 export interface EditFailure {
   readonly ok: false;
+  readonly held?: never;
   readonly revision: number;
   readonly code: EditErrorCode;
   /** The rejected ID or value as supplied, which may be invalid input. */
@@ -520,7 +532,55 @@ export interface EditFailure {
   readonly reason: string;
 }
 
-export type EditResult = EditCommit | EditUnchanged | EditFailure;
+/** What a transaction changes, by kind of record. */
+export interface EditTargets {
+  /** Clips it changes, adds or removes, and clips whose listed take changes media. */
+  readonly clipIds: readonly string[];
+  readonly markerIds: readonly string[];
+  readonly takeIds: readonly string[];
+  /** Entity data records it writes. */
+  readonly entities: readonly { readonly scope: string; readonly id: string }[];
+}
+
+/** A validated transaction, as a dispatch gate sees it before it commits. */
+export interface GatedTransaction {
+  /** `record` or `ignore` for a dispatch, `undo` or `redo` for history. */
+  readonly history: CommitHistory;
+  /** Its commands with every generated ID written in. Undo and redo list one `replay`. */
+  readonly commands: readonly EditCommand[];
+  readonly targets: EditTargets;
+  /** The revision it would commit as. */
+  readonly revision: number;
+}
+
+/**
+ * `commit` lets the transaction through. `hold` keeps it out of the document
+ * and returns it to the caller. `{ readOnly }` rejects it with `read-only`,
+ * naming the reason as the failure's target.
+ */
+export type GateDecision = "commit" | "hold" | { readonly readOnly: string };
+
+/** Decides each validated transaction. It must not edit the project itself. */
+export type DispatchGate = (transaction: GatedTransaction) => GateDecision;
+
+/**
+ * A transaction a gate held. Nothing changed: no revision, history entry or
+ * notification. Its commands can be dispatched later, as a sync layer does
+ * once another participant accepts them.
+ */
+export interface EditHeld {
+  readonly ok: false;
+  readonly held: true;
+  readonly code: "held";
+  readonly revision: number;
+  readonly target: null;
+  readonly reason: string;
+  readonly history: CommitHistory;
+  readonly commands: readonly EditCommand[];
+  readonly targets: EditTargets;
+}
+
+export type EditResult = EditCommit | EditUnchanged | EditFailure | EditHeld;
 
 export interface PreviewSuccess {
   readonly ok: true;
@@ -721,6 +781,23 @@ export interface Editor {
   /** Throws an `EditError` for a snapshot this editor did not produce. */
   read(snapshot?: ProjectSnapshot): ReadHandle;
   dispatch(input: EditCommand | readonly EditCommand[], options?: EditOptions): EditResult;
+  /**
+   * Adopts another snapshot of the same project in place: one with the same
+   * tracks, sequence bounds and timebase. Subscribers keep their subscriptions
+   * and see one commit, with `history: "replace"`, whose patches describe the
+   * difference. The selection drops clips the snapshot lacks. History stays,
+   * and its entries replay against the new document. The revision moves
+   * forward to the snapshot's when that is later, and to the next one
+   * otherwise. The ID counter moves past the snapshot's IDs and never back.
+   * A gate does not see a replacement. Fails with `foreign-snapshot` for
+   * another project, and with the loading codes for an invalid snapshot.
+   */
+  replace(project: Project): EditCommit | EditUnchanged | EditFailure;
+  /**
+   * Installs a gate that decides every validated dispatch, undo and redo
+   * before it commits, or removes it with `null`.
+   */
+  setGate(gate: DispatchGate | null): void;
   readonly history: EditorHistory;
   subscribe<T>(
     select: (snapshot: ProjectSnapshot) => T,

@@ -36,7 +36,7 @@ export function commit(result: EditResult): EditCommit {
 }
 
 /** The rejection code, or undefined for a successful result. */
-export function codeOf(result: EditResult | PreviewResult): EditErrorCode | undefined {
+export function codeOf(result: EditResult | PreviewResult): EditErrorCode | "held" | undefined {
   return result.ok ? undefined : result.code;
 }
 

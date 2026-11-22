@@ -1,7 +1,8 @@
 import { openProject, orderTrack, validateClip } from "./document.ts";
 import type { TrackLayout } from "./document.ts";
 import { ClipDraft, applyClips, inverse, rebase } from "./clip-patches.ts";
-import { DataDraft, applyData, invertData } from "./entity-data.ts";
+import { difference } from "./diff.ts";
+import { DataDraft, applyData, invertData, jsonEqual } from "./entity-data.ts";
 import { expectClip, expectData } from "./expect.ts";
 import { defined } from "./invariant.ts";
 import { MarkerDraft, applyMarkers, invertMarkers, rebaseMarkers } from "./markers.ts";
@@ -32,12 +33,18 @@ import type {
   ClipCommand,
   ClipPatch,
   CommitHistory,
+  DispatchGate,
   EditCommand,
   EditCommit,
+  EditFailure,
   Editor,
   EditOptions,
   EditorOptions,
   EditResult,
+  EditTargets,
+  EditUnchanged,
+  GateDecision,
+  GatedTransaction,
   ExpectClipCommand,
   ExpectDataCommand,
   HistoryState,
@@ -46,6 +53,7 @@ import type {
   PreviewCommand,
   PruneTakesCommand,
   PreviewResult,
+  Project,
   ProjectSnapshot,
   RemoveDataCommand,
   RemoveMarkerCommand,
@@ -158,6 +166,41 @@ interface Staged {
   readonly delta: ReadonlyMap<string, number>;
 }
 
+/** A history entry holding these records, as `forward` and their inverse. */
+function entryOf(forward: Records, backward: Records): HistoryEntry {
+  return {
+    forward: forward.clips,
+    inverse: backward.clips,
+    data: forward.data,
+    inverseData: backward.data,
+    // Marker-free entries keep their former shape and logical size.
+    ...(forward.markers.length
+      ? { markers: forward.markers, inverseMarkers: backward.markers }
+      : {}),
+    ...(forward.takes.length ? { takes: forward.takes, inverseTakes: backward.takes } : {}),
+  };
+}
+
+/** The records a transaction changes, as a gate or a held result names them. */
+function targetsOf(changedIds: readonly string[], forward: Records): EditTargets {
+  const entities = new Map(forward.data.map((p) => [JSON.stringify([p.scope, p.id]), p]));
+  return Object.freeze({
+    clipIds: changedIds,
+    markerIds: Object.freeze(forward.markers.map((p) => p.id)),
+    takeIds: Object.freeze(forward.takes.map((p) => p.id)),
+    entities: Object.freeze(
+      [...entities.values()].map(({ scope, id }) => Object.freeze({ scope, id })),
+    ),
+  });
+}
+
+function decided(decision: GateDecision): GateDecision {
+  if (decision === "commit" || decision === "hold") return decision;
+  if (typeof decision === "object" && decision !== null && typeof decision.readOnly === "string")
+    return decision;
+  throw new TypeError("A gate returns commit, hold or { readOnly }");
+}
+
 function recordsOf(entry: HistoryEntry): { forward: Records; backward: Records } {
   return {
     forward: {
@@ -178,7 +221,7 @@ function recordsOf(entry: HistoryEntry): { forward: Records; backward: Records }
 export function createEditor({ project, history: limits, actor }: EditorOptions): Editor {
   requireEdit(actor === undefined || validId(actor), "invalid-id", actor, "Expected an actor name");
   let { snapshot, rules, byTrack, takeCounts } = openProject(project);
-  const newId = idAllocator(actor, snapshot);
+  const ids = idAllocator(actor, snapshot);
   let byId = positions(snapshot.clips);
   const reads = readRegistry(snapshot.tracks);
   reads.pin(snapshot, byTrack);
@@ -192,6 +235,15 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
   const notifications: Notification[] = [];
   let notifying = false;
   let disposed = false;
+  let gate: DispatchGate | null = null;
+  let gating = false;
+  // The history entry each commit recorded, or moved by undo or redo.
+  // A rebased commit keeps the kind of the commit it replays, so an undo's
+  // entry stays an undo's however many times it is rebased.
+  const entries = new WeakMap<
+    EditCommit,
+    { readonly entry: HistoryEntry; readonly kind: "record" | "undo" | "redo" }
+  >();
 
   // Fills in every ID a command would otherwise leave the editor to generate,
   // so the commands of a commit replay to the same IDs in another editor.
@@ -203,7 +255,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
   ): EditCommand | null {
     if (command?.type === "split") return splitRecord(command, clips);
     if (command?.type === "add-marker" && command.id === undefined)
-      return Object.freeze({ ...command, id: newId((id) => markers.get(id) !== undefined) });
+      return Object.freeze({ ...command, id: ids.next((id) => markers.get(id) !== undefined) });
     const takeTaken = (id: string): boolean => takes.get(id) !== undefined;
     if (
       command?.type === "add-take" &&
@@ -213,14 +265,14 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     )
       return Object.freeze({
         ...command,
-        take: Object.freeze({ ...command.take, id: newId(takeTaken) }),
+        take: Object.freeze({ ...command.take, id: ids.next(takeTaken) }),
       });
     if (
       command?.type === "update-take" &&
       command.clipIds !== undefined &&
       command.newId === undefined
     )
-      return Object.freeze({ ...command, newId: newId(takeTaken) });
+      return Object.freeze({ ...command, newId: ids.next(takeTaken) });
     return command;
   }
 
@@ -231,7 +283,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     const clip = validId(command.clipId) ? clips.get(command.clipId) : undefined;
     const converts = command.atContent === undefined && clip && Number.isSafeInteger(command.at);
     if (!converts && command.rightId !== undefined) return command;
-    const rightId = command.rightId ?? newId((id) => clips.get(id) !== undefined);
+    const rightId = command.rightId ?? ids.next((id) => clips.get(id) !== undefined);
     if (!converts) return Object.freeze({ ...command, rightId });
     const atContent = command.at - clip.start + clip.contentIn;
     return Object.freeze({ type: "split", clipId: command.clipId, atContent, rightId });
@@ -591,8 +643,12 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
   ): EditResult {
     // A dispatched replay reports a rule its records break as a history conflict.
     let replaying = false;
+    if (gating) throw new Error("A gate cannot edit the project");
     try {
       checkRevision(options);
+      const rebases = mode === "edit" ? options?.rebases : undefined;
+      // The entry undo or redo moves.
+      let moving: HistoryEntry | undefined;
       let staged: Staged;
       const resolved: EditCommand[] = [];
       let policy: CommitHistory = options?.history === undefined ? "record" : options.history;
@@ -603,6 +659,15 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
           null,
           "Choose record or ignore for the transaction",
         );
+        if (rebases) {
+          requireEdit(
+            options?.history === undefined,
+            "invalid-history-policy",
+            null,
+            "A rebased transaction records into the entry of the commit it rebases",
+          );
+          policy = "ignore";
+        }
         const list = isArray(input) ? input : [input];
         const replay = list.find((command) => command?.type === "replay");
         if (replay?.type === "replay") {
@@ -626,6 +691,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       } else {
         const entry = history.peek(mode);
         requireEdit(entry, "empty-history", null, "No history entry available");
+        moving = entry;
         const recorded = recordsOf(entry);
         staged =
           mode === "undo"
@@ -688,6 +754,41 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         inverseTakePatches,
         commands: Object.freeze(resolved),
       });
+      if (gate) {
+        const transaction: GatedTransaction = Object.freeze({
+          history: policy,
+          commands: result.commands,
+          targets: targetsOf(result.changedIds, staged.forward),
+          revision,
+        });
+        let decision: GateDecision;
+        gating = true;
+        try {
+          decision = decided(gate(transaction));
+        } finally {
+          gating = false;
+        }
+        if (decision === "hold")
+          return Object.freeze({
+            ok: false,
+            held: true,
+            code: "held",
+            revision: snapshot.revision,
+            target: null,
+            reason: "The transaction is held",
+            history: policy,
+            commands: transaction.commands,
+            targets: transaction.targets,
+          });
+        if (decision !== "commit")
+          return {
+            ok: false,
+            revision: snapshot.revision,
+            code: "read-only",
+            target: decision.readOnly,
+            reason: "The project is read-only: " + decision.readOnly,
+          };
+      }
       const next: Mutable<ProjectSnapshot> = {
         ...snapshot,
         revision,
@@ -700,20 +801,31 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       if (takeState.list === undefined) delete next.takes;
       else next.takes = takeState.list;
 
-      // Validation, conflict checks and staging finish before any observable write.
-      if (mode !== "edit") history.advance(mode);
-      else if (policy === "record")
-        history.record({
-          forward: patches,
-          inverse: inverses,
-          data,
-          inverseData,
-          // Marker-free entries keep their former shape and logical size.
-          ...(markerPatches.length
-            ? { markers: markerPatches, inverseMarkers: inverseMarkerPatches }
-            : {}),
-          ...(takePatches.length ? { takes: takePatches, inverseTakes: inverseTakePatches } : {}),
-        });
+      // Validation, conflict checks, staging and the gate finish before any observable write.
+      let amended = false;
+      if (moving) {
+        const kind = mode === "undo" ? "undo" : "redo";
+        history.advance(kind);
+        entries.set(result, { entry: moving, kind });
+      } else if (rebases) {
+        // The entry keeps its direction: an undo's entry redoes the inverse.
+        const link = entries.get(rebases);
+        const stored =
+          link &&
+          history.amend(
+            link.entry,
+            link.kind === "undo"
+              ? entryOf(staged.backward, staged.forward)
+              : entryOf(staged.forward, staged.backward),
+          );
+        if (link && stored) {
+          entries.set(result, { entry: stored, kind: link.kind });
+          amended = true;
+        }
+      } else if (policy === "record") {
+        const stored = history.record(entryOf(staged.forward, staged.backward));
+        if (stored) entries.set(result, { entry: stored, kind: "record" });
+      }
       for (const [id, change] of delta) {
         const count = (takeCounts.get(id) ?? 0) + change;
         if (count) takeCounts.set(id, count);
@@ -727,7 +839,11 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       reads.pin(snapshot, byTrack);
       const pruned = geometry !== null && selection.some((id) => !byId.has(id));
       if (pruned) selection = Object.freeze(selection.filter((id) => byId.has(id)));
-      notify(result, policy !== "ignore" && history.undoDepth + history.redoDepth > 0, pruned);
+      notify(
+        result,
+        amended || (policy !== "ignore" && history.undoDepth + history.redoDepth > 0),
+        pruned,
+      );
       return result;
     } catch (error) {
       if (!(error instanceof EditError)) throw error;
@@ -751,9 +867,102 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     }
   }
 
+  function replace(input: Project): EditCommit | EditUnchanged | EditFailure {
+    if (gating) throw new Error("A gate cannot edit the project");
+    try {
+      requireEdit(!disposed, "disposed", null, "Editor has been disposed");
+      const opened = openProject(input);
+      const target = opened.snapshot;
+      requireEdit(
+        jsonEqual(target.tracks, snapshot.tracks) &&
+          target.duration === snapshot.duration &&
+          target.minClipDuration === snapshot.minClipDuration &&
+          target.timebase === snapshot.timebase,
+        "foreign-snapshot",
+        null,
+        "The snapshot belongs to another project",
+      );
+      const { revision: _current, ...current } = snapshot;
+      const { revision: _adopted, ...adopted } = target;
+      if (jsonEqual(current, adopted))
+        return { ok: true, revision: snapshot.revision, unchanged: true };
+      const forward = difference(snapshot, target);
+      const backward: Records = {
+        clips: inverse(forward.clips),
+        data: invertData(forward.data),
+        markers: invertMarkers(forward.markers),
+        takes: invertTakes(forward.takes),
+      };
+      const before = forward.clips.flatMap((p) => (p.before ? [p.before] : []));
+      const after = forward.clips.flatMap((p) => (p.after ? [p.after] : []));
+      // Clips that list a remapped take play different media without a patch of their own.
+      const remapped = new Set(forward.takes.filter(remapsMedia).map((p) => p.id));
+      const patchedIds = new Set(after.map((c) => c.id));
+      const relisted = target.clips.filter(
+        (clip) => !patchedIds.has(clip.id) && (clip.takeIds ?? []).some((id) => remapped.has(id)),
+      );
+      // The revision only moves forward.
+      const revision = Math.max(nextRevision(), target.revision);
+      const oldIds = new Set(before.map((c) => c.id));
+      const result: EditCommit = Object.freeze({
+        ok: true,
+        revision,
+        history: "replace",
+        clipPatches: forward.clips,
+        inverseClipPatches: backward.clips,
+        dataPatches: forward.data,
+        inverseDataPatches: backward.data,
+        changedIds: Object.freeze([
+          ...new Set([...oldIds, ...after.map((c) => c.id), ...relisted.map((c) => c.id)]),
+        ]),
+        createdIds: Object.freeze(after.filter((c) => !oldIds.has(c.id)).map((c) => c.id)),
+        affected: Object.freeze({
+          before: intervals([...before, ...relisted]),
+          after: intervals([...after, ...relisted]),
+        }),
+        markerPatches: forward.markers,
+        inverseMarkerPatches: backward.markers,
+        takePatches: forward.takes,
+        inverseTakePatches: backward.takes,
+        commands: Object.freeze([replayOf(forward)]),
+      });
+      ids.advance(target);
+      rules = opened.rules;
+      byTrack = opened.byTrack;
+      takeCounts = opened.takeCounts;
+      byId = positions(target.clips);
+      snapshot = Object.freeze({ ...target, revision });
+      reads.pin(snapshot, byTrack);
+      const pruned = selection.some((id) => !byId.has(id));
+      if (pruned) selection = Object.freeze(selection.filter((id) => byId.has(id)));
+      notify(result, false, pruned);
+      return result;
+    } catch (error) {
+      if (!(error instanceof EditError)) throw error;
+      return {
+        ok: false,
+        revision: snapshot.revision,
+        code: error.code,
+        target: error.target,
+        reason: error.message,
+      };
+    }
+  }
+
   return {
     getSnapshot: () => snapshot,
     preview,
+    replace,
+    setGate(next) {
+      requireEdit(!disposed, "disposed", null, "Editor has been disposed");
+      requireEdit(
+        next === null || typeof next === "function",
+        "invalid-history-policy",
+        null,
+        "Expected a gate function or null",
+      );
+      gate = next;
+    },
     session: {
       getSelection: () => selection,
       select(ids) {
@@ -831,6 +1040,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     },
     dispose() {
       disposed = true;
+      gate = null;
       subscribers.clear();
       historySubscribers.clear();
       selectionSubscribers.clear();

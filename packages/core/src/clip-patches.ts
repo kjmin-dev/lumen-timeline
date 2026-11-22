@@ -6,7 +6,7 @@ import { requireEdit } from "./validation.ts";
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 // Fields compare by value, so a candidate list rebuilt with the same IDs is unchanged.
-function sameFields(a: Clip, b: Clip): boolean {
+export function sameFields(a: Clip, b: Clip): boolean {
   return (
     a === b ||
     (Object.keys(a).length === Object.keys(b).length &&

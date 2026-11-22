@@ -137,6 +137,38 @@ otherEditor.dispatch(cut.commands);
 - **Commit commands.** A commit's `commands` are the transaction as dispatched, with every generated ID written in. A split is recorded by `atContent`, so an editor that replays it after a concurrent move cuts the same point of the content. Another editor at the same revision replays them to the same snapshot. They share nested values with the commands you dispatched, so treat both as immutable.
 - **Undo and redo travel.** An undo or redo commit lists one `replay` command, `{ type: "replay", clipPatches, dataPatches, markerPatches, takePatches }`, holding the records it applied. Another editor, or a saved log, dispatches it like any command, and it applies under the [replay rules](selective-history.md#replay-against-the-current-document) of undo: each record owns only the fields it changed, and a record whose fields changed since rejects the whole replay with `history-conflict`. A rule its result breaks, such as an exclusive-track overlap, is reported as a conflict too. A replay forms a transaction by itself. It is parsed like a loaded project, so a malformed record from another source is refused with `invalid-replay`. Dispatched with `record`, it is one undoable edit of the editor that applied it. Commands survive JSON, where `undefined` fields are dropped.
 
+## Replace the document
+
+`editor.replace(snapshot)` adopts another snapshot of the same project in place. A sync layer uses it to adopt the order another participant decided, and a host uses it to load a saved revision without rebuilding its views.
+
+```js
+const result = editor.replace(savedSnapshot);
+// result.history is "replace", and its patches describe the difference.
+```
+
+- **Same project.** The snapshot must have the same tracks, sequence bounds and timebase. Another project fails with `foreign-snapshot`, and an invalid one with the loading codes. Nothing changes on failure.
+- **One notification.** Subscribers keep their subscriptions and see one commit, `history: "replace"`. Its clip, marker, take and data patches describe the difference, so views repaint only what changed. Its `commands` list one `replay` of that difference. An identical document returns `unchanged`.
+- **Selection and history.** The selection drops clips the snapshot lacks. History stays. Its entries replay against the new document and conflict where their fields changed.
+- **Revisions and IDs.** The revision moves forward: to the snapshot's revision when that is later, to the next one otherwise. The ID counter moves past every ID of the editor's actor in the snapshot and never moves back, so the IDs of a transaction that was dropped are not issued again.
+
+To replay an edit after a replacement, as a sync layer replays its unconfirmed edits, dispatch its commands with `{ rebases: commit }`. The transaction records no entry of its own. The history entry that `commit` recorded, or moved by undo or redo, takes the transaction's records instead, so a later undo reverses what the edit did after the replay. Nothing in history changes when that entry is gone.
+
+## Dispatch gate
+
+`editor.setGate(gate)` installs a function that decides every validated dispatch, undo and redo before it commits. `setGate(null)` removes it.
+
+```js
+editor.setGate(({ history, commands, targets, revision }) =>
+  online ? "commit" : { readOnly: "offline" },
+);
+```
+
+- **What it sees.** The gate runs after validation and before any change. It receives the history kind (`record`, `ignore`, `undo` or `redo`), the commands with generated IDs written in (one `replay` for undo and redo), the revision it would commit as, and `targets`: the clip, marker and take IDs and the entity data records it changes. Unchanged and invalid transactions never reach it, and neither does `replace`.
+- **Commit.** `"commit"` lets the transaction through.
+- **Read-only.** `{ readOnly: reason }` rejects it with the code `read-only` and the reason as its `target`, so a view can say why, as for a viewer, a review lock or a save in progress.
+- **Hold.** `"hold"` returns `{ ok: false, held: true, code: "held", commands, targets }` and changes nothing: no revision, history entry or notification. A held split's commands already name its new clip, so dispatching them later makes the same clip. A view can mark the targets pending.
+- **Rules.** The gate must answer synchronously with one of these decisions. It cannot dispatch, undo, redo or replace from inside itself. An error it throws reaches the caller and nothing changes.
+
 ## Canonical order
 
 Snapshots order markers by start and then ID, takes by ID, and each track's clips by start and then ID. IDs compare by UTF-16 code unit, as JavaScript's `<` does. An implementation in another language must use the same comparison to produce the same snapshot; UTF-8 byte order differs for characters outside the Basic Multilingual Plane.

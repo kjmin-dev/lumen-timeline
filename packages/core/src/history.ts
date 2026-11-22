@@ -24,7 +24,13 @@ export interface History {
   peek(mode: "undo" | "redo"): HistoryEntry | undefined;
   /** Moves the newest entry across. The caller has checked that it exists. */
   advance(mode: "undo" | "redo"): void;
-  record(entry: HistoryEntry): void;
+  /** Records an entry and returns it as stored, or undefined when limits keep nothing. */
+  record(entry: HistoryEntry): HistoryEntry | undefined;
+  /**
+   * Replaces a stored entry's records where it stands, in either stack, and
+   * returns the replacement. Undefined when the entry is no longer held.
+   */
+  amend(entry: HistoryEntry, next: HistoryEntry): HistoryEntry | undefined;
   discard(direction: "undo" | "redo"): boolean;
   clear(): void;
 }
@@ -87,13 +93,27 @@ export function createHistory(options: HistoryLimits = {}): History {
       const bytes = maxEntries && maxBytes ? weigh(entry) : 0;
       for (const item of future) estimatedBytes -= item.bytes;
       future.length = 0;
-      if (!bytes) return;
-      past.push({ ...entry, bytes });
+      if (!bytes) return undefined;
+      const stored = { ...entry, bytes };
+      past.push(stored);
       estimatedBytes += bytes;
       // One atomic edit may exceed the byte budget. Keep the newest edit intact.
       while (past.length > 1 && (past.length > maxEntries || estimatedBytes > maxBytes)) {
         estimatedBytes -= defined(past.shift(), "oldest entry").bytes;
       }
+      return past.includes(stored) ? stored : undefined;
+    },
+    amend(entry, next) {
+      for (const stack of [past, future]) {
+        const index = stack.findIndex((item) => item === entry);
+        const old = stack[index];
+        if (!old) continue;
+        const stored = { ...next, bytes: weigh(next) };
+        stack[index] = stored;
+        estimatedBytes += stored.bytes - old.bytes;
+        return stored;
+      }
+      return undefined;
     },
     discard(direction) {
       requireEdit(
