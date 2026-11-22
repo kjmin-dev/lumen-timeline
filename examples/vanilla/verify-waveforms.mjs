@@ -34,9 +34,16 @@ async function studio() {
   await page.goto(server.url);
   await page.waitForSelector(".lt-edit");
   await page.evaluate(inkSource);
+  // Peaks come from a worker; wait until every tile the view asked for is drawn.
+  const drawn = () =>
+    page.evaluate(async () => {
+      await window.lumenApp.studio.waveforms.idle();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
   await page.evaluate(async () => {
     window.lumenApp = await import("./app.mjs");
   });
+  await drawn();
   // The stem is the fourth row, one lane, below three one-lane rows.
   const stem = (seconds) =>
     page.evaluate((s) => {
@@ -57,6 +64,7 @@ async function studio() {
   await page.evaluate(() =>
     window.lumenApp.studio.view.setViewport({ startTick: 9 * 282240000, pixelsPerSecond: 200 }),
   );
+  await drawn();
   // The clip's name and caption run from the left edge, so sample clear of them.
   const zoomed = { silent: await stem(11), voiced: await stem(12.55) };
   assert.ok(zoomed.silent <= 2 && zoomed.voiced >= 6, JSON.stringify(zoomed));

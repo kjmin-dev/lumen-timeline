@@ -4,12 +4,12 @@ import {
   TICKS_PER_SECOND as hz,
   watchMarkerCrossings,
 } from "@lumen-timeline/core";
+import { bufferPeakSource, createWaveformTiles } from "@lumen-timeline/media";
 import { mountTimeline } from "@lumen-timeline/timeline";
 import { createGeneration, mountLinePanel } from "./generation.mjs";
 import { mountLineList } from "./lines.mjs";
 import { attachPlayer } from "./player.mjs";
 import { mountTakePanel } from "./takes.mjs";
-import { createWaveforms } from "./waveforms.mjs";
 
 const video = document.querySelector("video");
 const videoProject = {
@@ -160,13 +160,17 @@ export async function openProject(data) {
     document.querySelector("#status").textContent = error.message;
   });
   const { transport } = playback;
+  // The reference stem draws its continuous waveform from tiles built in a worker.
+  const stem = playback.assets.stem && bufferPeakSource(playback.assets.stem);
+  const waveforms = createWaveformTiles({
+    source: (assetId) => (assetId === "stem" ? stem : null),
+  });
   const view = mountTimeline(document.querySelector("#timeline"), {
     editor,
     transport,
     snap: { gridTicks: hz / 10 },
     labels: words,
-    // The reference stem draws its continuous waveform.
-    waveforms: createWaveforms({ stem: playback.assets.stem }),
+    waveforms,
     pixelsPerSecond: Math.max(
       20,
       (document.querySelector("#timeline").clientWidth - 160) /
@@ -258,6 +262,7 @@ export async function openProject(data) {
     view,
     transport,
     generation,
+    waveforms,
     assets: playback.assets,
     async dispose() {
       off();
@@ -268,6 +273,7 @@ export async function openProject(data) {
       offClock();
       offCrossings();
       view.dispose();
+      waveforms.dispose();
       await playback.dispose();
       editor.dispose();
     },

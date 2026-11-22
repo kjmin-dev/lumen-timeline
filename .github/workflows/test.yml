@@ -53,4 +53,5 @@ jobs:
       - run: npm run verify:studio
       - run: npm run verify:lines
       - run: npm run verify:waveforms
+      - run: npm run verify:peaks
       - run: npm run verify:shared

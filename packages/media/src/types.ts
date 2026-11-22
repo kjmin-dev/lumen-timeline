@@ -248,3 +248,116 @@ export interface VideoTransport {
   diagnostics(clipId: string): TransportDiagnostics;
   dispose(): void;
 }
+
+/**
+ * The samples of one asset stream that waveform tiles summarise. Tiles stay
+ * valid while `version`, `sampleRate` and `length` are unchanged.
+ */
+export interface PeakSource {
+  /** Changes whenever the samples change. Tiles of another version are never drawn. */
+  readonly version: string | number;
+  readonly sampleRate: number;
+  /** Sample frames. */
+  readonly length: number;
+  /**
+   * Samples `start` to `end` of the stream, or a promise of them. The tiles copy
+   * what they read, so this may return a view of a buffer that keeps playing.
+   * Missing samples count as no samples.
+   */
+  read(start: number, end: number): ArrayLike<number> | PromiseLike<ArrayLike<number>>;
+}
+
+/** A peak source over a decoded buffer, which reads without waiting. */
+export interface BufferPeakSource extends PeakSource {
+  read(start: number, end: number): Float32Array;
+}
+
+/** A decoded buffer with channel data, such as an `AudioBuffer`. */
+export interface ChannelBufferLike extends AudioBufferLike {
+  readonly numberOfChannels: number;
+  getChannelData(channel: number): Float32Array;
+}
+
+/**
+ * The part of a stream a view draws, in source ticks, divided into `buckets`
+ * equal columns. The timeline's waveform requests have this shape.
+ */
+export interface PeakRequest {
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly start: Tick;
+  readonly end: Tick;
+  readonly buckets: number;
+}
+
+/** The members of a `Worker` the waveform tiles use. */
+export interface PeakWorker {
+  postMessage(message: unknown, transfer: Transferable[]): void;
+  addEventListener(type: "message", listener: (event: MessageEvent<unknown>) => void): void;
+  addEventListener(type: "messageerror", listener: (event: MessageEvent<unknown>) => void): void;
+  addEventListener(type: "error", listener: (event: { readonly message: string }) => void): void;
+  terminate(): void;
+}
+
+export interface WaveformTilesOptions {
+  /**
+   * The source behind an asset's stream, or `null` for none. Called for each
+   * request, so it should be cheap; tiles are kept while the source's version,
+   * rate and length are unchanged.
+   */
+  source(assetId: string, streamId: string): PeakSource | null | undefined;
+  /**
+   * Starts the worker. Defaults to the package's module worker. `null`
+   * computes on the main thread in slices of a few milliseconds.
+   */
+  readonly worker?: (() => PeakWorker) | null | undefined;
+  /** Use the Rust SIMD kernels in the worker for large batches. Defaults to true. */
+  readonly wasm?: boolean | undefined;
+  /** The smallest batch, in samples, that uses them. Defaults to 65,536, one tile. */
+  readonly wasmFrom?: number | undefined;
+  /** Bytes of tiles to keep. Defaults to 64 MiB. */
+  readonly cacheBytes?: number | undefined;
+}
+
+export interface WaveformTileDiagnostics {
+  /** Where tiles are built. Main-thread slices are the fallback when no worker runs. */
+  readonly compute: "worker" | "main-thread";
+  /** The kernel of the last batch built, or `null` before the first. */
+  readonly kernel: "wasm-simd" | "js" | null;
+  /** Batches built by each kernel. */
+  readonly batches: { readonly js: number; readonly wasm: number };
+  /** Tiles held, and their bytes with each source's overview. */
+  readonly tiles: number;
+  readonly bytes: number;
+  /** Tiles wanted or being built. */
+  readonly pending: number;
+  readonly evicted: number;
+  /** Results discarded because their source changed or the provider was disposed. */
+  readonly stale: number;
+  /** Why the worker or its WebAssembly was not used, when either was not. */
+  readonly fallback: string | null;
+  /** The last error a source's `read` raised. */
+  readonly error: string | null;
+}
+
+/**
+ * Waveform peaks from tiles built off the main thread. It satisfies the
+ * timeline's waveform provider.
+ */
+export interface WaveformTiles {
+  /**
+   * Min/max pairs for each column, with `NaN` for a column outside the source,
+   * without finite samples or whose tile is not built yet. `null` for an
+   * unknown source. Tiles a column needs are built, and listeners told.
+   */
+  peaks(request: PeakRequest): Float32Array | null;
+  /** Calls the listener with an asset ID when more of its peaks are ready. */
+  subscribe(listener: (assetId: string) => void): () => void;
+  /** Drops an asset's tiles, so the next request reads its source again. */
+  invalidate(assetId: string): void;
+  /** Resolves once nothing is wanted or being built. */
+  idle(): Promise<void>;
+  diagnostics(): WaveformTileDiagnostics;
+  /** Stops the worker and drops every tile. Later requests return `null`. */
+  dispose(): void;
+}

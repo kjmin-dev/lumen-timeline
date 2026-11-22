@@ -15,6 +15,7 @@ The core will own editing commands, time and history. A shared browser view will
 - [Incremental playback](docs/incremental-playback.md) covers edit-time voice reconciliation, buffer resolution and continuous-audio regression tests.
 - [Vanilla timeline example](docs/vanilla-timeline.md) runs a two-track guide with Canvas 2D selection, zoom and playback.
 - [Media transports](docs/media-transports.md) describes the video and audio-only clocks, their shared Web Audio scheduler and both runnable workflows.
+- [Waveform tiles](docs/waveforms.md) builds the peaks drawn in clips in a worker, with an optional Rust SIMD kernel and a byte budget.
 - [Sharing a project between editors](docs/sync.md) covers the optional sync package: sessions, the sequencer, confirmation policies and handover, with no server required.
 - [Delivery plans](docs/plans/README.md) record each completed slice: its user outcome, the PRs that delivered it and their merge gates.
 

@@ -51,11 +51,11 @@ const view = mountTimeline(element, {
 
 - **Peaks.** `peaks` returns `buckets` minimum and maximum pairs between -1 and 1, or `null` to draw nothing for that source yet. A move keeps the requested range, and a trim or a take's new `sourceAtContentZero` changes it.
 - **Late peaks.** When peaks arrive or change, call the `subscribe` listener with the asset ID. The view repaints only the tracks whose clips play that asset. A take that starts playing other media repaints the tracks of the clips that list it. Disposing the view unsubscribes.
-- **Scope.** Each paint asks for what is visible. A provider that summarises its buffers, as the example's does, answers from that summary. Tiled pyramids and workers are [milestone 4](../ROADMAP.md#milestones).
+- **Scope.** Each paint asks for what is visible. [Waveform tiles](waveforms.md) from the media package answer from tiles built in a worker, and a host can pass any provider of its own.
 
-The video workspace's **Original dialogue** track holds a reference stem under the whole picture: a locked clip that plays the original-language dialogue quietly at a track gain of 0.35. Its waveform shows where each original line falls, for timing the dub against it. The example's provider, in `examples/vanilla/waveforms.mjs`, keeps the minimum and maximum of every 64 samples and reads raw samples when a column covers fewer than two blocks.
+The video workspace's **Original dialogue** track holds a reference stem under the whole picture: a locked clip that plays the original-language dialogue quietly at a track gain of 0.35. Its waveform shows where each original line falls, for timing the dub against it. The example draws it with `createWaveformTiles` over the decoded stem, so its peaks are built in the media package's worker.
 
-`npm run verify:waveforms` checks that the stem's drawn peaks fall in its phrases and not between them at two zoom levels, and that the stem is locked. In a mount of its own, it checks that pending peaks draw nothing, that a notification repaints once and only the track that plays the asset, the source range after a move, a left trim and a take offset change, and the unsubscription on dispose. Pass `firefox` or `webkit` to `node examples/vanilla/verify-waveforms.mjs` for the other engines.
+`npm run verify:waveforms` waits for the stem's tiles, then checks that its drawn peaks fall in its phrases and not between them at two zoom levels, and that the stem is locked. In a mount of its own, it checks that pending peaks draw nothing, that a notification repaints once and only the track that plays the asset, the source range after a move, a left trim and a take offset change, and the unsubscription on dispose. Pass `firefox` or `webkit` to `node examples/vanilla/verify-waveforms.mjs` for the other engines.
 
 ## Script
 
