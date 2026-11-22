@@ -1,6 +1,6 @@
 # Candidate takes per clip
 
-**Status.** PR T delivered in [#24](https://github.com/kjmin-dev/lumen-timeline/pull/24), PR U in [#28](https://github.com/kjmin-dev/lumen-timeline/pull/28), PR V in [#30](https://github.com/kjmin-dev/lumen-timeline/pull/30) and PR W in [#31](https://github.com/kjmin-dev/lumen-timeline/pull/31).
+**Status.** Delivered: PR T in [#24](https://github.com/kjmin-dev/lumen-timeline/pull/24), PR U in [#28](https://github.com/kjmin-dev/lumen-timeline/pull/28), PR V in [#30](https://github.com/kjmin-dev/lumen-timeline/pull/30) and PR W in [#31](https://github.com/kjmin-dev/lumen-timeline/pull/31).
 
 **User outcome.** Any host can keep several candidates for one clip slot and choose between them: a dubbing studio's generated lines, an ADR session's recorded takes, a musician's comped passes, a game's variations or a reviewer's vendor versions. A split shares the candidates with both halves, a new candidate on one half stays there, and every choice is one undoable edit that survives save and reopen. A late asynchronous result cannot overwrite newer work. [Design](../design.md#time-and-project-format) · [Milestone 3](../../ROADMAP.md#milestones)
 
