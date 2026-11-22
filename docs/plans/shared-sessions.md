@@ -1,6 +1,6 @@
 # Share one project between editors
 
-**Status.** S5 delivered in [#29](https://github.com/kjmin-dev/lumen-timeline/pull/29). S1 is open in [#35](https://github.com/kjmin-dev/lumen-timeline/pull/35), S2 in [#36](https://github.com/kjmin-dev/lumen-timeline/pull/36), S3 in [#37](https://github.com/kjmin-dev/lumen-timeline/pull/37) and S4 in [#38](https://github.com/kjmin-dev/lumen-timeline/pull/38). [Sync guide](../sync.md)
+**Status.** Delivered: S1 in [#35](https://github.com/kjmin-dev/lumen-timeline/pull/35), S2 in [#36](https://github.com/kjmin-dev/lumen-timeline/pull/36), S3 in [#37](https://github.com/kjmin-dev/lumen-timeline/pull/37), S4 in [#38](https://github.com/kjmin-dev/lumen-timeline/pull/38) and S5 in [#29](https://github.com/kjmin-dev/lumen-timeline/pull/29). [Sync guide](../sync.md)
 
 **User outcome.** A project edits the same with or without a network. When a host connects two or more editors, each sees the others' edits within a moment, keeps their own undo and ends on the same project as the others. A rule the editor enforces alone, such as no overlap on an exclusive track or no edit on a locked one, still holds with several editors. Nothing in this requires a server. [Audit experiments](../../experiments/collab/README.md) · [Replayable edits](replayable-edits.md)
 
