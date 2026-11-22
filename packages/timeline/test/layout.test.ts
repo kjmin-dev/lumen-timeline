@@ -136,6 +136,10 @@ test("a label is cropped inside its clip, and left out when the atlas has no roo
   assert.ok(label);
   assert.equal(label.w, 50 - 9 - 3);
   assert.deepEqual(label.uv, [0.1, 0.2, 0.1 + (0.2 * 38) / 80, 0.25].map(Math.fround));
+  // A clip with less than 24 px of room, as when zoomed far out, has no label.
+  const narrow = new QuadList();
+  layoutRow(row, [clip("a", 2, 0.3)], layout(), narrow, []);
+  assert.equal(quads(narrow).filter((q) => q.image).length, 0);
   const full = new QuadList();
   layoutRow(row, [clip("a", 2, 0.5)], layout({ label: () => null }), full, []);
   assert.equal(quads(full).filter((q) => q.image).length, 0);

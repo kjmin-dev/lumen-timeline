@@ -76,6 +76,27 @@ The example takes `?renderer=webgpu`, `webgl2` or `canvas2d` in its address.
 
 `npm run verify:renderers` mounts the same fixture on Canvas 2D, WebGL2 and WebGPU at DPR 2: six tracks, 36 clips, captions and waveforms. Hit tests over a grid of 1,357 points agree on all three. Fill and background colors match, and less than 2% of the clip canvas differs from Canvas 2D, at about 0.2% in practice, at clip and waveform edges. The same holds after a pan that brings new labels, which the GPU backends upload into the atlas rows that changed. Steady playback uploads no geometry and repaints nothing. One pointer and keyboard edit trace (select, move, trim, split at the playhead, undo, redo) ends on the same project and selection everywhere. On each GPU backend the trace loses the device during playback, checks that Canvas 2D or WebGL2 draws the same fills while playback continues at the same viewport and selection, and waits for the backend to return. It then loses the device again in the middle of a drag, which commits the same move as on Canvas 2D. Pixels are read back through each backend's own pipeline with an internal `readPixels`, not from screenshots. The trace runs Chromium in its new headless mode, as headless Chromium's older shell loses a WebGPU device on its software adapter. CI runs it with `LUMEN_SOFTWARE_GPU=1`, which forces SwiftShader for both GPU backends. Pass `webkit` to `node examples/vanilla/verify-renderers.mjs` for WebKit; Firefox has no WebGPU adapter in this setup, so pass `firefox canvas2d,webgl2` there.
 
+### Benchmark
+
+`npm run bench:render` runs the roadmap's [rendering fixture](../ROADMAP.md#engine-acceptance-targets) in Google Chrome on each backend. The fixture in `examples/bench` is two hours long, with 40 tracks, 20,000 clips and 12 rows visible at 1,440 × 900 CSS pixels and DPR 2. A 1080p video plays while it runs, and eight of its tracks play audio through the audio transport. Its waveforms come from 408 tile sources.
+
+The trace lasts 60 seconds: 20 s of panning, 20 s of zooming between 0.6 and 630 px/s, and 20 s of pointer drags at one move a frame. For each frame it records main-thread work from the frame's start until its rendering ends, and it counts missed refreshes. Before the trace, ten seeks to regions never drawn, then the same ten again, time how long the tiles they need take to build and to draw. The run also records memory and the peak worker's round trips, and `--write` saves everything to [`docs/measurements/render.json`](measurements/render.json).
+
+Recorded on an Apple M1 with Chrome 157 (ANGLE Metal), headless, at a load average of 4.6 to 10 from other work on the machine:
+
+| Backend   | Frame work p50 / p95 / p99 | Missed refreshes | Cold seek: built / drawn | Warm seek: built / drawn | JS heap | Tiles    | GPU      |
+| --------- | -------------------------- | ---------------- | ------------------------ | ------------------------ | ------- | -------- | -------- |
+| WebGL2    | 3.4 / 5.2 / 6.3 ms         | 0.75%            | 10 / 17 ms               | 2 / 17 ms                | 122 MiB | 66.8 MiB | 16.6 MiB |
+| WebGPU    | 3.8 / 5.7 / 7.1 ms         | 0.92%            | 12 / 17 ms               | 3 / 17 ms                | 116 MiB | 66.8 MiB | 16.6 MiB |
+| Canvas 2D | 4.4 / 6.4 / 8.5 ms         | 0.69%            | 11 / 17 ms               | 4 / 17 ms                | 132 MiB | 66.8 MiB | 0        |
+
+- **Targets.** On every backend, p95 frame work is within the target's 8 ms and missed refreshes within its 1%.
+- **Missed refreshes.** Nearly all fell in the drag phase, where each pointer move is a round trip from the test runner. The same machine missed none with playback alone, and under heavier load from other processes, earlier runs missed up to 2.4%.
+- **Seeks.** A cold seek built 88 tiles. The view draws in the next frame after its tiles are ready, so drawn time is about one refresh in both cases.
+- **GPU memory.** Most of it is the 16 MiB label atlas.
+
+The benchmark shaped two changes. Labels are left out of clips with less than 24 px of room, which kept the atlas from filling on every frame when zoomed out. Zoomed-out columns read each source's summary instead of whole tiles, which kept zooming from evicting and rebuilding thousands of tiles. Together they took zoom-phase p95 frame work from about 22 ms to 4–6 ms.
+
 ## Scale
 
 Work in the view follows what is visible, not the size of the project. A paint lays out only the clips of visible rows in the visible range, which the core's per-track interval index returns. A pan or zoom redraws the ruler and the layout and leaves the track headers alone. The clip navigator updates only the options of the clips an edit patched, and a new clip takes its place in project order. Labels stay in the atlas while they fit; when it fills, the view clears it and lays out again, so it only ever holds one paint's labels.

@@ -195,9 +195,9 @@ test("columns hold the extremes of the buckets they overlap, at every level and 
   tiles.dispose();
 });
 
-test("a worker builds batches with WASM from one tile and JS below, transferring its scratch", async () => {
+test("a worker builds batches with WASM from 4,096 samples and JS below, transferring its scratch", async () => {
   const fake = fakeWorker();
-  const short = pcm(20000, 9);
+  const short = pcm(3000, 9);
   const tiles = createWaveformTiles({
     source: (assetId) => source(assetId === "long" ? samples : short),
     worker: () => fake.worker,
@@ -209,7 +209,7 @@ test("a worker builds batches with WASM from one tile and JS below, transferring
   const report = tiles.diagnostics();
   assert.equal(report.compute, "worker");
   assert.equal(report.batches.wasm, 1, "the six-tile source is one batch");
-  assert.equal(report.batches.js, 1, "a source shorter than a tile uses JS");
+  assert.equal(report.batches.js, 1, "a source shorter than 4,096 samples uses JS");
   assert.equal(fake.seen.configured, 1);
   assert.equal(fake.seen.detached, 2, "the scratch samples were transferred");
   assert.equal(report.tiles, 7);
@@ -494,5 +494,37 @@ test("a column across two tiles is drawn only when both are built", async () => 
   });
   assert.deepEqual(drawn, filled);
   assert.ok(drawn.slice(0, 5).some(Boolean) && !drawn.slice(5).some(Boolean), drawn.join());
+  tiles.dispose();
+});
+
+test("tiles built only for zoomed-out columns are summarised and not kept", async () => {
+  const long = pcm(6 * tileSamples, 31);
+  const counted = source(long);
+  const tiles = createWaveformTiles({ source: () => counted, worker: null });
+  const whole = { assetId: "a", streamId: "s", start: 0, end: at(long.length), buckets: 3 };
+  sameColumns(await settled(tiles, whole), long, 0, long.length / 3, "overview");
+  assert.equal(tiles.diagnostics().tiles, 0, "an overview kept its tiles");
+  // Columns of 4,096 and 16,384 samples read the summary too.
+  for (const width of [5000, 20000]) {
+    const mid = {
+      assetId: "a",
+      streamId: "s",
+      start: at(777),
+      end: at(777 + 70 * width),
+      buckets: 70,
+    };
+    sameColumns(await settled(tiles, mid), long, 777, width, "mid " + width);
+  }
+  assert.equal(tiles.diagnostics().tiles, 0, "a mid zoom kept its tiles");
+  // A closer view of one tile builds it again and keeps it.
+  const reads = counted.reads;
+  const close = { assetId: "a", streamId: "s", start: at(100), end: at(5000), buckets: 49 };
+  sameColumns(await settled(tiles, close), long, 100, 100, "close");
+  assert.equal(tiles.diagnostics().tiles, 1);
+  assert.equal(counted.reads, reads + 1);
+  // The overview still answers without reading.
+  sameColumns(tiles.peaks(whole), long, 0, long.length / 3, "overview again");
+  await tiles.idle();
+  assert.equal(counted.reads, reads + 1);
   tiles.dispose();
 });

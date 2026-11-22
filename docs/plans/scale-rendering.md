@@ -1,6 +1,6 @@
 # Render a large timeline
 
-**Status.** Planned. Starts from 6b5643d, after #38. [Milestone 4](../../ROADMAP.md#milestones)
+**Status.** Delivered: the plan in [#39](https://github.com/kjmin-dev/lumen-timeline/pull/39), R1 in [#40](https://github.com/kjmin-dev/lumen-timeline/pull/40), R2 in [#41](https://github.com/kjmin-dev/lumen-timeline/pull/41), R3 in [#42](https://github.com/kjmin-dev/lumen-timeline/pull/42), R4 in [#43](https://github.com/kjmin-dev/lumen-timeline/pull/43) and R5 in [#44](https://github.com/kjmin-dev/lumen-timeline/pull/44). It started from 6b5643d, after #38. [Milestone 4](../../ROADMAP.md#milestones) · [Rendering](../vanilla-timeline.md#rendering) · [Waveform tiles](../waveforms.md)
 
 **User outcome.** A two-hour project with forty tracks and twenty thousand clips pans, zooms and drags as smoothly as a short one, with waveforms in every visible clip. The view draws through WebGL2 by default, through WebGPU when the host asks for it, and through Canvas 2D wherever neither is available. A lost GPU device leaves the timeline in place, at the same position and selection, with every edit kept. Waveform peaks come from a worker, with an optional Rust SIMD kernel for large batches, and never block the page. [Architecture](../core-architecture.md#waveforms-rendering-and-extension-points)
 
@@ -70,6 +70,16 @@ Results go to `docs/measurements/render.json` with the browser, GPU and hardware
 | R5  | Benchmark project and trace, published measurements, milestone 4 status                | The benchmark runs on each backend and its results are published with the hardware and browser. The roadmap marks milestone 4 complete.                                                                                                                                                                                |
 
 R1 and R2 change only the media package. R3 keeps today's drawing and adds no option. R4 changes the default backend.
+
+## As delivered
+
+- **`auto` avoids software GPUs.** WebGL2 on a software rasterizer such as SwiftShader made the main thread wait on the GPU process and broke audio continuity in CI's traces. `auto` therefore draws through Canvas 2D there, and `webgl2` still accepts it. Diagnostics report the backend asked for and the reason for any other.
+- **GPU backends submit once per animation frame.** The layout is still built in each paint, so hit tests and diagnostics stay synchronous.
+- **A per-stream summary.** The benchmark showed zooming evicting and rebuilding thousands of tiles. Each stream now keeps the 4,096 and 16,384 sample levels and the overview pair of every tile it built, 168 bytes a tile, and a tile only zoomed-out columns asked for is not kept.
+- **Labels need 24 px of room.** Far zoomed out, labels a letter wide filled the atlas on every frame.
+- **The WASM cutoff is 4,096 samples.** The benchmark measured the worker's round trip faster with WASM at every size it tried, from 4,096 samples.
+- **Pixel reads go through the backend.** An internal `readPixels` draws the last layout through the current backend and reads it back. Headless Chromium's old shell loses a WebGPU device on SwiftShader when its canvas is shown, so the GPU traces run Chromium's new headless mode. On Linux CI they composite through Vulkan on SwiftShader.
+- **Hit tests are public.** `view.hitTest(point)` answers from the layout for hosts and for the wrapper tests.
 
 ## Settled
 

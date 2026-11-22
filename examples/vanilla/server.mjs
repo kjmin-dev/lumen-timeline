@@ -21,7 +21,7 @@ export async function serve(port = 0) {
       return;
     }
     if (
-      !/^\/(examples\/(vanilla|sync)|packages\/(core|timeline|media|sync)|experiments\/sync)\/[a-zA-Z0-9_./-]+$/.test(
+      !/^\/(examples\/(vanilla|sync|bench)|packages\/(core|timeline|media|sync)|experiments\/sync)\/[a-zA-Z0-9_./-]+$/.test(
         path,
       ) ||
       !types[extname(path)]

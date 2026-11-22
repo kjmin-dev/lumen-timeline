@@ -114,6 +114,8 @@ export interface TimelineDiagnostics {
     readonly staticUploads: number;
     /** Lost WebGL2 contexts and WebGPU devices since the view mounted. */
     readonly deviceLosses: number;
+    /** Bytes of GPU buffers and textures the drawing backend holds: geometry and the label atlas. */
+    readonly gpuBytes: number;
     /** Clips in the current layout: the clips of visible rows in the visible range. */
     readonly visibleClips: number;
     /** Labels rasterized into the label atlas since the view mounted. */

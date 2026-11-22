@@ -171,6 +171,10 @@ export function createWebGL2Renderer(
     get uploads() {
       return uploads;
     },
+    get gpuBytes() {
+      const r = resources;
+      return r ? r.capacity * (quadFloats * 4 + 4) + r.atlasSize * r.atlasSize * 4 : 0;
+    },
     // The drawing buffer holds the frame until the browser shows it, so a draw
     // and a read in one task read what was drawn. Rows come bottom first.
     read(frame: Frame, rect: PixelRect): Promise<Pixels> {

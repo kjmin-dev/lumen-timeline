@@ -25,6 +25,13 @@ const forgetAfter = 120;
 /** Main-thread slice budget in milliseconds. */
 const sliceMs = 4;
 const coarsest = tileLevels.length - 1;
+// Each stream keeps a summary of every tile it has built: the 4,096 and 16,384
+// sample levels and the overview pair, 21 pairs or 168 bytes a tile. Columns
+// of 4,096 samples or more draw from it, so a zoomed-out view never needs, or
+// evicts, whole tiles.
+const summaryLevel = 4;
+const summaryPairs = 21;
+const summaryAt = [0, 16, 20] as const;
 
 /** One version of one stream and the tiles built from it. */
 interface Stream {
@@ -37,12 +44,14 @@ interface Stream {
   readonly length: number;
   readonly count: number;
   readonly tiles: Map<number, Float32Array>;
-  /** One pair per tile, NaN until that tile is built. */
-  readonly overview: Float32Array;
+  /** `summaryPairs` pairs per tile, NaN until that tile is built. */
+  readonly summary: Float32Array;
   /** Tiles wanted or being built, with the paint that last asked for each. */
   readonly wanted: Map<number, number>;
   readonly building: Set<number>;
   readonly failed: Set<number>;
+  /** Tiles wanted only for their summary, which are not kept once it is copied. */
+  readonly summaryOnly: Set<number>;
 }
 
 interface Batch {
@@ -81,7 +90,7 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
   let kernel: PeakBackend | null = null;
   let fallback: string | null = null;
   let error: string | null = null;
-  let overviewBytes = 0;
+  let summaryBytes = 0;
   let epoch = 0;
   let epochOpen = false;
   let flushing = false;
@@ -117,19 +126,20 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
       length: source.length,
       count,
       tiles: new Map(),
-      overview: new Float32Array(2 * count).fill(NaN),
+      summary: new Float32Array(2 * summaryPairs * count).fill(NaN),
       wanted: new Map(),
       building: new Set(),
       failed: new Set(),
+      summaryOnly: new Set(),
     };
-    overviewBytes += stream.overview.byteLength;
+    summaryBytes += stream.summary.byteLength;
     streams.set(key, stream);
     return stream;
   }
   function drop(stream: Stream): void {
     if (streams.get(stream.key) !== stream) return;
     streams.delete(stream.key);
-    overviewBytes -= stream.overview.byteLength;
+    summaryBytes -= stream.summary.byteLength;
     for (const index of stream.tiles.keys()) lru.delete(stream.key + "\u0000" + index);
     stream.tiles.clear();
     stream.wanted.clear();
@@ -155,11 +165,16 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
         lru.delete(key);
         lru.set(key, entry);
       }
-    } else want(stream, index);
+    } else want(stream, index, false);
     return tile;
   }
-  function want(stream: Stream, index: number): void {
+  // A tile a zoomed-out column needs only for its summary is summarised and
+  // dropped, so it does not push out the tiles a closer view is using.
+  function want(stream: Stream, index: number, summary: boolean): void {
     if (stream.failed.has(index)) return;
+    if (!summary) stream.summaryOnly.delete(index);
+    else if (!stream.wanted.has(index) && !stream.building.has(index))
+      stream.summaryOnly.add(index);
     stream.wanted.set(index, epoch);
     if (!flushing) {
       flushing = true;
@@ -188,13 +203,17 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
     const width = ((end - start) * sampleRate) / hz / buckets;
     const out = new Float32Array(2 * buckets).fill(NaN);
     if (!(width > 0)) return out;
-    // The coarsest level no wider than a column, or the overview beyond them.
+    // The coarsest level no wider than a column: a tile level, or one of the
+    // summary's, the overview beyond them all.
     let level = 0;
     while (level < coarsest && (tileLevels[level + 1] ?? Infinity) <= width) level++;
     const overview = width >= tileSamples;
+    const summarised = overview || level >= summaryLevel;
     const per = overview ? tileSamples : (tileLevels[level] ?? 16);
     const perTile = tileSamples / per;
-    const base = levelOffsets[level] ?? 0;
+    const base = summarised
+      ? (summaryAt[overview ? 2 : level - summaryLevel] ?? 0)
+      : (levelOffsets[level] ?? 0);
     let cached = -1;
     let tile: Float32Array | undefined;
     for (let column = 0; column < buckets; column++) {
@@ -208,16 +227,17 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
       for (let bucket = Math.floor(x0 / per); bucket <= last; bucket++) {
         let a: number;
         let b: number;
-        if (overview) {
-          a = stream.overview[2 * bucket] ?? NaN;
-          b = stream.overview[2 * bucket + 1] ?? NaN;
+        const index = Math.floor(bucket / perTile);
+        if (summarised) {
+          const at = 2 * (index * summaryPairs + base + bucket - index * perTile);
+          a = stream.summary[at] ?? NaN;
+          b = stream.summary[at + 1] ?? NaN;
           if (Number.isNaN(a)) {
             ready = false;
-            want(stream, bucket);
+            want(stream, index, true);
             continue;
           }
         } else {
-          const index = Math.floor(bucket / perTile);
           if (index !== cached) {
             cached = index;
             tile = tileOf(stream, index);
@@ -248,20 +268,25 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
       counts.stale++;
       return;
     }
-    stream.tiles.set(index, tile);
-    lru.set(stream.key + "\u0000" + index, { stream, index, used: epoch });
-    // The overview pair folds the coarsest level's four pairs.
+    if (!stream.summaryOnly.delete(index)) {
+      stream.tiles.set(index, tile);
+      lru.set(stream.key + "\u0000" + index, { stream, index, used: epoch });
+    }
+    // The summary copies the two coarsest levels, 16 and 4 pairs, and folds
+    // the last four into the overview pair.
+    const into = 2 * summaryPairs * index;
+    const from = 2 * (levelOffsets[summaryLevel] ?? 0);
+    stream.summary.set(tile.subarray(from, from + 40), into);
     let lo = Infinity;
     let hi = -Infinity;
-    const at = 2 * (levelOffsets[coarsest] ?? 0);
-    for (let i = at; i < at + 8; i += 2) {
+    for (let i = from + 32; i < from + 40; i += 2) {
       const a = tile[i] ?? NaN;
       const b = tile[i + 1] ?? NaN;
       if (a < lo) lo = a;
       if (b > hi) hi = b;
     }
-    stream.overview[2 * index] = lo;
-    stream.overview[2 * index + 1] = hi;
+    stream.summary[into + 40] = lo;
+    stream.summary[into + 41] = hi;
     evict();
     notify(stream.assetId);
   }
@@ -491,7 +516,7 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
         kernel,
         batches: { js: counts.js, wasm: counts.wasm },
         tiles: lru.size,
-        bytes: lru.size * tileBytes + overviewBytes,
+        bytes: lru.size * tileBytes + summaryBytes,
         pending,
         evicted: counts.evicted,
         stale: counts.stale,

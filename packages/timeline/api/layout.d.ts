@@ -55,6 +55,12 @@ export interface RowLayout {
 /** Where a label starts after its clip's left edge, and its top below the clip's. */
 export declare const labelInset = 9;
 export declare const labelTop = 6;
+/**
+ * The least room, in CSS pixels, a clip needs for its label. Narrower clips,
+ * as when zoomed far out, would show a letter or two, and their labels would
+ * crowd the atlas.
+ */
+export declare const labelRoom = 24;
 /** Label height in CSS pixels, with the text's baseline 15 pixels down. */
 export declare const labelHeight = 20;
 export declare const labelBaseline = 15;

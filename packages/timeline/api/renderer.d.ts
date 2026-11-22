@@ -36,6 +36,8 @@ export interface Renderer {
     readonly canvas: HTMLCanvasElement;
     /** Geometry buffers uploaded to the GPU. Canvas 2D uploads none. */
     readonly uploads: number;
+    /** Bytes of GPU buffers and textures this backend holds. Canvas 2D holds none. */
+    readonly gpuBytes: number;
     draw(frame: Frame): void;
     /**
      * Draws `frame` again through this backend's own pipeline and reads a region

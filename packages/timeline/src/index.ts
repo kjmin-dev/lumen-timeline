@@ -798,6 +798,7 @@ export function mountTimeline(
       fallback: renderers.fallback,
       staticUploads: renderers.uploads,
       deviceLosses: renderers.losses,
+      gpuBytes: renderers.gpuBytes,
       visibleClips: boxes.length,
       labelsRasterized: rasterized + (atlas?.rasterized ?? 0),
     }),
