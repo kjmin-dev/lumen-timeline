@@ -126,7 +126,8 @@ function parseTrack(value: JsonValue, tracks: ReadonlyMap<string, Track>): Track
   });
 }
 
-function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Clip {
+/** Parses one clip of a loaded project or a replayed record. */
+export function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Clip {
   const clip = isRecord(value) ? value : undefined;
   const id = clip?.["id"];
   requireEdit(

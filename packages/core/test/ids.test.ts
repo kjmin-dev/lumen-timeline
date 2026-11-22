@@ -131,9 +131,19 @@ test("a commit's commands carry every generated ID and replay elsewhere", () => 
   commit(other.dispatch(result.commands));
   commit(other.dispatch(scoped.commands));
   assert.deepEqual(other.getSnapshot(), e.getSnapshot());
-  // Undo and redo replay recorded changes rather than commands.
-  assert.deepEqual(commit(e.history.undo()).commands, []);
-  assert.deepEqual(commit(e.history.redo()).commands, []);
+  // Undo and redo list one replay of the records they applied.
+  const undo = commit(e.history.undo());
+  assert.deepEqual(undo.commands, [
+    {
+      type: "replay",
+      clipPatches: undo.clipPatches,
+      dataPatches: undo.dataPatches,
+      markerPatches: undo.markerPatches,
+      takePatches: undo.takePatches,
+    },
+  ]);
+  commit(other.dispatch(undo.commands));
+  assert.deepEqual(other.getSnapshot(), e.getSnapshot());
 });
 
 // Three sessions take turns at random edits. Each forwards only the commands
