@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shared timeline · Lumen Timeline</title>
+    <link rel="stylesheet" href="/packages/timeline/style.css" />
+    <link rel="stylesheet" href="/examples/vanilla/studio.css" />
+    <link rel="stylesheet" href="./sync.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@lumen-timeline/core": "/packages/core/dist/index.js",
+          "@lumen-timeline/timeline": "/packages/timeline/dist/index.js",
+          "@lumen-timeline/sync": "/packages/sync/dist/index.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <div class="brand"><i aria-hidden="true"></i>Lumen <b>Timeline</b></div>
+      <a href="/examples/vanilla/index.html">Studio</a>
+    </header>
+    <main>
+      <div class="title">
+        <h1>Shared timeline</h1>
+        <div class="project-actions">
+          <button id="connection" type="button" disabled>Go offline</button>
+        </div>
+      </div>
+      <p class="sync-intro">
+        Open this page in several tabs of one browser. The tab that holds a Web Lock orders every
+        tab's edits over a <code>BroadcastChannel</code>. Close it, and another tab takes over. No
+        server is involved. Add <code>?policy=online</code> or <code>?policy=confirmed</code> to
+        choose how a tab treats its own edits.
+      </p>
+      <section class="sync-status" aria-label="Session">
+        <dl>
+          <div>
+            <dt>Role</dt>
+            <dd id="role">Starting</dd>
+          </div>
+          <div>
+            <dt>Policy</dt>
+            <dd id="policy">—</dd>
+          </div>
+          <div>
+            <dt>Actor</dt>
+            <dd id="actor">—</dd>
+          </div>
+          <div>
+            <dt>Connection</dt>
+            <dd id="connection-state">connecting</dd>
+          </div>
+          <div>
+            <dt>Pending</dt>
+            <dd id="pending">0</dd>
+          </div>
+          <div>
+            <dt>Revision</dt>
+            <dd id="revision">—</dd>
+          </div>
+          <div>
+            <dt>Others</dt>
+            <dd id="others">none</dd>
+          </div>
+        </dl>
+      </section>
+      <div id="timeline"></div>
+      <section class="sync-log" aria-label="Session log">
+        <div class="panel-head">Session log</div>
+        <ol id="log" aria-label="Session log"></ol>
+      </section>
+      <p id="status" role="status"></p>
+    </main>
+    <script type="module" src="./app.mjs"></script>
+  </body>
+</html>
