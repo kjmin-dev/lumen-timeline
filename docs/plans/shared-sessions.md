@@ -1,6 +1,6 @@
 # Share one project between editors
 
-**Status.** S5 delivered in [#29](https://github.com/kjmin-dev/lumen-timeline/pull/29). S1 is open in [#35](https://github.com/kjmin-dev/lumen-timeline/pull/35) and S2 in [#36](https://github.com/kjmin-dev/lumen-timeline/pull/36). S3 and S4 are planned.
+**Status.** S5 delivered in [#29](https://github.com/kjmin-dev/lumen-timeline/pull/29). S1 is open in [#35](https://github.com/kjmin-dev/lumen-timeline/pull/35), S2 in [#36](https://github.com/kjmin-dev/lumen-timeline/pull/36) and S3 in [#37](https://github.com/kjmin-dev/lumen-timeline/pull/37). S4 is planned. [Sync guide](../sync.md)
 
 **User outcome.** A project edits the same with or without a network. When a host connects two or more editors, each sees the others' edits within a moment, keeps their own undo and ends on the same project as the others. A rule the editor enforces alone, such as no overlap on an exclusive track or no edit on a locked one, still holds with several editors. Nothing in this requires a server. [Audit experiments](../../experiments/collab/README.md) · [Replayable edits](replayable-edits.md)
 
@@ -92,7 +92,7 @@ A connected editor keeps two documents: the confirmed one, which only sequencer 
 4. On `rejected`, the editor removes the transaction, rebuilds the visible document as in step 2 and reports the rejection.
 5. On disconnect, the policy applies: `queue` keeps the queue, `online` and `confirmed` make the visible editor read-only, and deadlines start.
 
-Subscribers of the visible editor see one commit per step, with the usual `changedIds` and `affected`, so the timeline view and the transports need no change. Disconnecting the sync package leaves the visible editor as an ordinary editor.
+Subscribers of the visible editor see one commit per step, with the usual `changedIds` and `affected`, so the timeline view and the transports need no change. Disconnecting the sync package leaves the visible editor as an ordinary editor. _As delivered in S3, a rebuild shows as the replacement's commit followed by one commit per replayed pending transaction, since each replay updates its own history entry. A pending transaction that no longer applies locally after it was sent stays pending until the sequencer answers it, so its number is never skipped. Only one that was never sent is dropped at once. An idle session also polls, so an entry lost at the end of a burst is still fetched._
 
 ## What the core still needs
 

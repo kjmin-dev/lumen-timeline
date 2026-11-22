@@ -35,6 +35,10 @@
               {
                 "name": "@lumen-timeline/timeline",
                 "message": "The core stays headless and must not import browser packages."
+              },
+              {
+                "name": "@lumen-timeline/sync",
+                "message": "The core works without the optional sync package."
               }
             ],
             "patterns": [
