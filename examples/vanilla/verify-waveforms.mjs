@@ -57,7 +57,8 @@ async function studio() {
   await page.evaluate(() =>
     window.lumenApp.studio.view.setViewport({ startTick: 9 * 282240000, pixelsPerSecond: 200 }),
   );
-  const zoomed = { silent: await stem(10.5), voiced: await stem(12.55) };
+  // The clip's name and caption run from the left edge, so sample clear of them.
+  const zoomed = { silent: await stem(11), voiced: await stem(12.55) };
   assert.ok(zoomed.silent <= 2 && zoomed.voiced >= 6, JSON.stringify(zoomed));
   // The stem is a reference: locked, so it cannot be dragged out of sync.
   assert.equal(
@@ -135,6 +136,7 @@ async function provider() {
     const view = mountTimeline(host, { editor, transport, pixelsPerSecond: 50, waveforms });
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const canvas = host.querySelector(".lt-clips");
+    // Sample past each clip's name and caption, which render wider on some systems.
     const look = (seconds) => ({
       a: window.ink(canvas, seconds * 50, 9, 28, [43, 85, 85]),
       b: window.ink(canvas, seconds * 50, 46 + 9, 28, [96, 67, 50]),
@@ -146,13 +148,13 @@ async function provider() {
     const paints = () => view.getDiagnostics().staticPaints;
     const out = {};
     out.pending = {
-      look: look(3),
+      look: look(4.5),
       assets: [...new Set(requests.map((r) => r.assetId))].sort((p, q) => p.localeCompare(q)),
     };
     let before = paints();
     ready.add("x");
     listener("x");
-    out.ready = { paints: paints() - before, look: look(3), request: lastX() };
+    out.ready = { paints: paints() - before, look: look(4.5), request: lastX() };
     before = paints();
     listener("z");
     out.unused = paints() - before;
