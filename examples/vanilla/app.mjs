@@ -5,6 +5,7 @@ import {
   watchMarkerCrossings,
 } from "@lumen-timeline/core";
 import { mountTimeline } from "@lumen-timeline/timeline";
+import { createGeneration, mountLinePanel } from "./generation.mjs";
 import { attachPlayer } from "./player.mjs";
 import { mountTakePanel } from "./takes.mjs";
 
@@ -28,6 +29,7 @@ const videoProject = {
       contentBounds: { start: 0, end: 8 * hz },
       takeIds: ["line", "line-late", "guide"],
       activeTakeId: "line",
+      lineId: "line-1",
     },
     {
       id: "return",
@@ -40,6 +42,7 @@ const videoProject = {
       contentBounds: { start: 0, end: 8 * hz },
       takeIds: ["line"],
       activeTakeId: "line",
+      lineId: "line-2",
     },
     {
       id: "bed",
@@ -72,6 +75,21 @@ const videoProject = {
     { id: "marker-line", start: 12 * hz, label: "Tidal line" },
     { id: "marker-return", start: 19 * hz, label: "Return" },
   ],
+  // Each line in the source language and its translation, which generation reads.
+  entityData: {
+    "studio.line": {
+      "line-1": {
+        source: "La marée revient. Regarde les courbes dériver sur l'anse.",
+        text: "The tide returns. Watch the contour lines drift across the inlet.",
+        revision: 0,
+      },
+      "line-2": {
+        source: "Et elle repart.",
+        text: "And it leaves again.",
+        revision: 0,
+      },
+    },
+  },
 };
 const audioProject = {
   schemaVersion: 1,
@@ -81,6 +99,7 @@ const audioProject = {
     { ...videoProject.clips[2], name: "Low water bed" },
   ],
   takes: videoProject.takes,
+  entityData: { "studio.line": { "line-1": videoProject.entityData["studio.line"]["line-1"] } },
   markers: [
     { id: "marker-narration", start: 2 * hz, label: "Narration" },
     { id: "marker-fade", start: 20 * hz, label: "Fade" },
@@ -155,6 +174,18 @@ export async function openProject(data) {
     words,
     report,
   });
+  const generation = createGeneration({
+    editor,
+    context: playback.context,
+    assets: playback.assets,
+    transport,
+  });
+  const offLines = mountLinePanel(document.querySelector("#line-panel"), {
+    editor,
+    plugin: generation,
+    words,
+    report,
+  });
   const clockLabel = document.querySelector("#clock-mode");
   function showClock(state) {
     if (!clockLabel) return;
@@ -178,10 +209,13 @@ export async function openProject(data) {
     editor,
     view,
     transport,
+    generation,
+    assets: playback.assets,
     async dispose() {
       off();
       deselect();
       offTakes();
+      offLines();
       offClock();
       offCrossings();
       view.dispose();

@@ -65,6 +65,7 @@ There is no separate take-set record. The candidate list is a field of the clip,
 - **PR V — Candidates in the view.** The timeline draws a candidate count and the active take's label on each clip that has a list. A `labels` option renames "take" for the host's domain. The vanilla example gains a take panel with audition, apply, reorder and remove.
   - _Delivered._ The caption follows the clip's name. A relabeled active take repaints only its tracks. The example's panel keeps a constant height, because a panel that grew on selection moved the timeline during a drag. [Candidates in the view](../vanilla-timeline.md#candidates)
 - **PR W — Generation as a plugin.** A `studio.generation` example records request snapshots in take extensions, commits results with expectations and keeps rejected results in a host job log. The milestone 3 trace edits a line, auditions and applies a take, splits, regenerates only the right half, undoes and reopens. It then checks the left clip's audio and candidates and reproduces a stale result.
+  - _Delivered._ A clip names its line in a `lineId` field that a split copies, and the line's text and revision live in entity data. Generated audio is a function of the request, so a reopened project rebuilds it from the take's extension. The trace is `npm run verify:studio`. [Lines and generation](../vanilla-timeline.md#lines-and-generation)
 
 ## Merge gates for PR T
 

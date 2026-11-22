@@ -28,7 +28,8 @@
     "verify:timeline": "node examples/vanilla/verify.mjs",
     "verify:audio": "node examples/vanilla/verify-audio.mjs",
     "verify:milestone": "node examples/vanilla/verify-milestone.mjs",
-    "verify:takes": "node examples/vanilla/verify-takes.mjs"
+    "verify:takes": "node examples/vanilla/verify-takes.mjs",
+    "verify:studio": "node examples/vanilla/verify-studio.mjs"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
