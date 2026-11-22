@@ -111,7 +111,8 @@ test("a commit's commands carry every generated ID and replay elsewhere", () => 
   ];
   const result = commit(e.dispatch(dispatched));
   assert.deepEqual(result.commands, [
-    { type: "split", clipId: "line", at: 200, rightId: "ana-1" },
+    // A split is recorded at its content position: 200 - start 100 + contentIn 10.
+    { type: "split", clipId: "line", atContent: 110, rightId: "ana-1" },
     { type: "add-marker", start: 5, label: "Cut", id: "ana-2" },
     { type: "add-take", clipIds: ["line"], take: { ...take, id: "ana-3" }, activate: true },
     { type: "move", clipIds: ["bed"], delta: 10 },
@@ -184,4 +185,68 @@ test("seeded sessions converge by replaying each other's commit commands", () =>
   const ids = sessions[0]?.getSnapshot().clips.map((c) => c.id) ?? [];
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(ids.some((id) => id.startsWith("ben-")) && ids.some((id) => id.startsWith("cy-")));
+});
+
+test("a split names a content point, which a concurrent move does not change", () => {
+  const e = createEditor({ project: project(), actor: "ana" });
+  const clipOf = (editor: Editor, id: string) =>
+    editor.getSnapshot().clips.find((c) => c.id === id);
+  // Content point 60 of a clip that starts at 100 with contentIn 10 is tick 150.
+  const cut = commit(
+    e.dispatch(commands.splitClip({ clipId: "line", atContent: 60, rightId: "r" })),
+  );
+  assert.deepEqual(
+    [clipOf(e, "line")?.duration, clipOf(e, "r")?.start, clipOf(e, "r")?.contentIn],
+    [50, 150, 60],
+  );
+  // A command that names every field passes through as dispatched.
+  assert.deepEqual(cut.commands, [{ type: "split", clipId: "line", atContent: 60, rightId: "r" }]);
+  pass(e.history.undo());
+  pass(e.history.redo());
+  assert.equal(clipOf(e, "r")?.contentIn, 60);
+
+  // Ben moved the clip by 40 ticks while Ana cut it at tick 150. Replaying her
+  // recorded command cuts the same content point, now at tick 190.
+  const ana = createEditor({ project: project(), actor: "ana" });
+  const ben = createEditor({ project: project(), actor: "ben" });
+  const sent = commit(ana.dispatch(commands.splitClip({ clipId: "line", at: 150 }))).commands;
+  assert.deepEqual(sent, [{ type: "split", clipId: "line", atContent: 60, rightId: "ana-1" }]);
+  commit(ben.dispatch(commands.moveClips({ clipIds: ["line"], delta: 40 })));
+  commit(ben.dispatch(sent));
+  assert.deepEqual(
+    [clipOf(ben, "ana-1")?.start, clipOf(ben, "ana-1")?.contentIn, clipOf(ben, "line")?.duration],
+    [190, 60, 50],
+  );
+  // Within one transaction, the content point follows the staged clip.
+  const t = createEditor({ project: project(), actor: "ana" });
+  const both = commit(
+    t.dispatch([
+      commands.trimClip({ clipId: "line", edge: "left", delta: 20 }),
+      commands.splitClip({ clipId: "line", at: 150, rightId: "r" }),
+    ]),
+  );
+  assert.deepEqual(both.commands[1], {
+    type: "split",
+    clipId: "line",
+    atContent: 60,
+    rightId: "r",
+  });
+
+  // The cut lies strictly between the content edges [10, 210), named one way only.
+  const code = (args: { readonly at?: number; readonly atContent?: number }) => {
+    const result = createEditor({ project: project() }).dispatch(
+      // @ts-expect-error -- A JavaScript host can name both forms of the cut, or neither.
+      { type: "split", clipId: "line", ...args },
+    );
+    return result.ok ? "ok" : result.code;
+  };
+  assert.deepEqual(
+    [{ atContent: 11 }, { atContent: 209 }, { atContent: 10 }, { atContent: 210 }].map(code),
+    ["ok", "ok", "invalid-range", "invalid-range"],
+  );
+  assert.equal(code({ atContent: 59.5 }), "invalid-range");
+  assert.equal(code({ at: 150, atContent: 60 }), "invalid-range");
+  assert.equal(code({}), "invalid-range");
+  // @ts-expect-error -- A split names one form of its cut.
+  commands.splitClip({ clipId: "line", at: 150, atContent: 60 });
 });

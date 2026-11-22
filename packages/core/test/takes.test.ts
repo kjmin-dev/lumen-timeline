@@ -611,6 +611,139 @@ test("replay owns the fields an edit removed and compares lists by value", () =>
   assert.equal(clip(h, "line")?.duration, 4 * hz);
 });
 
+test("replay owns the candidates an edit added, removed or moved, and no others", () => {
+  const list = (e: Editor, id = "line") => clip(e, id)?.takeIds;
+  // Two takes added at once both remain, and each undo removes its own.
+  const e = editor();
+  commit(e.dispatch(add(["line"], "c")));
+  commit(e.dispatch(add(["line"], "d"), ignore));
+  pass(e.history.undo());
+  assert.deepEqual(list(e), ["b", "a", "d"]);
+  pass(e.history.redo());
+  assert.deepEqual(list(e), ["b", "a", "c", "d"]);
+  commit(e.dispatch(add(["line"], "x")));
+  commit(e.dispatch(add(["line"], "y")));
+  pass(e.history.undo());
+  pass(e.history.undo());
+  assert.deepEqual(list(e), ["b", "a", "c", "d"]);
+  pass(e.history.undo());
+  assert.deepEqual(list(e), ["b", "a", "d"]);
+
+  // The first candidates of a clip, and another added meanwhile.
+  const f = editor();
+  commit(f.dispatch(add(["other"], "c")));
+  commit(f.dispatch(add(["other"], "d"), ignore));
+  pass(f.history.undo());
+  assert.deepEqual(candidates(f, "other"), [["d"], null]);
+  pass(f.history.redo());
+  assert.deepEqual(candidates(f, "other"), [["c", "d"], null]);
+  // Undoing the last owned candidate of a clip leaves neither field.
+  commit(f.dispatch(commands.removeTake({ clipId: "other", takeId: "d" }), ignore));
+  pass(f.history.undo());
+  assert.ok(!Object.hasOwn(clip(f, "other") ?? {}, "takeIds"));
+  assert.ok(!Object.hasOwn(clip(f, "other") ?? {}, "activeTakeId"));
+
+  // A reorder owns the elements it moved; a removal restores its element in place.
+  const g = editor();
+  commit(g.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a", "b"] })));
+  commit(g.dispatch(add(["line"], "d"), ignore));
+  pass(g.history.undo());
+  assert.deepEqual(list(g), ["b", "a", "d"]);
+  commit(g.dispatch(commands.removeTake({ clipId: "line", takeId: "b" })));
+  commit(g.dispatch(add(["line"], "e"), ignore));
+  pass(g.history.undo());
+  assert.deepEqual(list(g), ["b", "a", "d", "e"]);
+  // Their reorder of candidates this edit did not touch survives its undo.
+  const r = editor();
+  commit(r.dispatch(add(["line"], "c")));
+  commit(r.dispatch(commands.reorderTakes({ clipId: "line", takeIds: ["a", "c", "b"] }), ignore));
+  pass(r.history.undo());
+  assert.deepEqual(list(r), ["a", "b"]);
+  // Redo puts c back after a, its predecessor in the edit, as it stood before the undo.
+  pass(r.history.redo());
+  assert.deepEqual(list(r), ["a", "c", "b"]);
+  // A removal that another edit already made stays made.
+  commit(g.dispatch(commands.removeTake({ clipId: "line", takeId: "d" })));
+  pass(g.history.undo());
+  commit(g.dispatch(commands.removeTake({ clipId: "line", takeId: "d" }), ignore));
+  pass(g.history.redo());
+  assert.deepEqual(list(g), ["b", "a", "e"]);
+
+  // The active take is still one value: two selections conflict.
+  const h = editor();
+  commit(h.dispatch(commands.selectTake({ clipId: "line", takeId: "b" })));
+  commit(h.dispatch(commands.selectTake({ clipId: "line", takeId: null }), ignore));
+  assert.equal(codeOf(h.history.undo()), "history-conflict");
+  // And a list that would leave the active take unlisted is a conflict.
+  const k = editor();
+  commit(k.dispatch(add(["line"], "c")));
+  commit(k.dispatch(commands.selectTake({ clipId: "line", takeId: "c" }), ignore));
+  assert.equal(codeOf(k.history.undo()), "history-conflict");
+  assert.deepEqual(candidates(k, "line"), [["b", "a", "c"], "c"]);
+});
+
+test("a seeded walk: undoing a list edit after a disjoint one leaves exactly the other", () => {
+  let seed = 7;
+  const random = (n: number): number => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return Math.floor((seed / 2147483648) * n);
+  };
+  const ops = ["add", "remove", "reorder"] as const;
+  let checked = 0;
+  for (let round = 0; round < 600; round++) {
+    const base = ["a", "b", "m", "p", "q"].slice(0, 2 + random(4));
+    const draft = project();
+    draft.clips[0].takeIds = base;
+    draft.clips[0].activeTakeId = null;
+    draft.takes = [
+      ...base.map((id) => ({ id, assetId: "line-a", streamId: "a0", sourceAtContentZero: 0 })),
+      ...["x", "y"].map((id) => ({ id, ...fresh })),
+    ];
+    draft.clips = draft.clips.filter((c) => c.id !== "bed");
+    // Each edit touches its own element of the list, or a new take.
+    const [mine, theirs] = [random(base.length), random(base.length)];
+    if (mine === theirs) continue;
+    const edit = (
+      op: (typeof ops)[number],
+      target: string,
+      extra: string,
+      current: readonly string[],
+    ) => {
+      if (op === "add") return commands.addTake({ clipIds: ["line"], takeId: extra });
+      if (op === "remove") return commands.removeTake({ clipId: "line", takeId: target });
+      const rest = current.filter((id) => id !== target);
+      const at = random(rest.length + 1);
+      return commands.reorderTakes({
+        clipId: "line",
+        takeIds: [...rest.slice(0, at), target, ...rest.slice(at)],
+      });
+    };
+    const e = editor(draft);
+    const ours = ops[random(3)];
+    // Their edit adds or removes; two reorders have no single right merge.
+    const other = ops[random(2)];
+    const recorded = e.dispatch(edit(ours, base[mine], "x", base));
+    if (!recorded.ok || recorded.unchanged) continue;
+    const after = clip(e, "line")?.takeIds ?? [];
+    const concurrent = e.dispatch(edit(other, base[theirs], "y", after), ignore);
+    if (!concurrent.ok || concurrent.unchanged) continue;
+    // Apply their edit alone to the base for the oracle.
+    const alone = editor(draft);
+    pass(alone.dispatch(edit(other, base[theirs], "y", base)));
+    const both = list(e);
+    pass(e.history.undo());
+    assert.deepEqual(list(e), list(alone), JSON.stringify({ base, ours, other, mine, theirs }));
+    // Redo puts our edit back on top of theirs, exactly as both stood.
+    pass(e.history.redo());
+    assert.deepEqual(list(e), both);
+    checked++;
+  }
+  assert.ok(checked > 300, "Too few walks applied: " + checked);
+  function list(e: Editor) {
+    return clip(e, "line")?.takeIds ?? [];
+  }
+});
+
 const stream = (sampleRate: number, seconds: number) => ({
   assetVersion: 1,
   sampleRate,

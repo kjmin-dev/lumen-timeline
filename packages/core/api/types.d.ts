@@ -135,12 +135,27 @@ export interface TrimCommand {
     readonly edge: "left" | "right";
     readonly delta: Tick;
 }
-export interface SplitCommand {
+/**
+ * Cuts a clip in two. Name the cut either as a timeline tick, `at`, or as a
+ * point in the clip's own content time, `atContent`, which a move does not
+ * change. A commit records every split by `atContent`.
+ */
+export type SplitCommand = SplitAtTick | SplitAtContent;
+interface SplitBase {
     readonly type: "split";
     readonly clipId: string;
-    readonly at: Tick;
     /** ID of the right half. Omitted or `undefined` generates one. */
     readonly rightId?: string | undefined;
+}
+export interface SplitAtTick extends SplitBase {
+    /** A timeline tick strictly inside the clip. */
+    readonly at: Tick;
+    readonly atContent?: undefined;
+}
+export interface SplitAtContent extends SplitBase {
+    readonly at?: undefined;
+    /** A content tick strictly between the clip's content edges. */
+    readonly atContent: Tick;
 }
 export interface SetDataCommand {
     readonly type: "set-data";
@@ -381,8 +396,10 @@ export interface EditCommit {
     readonly takePatches: readonly TakePatch[];
     readonly inverseTakePatches: readonly TakePatch[];
     /**
-     * The transaction's commands with every generated ID made explicit, so
-     * another editor at the same revision replays them to the same result. They
+     * The transaction's commands with every generated ID made explicit and each
+     * split named by `atContent`, so another editor at the same revision replays
+     * them to the same result, and a split replayed after a concurrent move cuts
+     * the same content point. They
      * share nested values with the dispatched commands. Empty for undo and redo,
      * which replay recorded changes.
      */
@@ -600,3 +617,4 @@ export interface EditorOptions {
      */
     readonly actor?: string | undefined;
 }
+export {};

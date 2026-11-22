@@ -34,6 +34,8 @@ function placementOf(clip: Clip): ContentPlacement {
 }
 
 const placementFields: ReadonlySet<string> = new Set(["start", "duration", "contentIn"]);
+// Replay merges the candidate list by element and the active take as one value.
+const candidateFields: ReadonlySet<string> = new Set(["takeIds", "activeTakeId"]);
 
 /** Every other field name that either clip carries. */
 function otherFields(a: Clip, b: Clip): string[] {
@@ -143,6 +145,71 @@ function conflict(id: string, reason: string): never {
   requireEdit(false, "history-conflict", id, reason);
 }
 
+/**
+ * The longest common subsequence of two lists of distinct IDs: the elements
+ * whose relative order an edit kept.
+ */
+function kept(a: readonly string[], b: readonly string[]): ReadonlySet<string> {
+  const width = b.length + 1;
+  // lengths[i * width + j] is the subsequence length of a[i..] and b[j..].
+  const lengths = Array.from({ length: (a.length + 1) * width }, () => 0);
+  const at = (i: number, j: number): number => lengths[i * width + j] ?? 0;
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lengths[i * width + j] =
+        a[i] === b[j] ? at(i + 1, j + 1) + 1 : Math.max(at(i + 1, j), at(i, j + 1));
+    }
+  }
+  const result = new Set<string>();
+  for (let i = 0, j = 0; i < a.length && j < b.length;) {
+    const id = a[i];
+    if (id !== undefined && id === b[j]) {
+      result.add(id);
+      i++;
+      j++;
+    } else if (at(i + 1, j) >= at(i, j + 1)) i++;
+    else j++;
+  }
+  return result;
+}
+
+/**
+ * Replays an edit of a candidate list onto the current list. The edit owns the
+ * elements it added, removed or moved; every other element stays where it is
+ * now. A removed element that is already gone stays gone. An owned element
+ * goes after its nearest predecessor in the edit's result that the list holds,
+ * or first.
+ */
+export function mergeList(
+  found: readonly string[],
+  before: readonly string[],
+  after: readonly string[],
+): readonly string[] {
+  const was = new Set(before);
+  const will = new Set(after);
+  const stay = kept(
+    before.filter((id) => will.has(id)),
+    after.filter((id) => was.has(id)),
+  );
+  const present = new Set(found);
+  // Added elements, and moved ones that the current list still holds.
+  const owned = new Set(after.filter((id) => !stay.has(id) && (!was.has(id) || present.has(id))));
+  const result = found.filter((id) => (will.has(id) ? !owned.has(id) : !was.has(id)));
+  for (const [i, id] of after.entries()) {
+    if (!owned.has(id)) continue;
+    // The nearest earlier element of the edit's result that the list holds.
+    const anchor = after.slice(0, i).findLast((other) => result.includes(other));
+    result.splice(anchor === undefined ? 0 : result.indexOf(anchor) + 1, 0, id);
+  }
+  return result;
+}
+
+// The candidate fields in one form: a clip without candidates has an empty
+// list and no active take.
+function candidatesOf(clip: Clip): { list: readonly string[]; active: string | null } {
+  return { list: clip.takeIds ?? [], active: clip.activeTakeId ?? null };
+}
+
 // An update owns the fields it changed, with placement in content space, and
 // keeps every other field as it is now.
 function merge(found: Clip, before: Clip, after: Clip): Clip {
@@ -161,8 +228,27 @@ function merge(found: Clip, before: Clip, after: Clip): Clip {
   merged.start = origin + contentIn;
   merged.duration = out - contentIn;
   merged.contentIn = contentIn;
+  const from_ = candidatesOf(before);
+  const to_ = candidatesOf(after);
+  const now_ = candidatesOf(found);
+  const list = jsonEqual(from_.list, to_.list)
+    ? now_.list
+    : mergeList(now_.list, from_.list, to_.list);
+  let active = now_.active;
+  if (from_.active !== to_.active) {
+    if (now_.active !== from_.active) conflict(found.id, "History field changed: activeTakeId");
+    active = to_.active;
+  }
+  // A clip carries both candidate fields or neither.
+  if (list.length === 0 && active === null) {
+    delete merged.takeIds;
+    delete merged.activeTakeId;
+  } else {
+    merged.takeIds = jsonEqual(list, now_.list) ? now_.list : Object.freeze([...list]);
+    merged.activeTakeId = active;
+  }
   for (const key of otherFields(before, after)) {
-    if (jsonEqual(before[key], after[key])) continue;
+    if (candidateFields.has(key) || jsonEqual(before[key], after[key])) continue;
     if (!jsonEqual(found[key], before[key])) conflict(found.id, "History field changed: " + key);
     if (Object.hasOwn(after, key)) merged[key] = after[key];
     else delete merged[key];

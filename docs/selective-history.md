@@ -62,6 +62,8 @@ Policy applies to the entire call. Arrays run synchronously in order against a p
 
    Undoing a left trim after an unrelated move therefore restores the edge and leaves the clip where the move put it. Two edits of the same value still conflict.
 
+   A candidate list replays by element. An edit owns the takes it added, removed or moved in `takeIds`, and every other element stays where it is now. Undoing an added take after another take was added meanwhile removes only its own. A removed take that is already gone stays gone, and an owned take goes back after its nearest predecessor in the edit's list that the clip still holds. The active take is one value: two selections conflict. A clip with no candidates replays as an empty list and no active take, and a list that empties drops both fields.
+
 4. Undoing a split also removes the clips it added. Each must equal its recorded clip by value. Redo checks that the required new IDs are available, and places each clip after the one it followed.
 5. Recheck sequence, source and track overlap constraints on the merged result.
 6. If a field was superseded, a clip is missing or changed, or an exclusive interval would overlap, return `history-conflict` with the target and reason. Both stacks and the document stay intact. The host can resolve the conflict and retry, explicitly discard that entry or clear history when replacing a project. This is value-checked session history. Concurrent multi-user text or sequence merging would need a separate reconciliation layer.

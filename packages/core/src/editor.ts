@@ -60,7 +60,8 @@ import type {
   UpdateTakeCommand,
 } from "./types.ts";
 
-type Arguments<C> = Omit<C, "type">;
+// Distributes over unions, so each form of a command keeps its own fields.
+type Arguments<C> = C extends unknown ? Omit<C, "type"> : never;
 
 export interface Commands {
   addMarker(args: Arguments<AddMarkerCommand>): AddMarkerCommand;
@@ -172,8 +173,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     markers: MarkerDraft,
     takes: TakeDraft,
   ): EditCommand | null {
-    if (command?.type === "split" && command.rightId === undefined)
-      return Object.freeze({ ...command, rightId: newId((id) => clips.get(id) !== undefined) });
+    if (command?.type === "split") return splitRecord(command, clips);
     if (command?.type === "add-marker" && command.id === undefined)
       return Object.freeze({ ...command, id: newId((id) => markers.get(id) !== undefined) });
     const takeTaken = (id: string): boolean => takes.get(id) !== undefined;
@@ -194,6 +194,19 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     )
       return Object.freeze({ ...command, newId: newId(takeTaken) });
     return command;
+  }
+
+  // A split is recorded by content position, so a replay after a concurrent
+  // move cuts the same point of the clip's content. A command that staging will
+  // reject is recorded as given.
+  function splitRecord(command: SplitCommand, clips: ClipDraft): SplitCommand {
+    const clip = validId(command.clipId) ? clips.get(command.clipId) : undefined;
+    const converts = command.atContent === undefined && clip && Number.isSafeInteger(command.at);
+    if (!converts && command.rightId !== undefined) return command;
+    const rightId = command.rightId ?? newId((id) => clips.get(id) !== undefined);
+    if (!converts) return Object.freeze({ ...command, rightId });
+    const atContent = command.at - clip.start + clip.contentIn;
+    return Object.freeze({ type: "split", clipId: command.clipId, atContent, rightId });
   }
 
   // The current version of a clip that take commands may edit.
@@ -274,9 +287,17 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
             : [{ ...clip, duration: clip.duration + command.delta }];
       } else {
         requireEdit(
-          Number.isSafeInteger(command.at) &&
-            command.at > clip.start &&
-            command.at < clip.start + clip.duration,
+          (command.at === undefined) !== (command.atContent === undefined),
+          "invalid-range",
+          id,
+          "Name a split by either at or atContent",
+        );
+        const at =
+          command.atContent === undefined
+            ? command.at
+            : clip.start + command.atContent - clip.contentIn;
+        requireEdit(
+          Number.isSafeInteger(at) && at > clip.start && at < clip.start + clip.duration,
           "invalid-range",
           id,
           "Split must be inside the clip",
@@ -294,7 +315,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
           rightId,
           "The right clip requires a new ID",
         );
-        after = splitClip(clip, command.at, rightId);
+        after = splitClip(clip, at, rightId);
       }
       for (const next of after) validateClip(next, rules);
       draft.replace(clip, after);

@@ -1,6 +1,6 @@
 # Share one project between editors
 
-**Status.** Planned. This document is the proposal; no implementation PR is open.
+**Status.** S5 is open in [#29](https://github.com/kjmin-dev/lumen-timeline/pull/29). S1 to S4 are planned.
 
 **User outcome.** A project edits the same with or without a network. When a host connects two or more editors, each sees the others' edits within a moment, keeps their own undo and ends on the same project as the others. A rule the editor enforces alone, such as no overlap on an exclusive track or no edit on a locked one, still holds with several editors. Nothing in this requires a server. [Audit experiments](../../experiments/collab/README.md) · [Replayable edits](replayable-edits.md)
 
@@ -104,8 +104,8 @@ Each item is useful without sync, and none adds a dependency or network code to 
   - The ID counter never moves back across a replacement, so a dropped transaction's IDs are not issued again.
 - **A dispatch gate.** `editor.setGate(gate)` installs a host function that sees each validated transaction, including undo and redo, and lets it commit, rejects it with `read-only`, or holds it. A held transaction returns its commands and target IDs without a revision. The sync package uses the gate for `online` and `confirmed`. A host uses it alone for a viewer, a review lock or a save in progress.
 - **Undo that travels.** A commit from undo or redo has no commands. A `replay` command carrying clip, marker, take and data patches would apply them under the existing value-checked replay rules. An undo commit then lists one `replay` command, which another editor or a saved log can apply like any other.
-- **Split at a content position.** `splitClip({ at })` names a timeline tick. After a concurrent move the same tick is another point in the clip, or outside it. An `atContent` form names the point in the clip's own content time, which a move does not change.
-- **Candidate lists by element.** A clip's `takeIds` is one value, so undoing an added take conflicts after another take was added (audit probe 3). Replay should own the elements an edit added, removed or moved. Local undo benefits as much as sharing does.
+- **Split at a content position.** `splitClip({ at })` names a timeline tick. After a concurrent move the same tick is another point in the clip, or outside it. An `atContent` form names the point in the clip's own content time, which a move does not change. _Delivered in S5: commits record every split by `atContent`._
+- **Candidate lists by element.** A clip's `takeIds` is one value, so undoing an added take conflicts after another take was added (audit probe 3). Replay should own the elements an edit added, removed or moved. Local undo benefits as much as sharing does. _Delivered in S5._
 
 ## Outside the document
 

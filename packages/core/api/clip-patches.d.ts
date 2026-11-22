@@ -16,6 +16,14 @@ export declare class ClipDraft {
     patches(): readonly ClipPatch[];
 }
 /**
+ * Replays an edit of a candidate list onto the current list. The edit owns the
+ * elements it added, removed or moved; every other element stays where it is
+ * now. A removed element that is already gone stays gone. An owned element
+ * goes after its nearest predecessor in the edit's result that the list holds,
+ * or first.
+ */
+export declare function mergeList(found: readonly string[], before: readonly string[], after: readonly string[]): readonly string[];
+/**
  * Maps recorded clip patches onto the current clips by ID. An addition needs a
  * free ID. A removal needs the whole recorded clip. An update is merged field
  * by field. `validate` checks each resulting clip.
