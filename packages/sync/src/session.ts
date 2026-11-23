@@ -8,7 +8,7 @@ import type {
   GatedTransaction,
   ProjectSnapshot,
 } from "@lumen-timeline/core";
-import { canonical, isMessage } from "./util.ts";
+import { canonical, isMessage, sameJson } from "./util.ts";
 import type {
   AcceptedMessage,
   JoinedMessage,
@@ -51,8 +51,12 @@ function defaultClock(): SyncClock {
   };
 }
 
-const withoutRevision = ({ revision: _revision, ...rest }: ProjectSnapshot): string =>
-  canonical(rest);
+/** Whether two snapshots hold the same document. Their revisions may differ. */
+function sameDocument(a: ProjectSnapshot, b: ProjectSnapshot): boolean {
+  const { revision: _a, ...left } = a;
+  const { revision: _b, ...right } = b;
+  return sameJson(left, right);
+}
 
 /**
  * Keeps an editor in step with a sequencer. The session holds two documents:
@@ -252,7 +256,9 @@ export function connectSession({
     log.length = 0;
     settle(message.n);
     if (!visible) {
-      const view = createEditor({ project: message.project, actor, history });
+      // The confirmed editor's snapshot opens without a second parse, and the
+      // two editors share every record until an edit replaces it.
+      const view = createEditor({ project: confirmed.getSnapshot(), actor, history });
       visible = view;
       view.setGate(gate);
       offVisible = view.subscribe(
@@ -324,8 +330,9 @@ export function connectSession({
     } finally {
       replaying = false;
     }
-    if (withoutRevision(view.getSnapshot()) !== withoutRevision(confirmed.getSnapshot())) rebuild();
-    else report({ type: "pending", count: pending.length });
+    if (sameDocument(view.getSnapshot(), confirmed.getSnapshot()))
+      report({ type: "pending", count: pending.length });
+    else rebuild();
   }
   function rejected(message: RejectedMessage): void {
     if (message.actor !== actor) return;

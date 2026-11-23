@@ -1,12 +1,6 @@
 import { normalizeEntityData } from "./entity-data.ts";
 import { compareMarkers, parseMarker } from "./markers.ts";
-import {
-  checkLoadedReferences,
-  compareTakes,
-  countReferences,
-  parseCandidates,
-  parseTake,
-} from "./takes.ts";
+import { checkLoadedReferences, compareTakes, parseCandidates, parseTake } from "./takes.ts";
 import { MAX_TICK, TICKS_PER_SECOND } from "./time.ts";
 import type {
   Clip,
@@ -27,15 +21,53 @@ export interface Rules {
   readonly minimum: Tick;
 }
 
-/** Start-ordered clips per track ID. The editor replaces arrays it changes. */
-export type TrackLayout = Map<string, Clip[]>;
+/**
+ * Start-ordered clips per track ID. A layout and its lists never change: an
+ * edit makes a new layout with new lists for the tracks it touched.
+ */
+export type TrackLayout = ReadonlyMap<string, readonly Clip[]>;
 
 export interface OpenedProject {
   readonly snapshot: ProjectSnapshot;
   readonly rules: Rules;
   readonly byTrack: TrackLayout;
-  /** How many clips list each take. */
-  readonly takeCounts: Map<string, number>;
+  /** Each clip's index in `snapshot.clips`, where an editor already kept them. */
+  readonly positions: ReadonlyMap<string, number> | undefined;
+}
+
+/** A snapshot an editor issued, with what that editor keeps beside it. */
+interface Issued {
+  readonly snapshot: ProjectSnapshot;
+  readonly byTrack: TrackLayout;
+  readonly positions: ReadonlyMap<string, number>;
+}
+
+// Every snapshot an editor issues is validated, canonical and frozen all the
+// way down, and its layout and positions never change. Another editor can
+// therefore open one by taking all three as they are, with no copy and no
+// second validation.
+const issued = new WeakMap<object, Issued>();
+
+/** Records a snapshot an editor issued, with its clips per track and their positions. */
+export function issue(
+  snapshot: ProjectSnapshot,
+  byTrack: TrackLayout,
+  positions: ReadonlyMap<string, number>,
+): void {
+  issued.set(snapshot, { snapshot, byTrack, positions });
+}
+
+function adopt({ snapshot, byTrack, positions }: Issued): OpenedProject {
+  return {
+    snapshot,
+    rules: {
+      tracks: new Map(snapshot.tracks.map((track) => [track.id, track])),
+      duration: snapshot.duration ?? MAX_TICK,
+      minimum: snapshot.minClipDuration ?? 1,
+    },
+    byTrack,
+    positions,
+  };
 }
 
 /** Placement fields before validation, from JSON or from a staged edit. */
@@ -191,6 +223,8 @@ export function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rul
 }
 
 export function openProject(input: unknown): OpenedProject {
+  const known = typeof input === "object" && input !== null ? issued.get(input) : undefined;
+  if (known) return adopt(known);
   const project = freezeJson(input, new Set());
   requireEdit(
     isRecord(project) && project["schemaVersion"] === 1,
@@ -247,7 +281,7 @@ export function openProject(input: unknown): OpenedProject {
   const rules: Rules = { tracks, duration, minimum };
   const ids = new Set<string>();
   const clipList: Clip[] = [];
-  const byTrack: TrackLayout = new Map();
+  const byTrack = new Map<string, Clip[]>();
   for (const value of rawClips) {
     const clip = parseClip(value, ids, rules);
     ids.add(clip.id);
@@ -287,7 +321,6 @@ export function openProject(input: unknown): OpenedProject {
     const take = parseTake(value, (id) => takes.has(id));
     takes.set(take.id, take);
   }
-  const takeCounts = countReferences(clipList);
   checkLoadedReferences(takes, clipList);
   const takeList = [...takes.values()].sort(compareTakes);
   // Normalized entity data follows the revision, as when the editor normalized it.
@@ -313,7 +346,7 @@ export function openProject(input: unknown): OpenedProject {
     revision,
     ...(entityData === undefined ? {} : { entityData }),
   });
-  return { snapshot, rules, byTrack, takeCounts };
+  return { snapshot, rules, byTrack, positions: undefined };
 }
 
 /** Checks placement fields against the rules shared by loading and every edit. */

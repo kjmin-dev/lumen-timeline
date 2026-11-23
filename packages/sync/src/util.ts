@@ -43,6 +43,26 @@ export function randomActor(): string {
   return token.slice(0, 12);
 }
 
+/**
+ * Whether two JSON values hold the same data, whatever the order of their
+ * keys. Values that are one object are equal without a look inside, which is
+ * most of two snapshots that share their records.
+ */
+export function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let index = 0; index < a.length; index++) if (!sameJson(a[index], b[index])) return false;
+    return true;
+  }
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys)
+    if (!Object.hasOwn(b, key) || !sameJson(Reflect.get(a, key), Reflect.get(b, key))) return false;
+  return true;
+}
+
 /** JSON with object keys sorted and undefined fields dropped, for comparing values. */
 export function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) =>

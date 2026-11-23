@@ -22,6 +22,7 @@ A transport is `{ send(message), onMessage(listener) }`, one per connection, and
 Each editor applies its own edits at once and sends their commands. The sequencer is a headless editor of its own. It applies transactions in the order they arrive, rejects what no longer fits and announces the rest as consecutive revisions. Every session replays that order.
 
 - **Two documents.** A session keeps the confirmed document, which only the sequencer's messages change, and the visible editor, which also shows the session's pending transactions. When another participant's entry arrives, the session replaces the visible document with the confirmed one, using `editor.replace`, and replays what is pending on top. Each replay takes over its own [history entry](headless-editing.md#replace-the-document), so undo reverses what the edit did after the replay.
+- **Shared records.** The session parses the sequencer's snapshot once. The visible editor opens the confirmed editor's snapshot, and each replacement takes the confirmed records as they are, so the two documents share every record that no pending transaction changed. Another participant's entry costs its own difference, not the size of the project.
 - **Views.** Subscribers of the visible editor see the replacement as one commit, then one commit per pending transaction replayed on top of it, with the usual `changedIds` and `affected`. The timeline view and the transports need no change.
 - **Own entries.** When the sequencer accepts exactly what a session sent, with nothing pending ahead of it, the visible document already shows it and nothing is replayed.
 - **Undo and redo** travel as [`replay` commands](headless-editing.md#generated-ids-and-replay). Like any transaction they are decided by the sequencer.
@@ -81,6 +82,7 @@ Run `npm run example:vanilla` and open `/examples/sync/index.html` in several ta
 
 - **Convergence.** Under each policy, three sessions edit, undo and redo at random over links that lose, duplicate and reorder messages. Every editor ends equal to the sequencer. Every transaction is answered, and each applied once in its actor's order. Every document still opens.
 - **Rewriting.** The same holds when the sequencer rewrites what it applies.
+- **Shared records.** A session's two documents share every clip but the one its own unanswered edit changed.
 - **Policies.** Edits made offline under `queue` are sent later. Under `online`, editing is read-only and rolls back at the deadline, and an earlier reconnect keeps the edits. Under `confirmed`, edits are held, enter history when accepted, and are discarded when disconnected or overdue.
 - **Handover.** A successor sequencer keeps every entry any session saw and applies nothing twice.
 - **Independence.** The core neither depends on nor imports the package.

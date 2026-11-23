@@ -1,4 +1,4 @@
-import { openProject, orderTrack, validateClip } from "./document.ts";
+import { issue, openProject, orderTrack, validateClip } from "./document.ts";
 import type { TrackLayout } from "./document.ts";
 import { ClipDraft, applyClips, inverse, rebase } from "./clip-patches.ts";
 import { difference } from "./diff.ts";
@@ -17,6 +17,7 @@ import {
   TakeDraft,
   applyTakes,
   checkReferences,
+  countReferences,
   invertTakes,
   rebaseTakes,
   referenceDelta,
@@ -138,7 +139,7 @@ interface Notification {
 interface Geometry {
   readonly clips: readonly Clip[];
   readonly layout: TrackLayout;
-  readonly positions: Map<string, number>;
+  readonly positions: ReadonlyMap<string, number>;
 }
 
 function positions(clips: readonly Clip[]): Map<string, number> {
@@ -223,11 +224,31 @@ function recordsOf(entry: HistoryEntry): { forward: Records; backward: Records }
 
 export function createEditor({ project, history: limits, actor }: EditorOptions): Editor {
   requireEdit(actor === undefined || validId(actor), "invalid-id", actor, "Expected an actor name");
-  let { snapshot, rules, byTrack, takeCounts } = openProject(project);
+  const opened = openProject(project);
+  let { snapshot, rules, byTrack } = opened;
   const ids = idAllocator(actor, snapshot);
-  let byId = positions(snapshot.clips);
+  let byId = opened.positions ?? positions(snapshot.clips);
   const reads = readRegistry(snapshot.tracks);
-  reads.pin(snapshot, byTrack, byId);
+  // Keeps the current snapshot readable, here and by an editor that opens it.
+  function pin(): void {
+    reads.pin(snapshot, byTrack, byId);
+    issue(snapshot, byTrack, byId);
+  }
+  pin();
+  // How many clips of the current snapshot list each take, counted when a
+  // transaction first asks. An editor that only follows another's snapshots
+  // never does.
+  let takeCounts: Map<string, number> | undefined;
+  const listings = (): Map<string, number> => (takeCounts ??= countReferences(snapshot.clips));
+  // Counts never taken need no upkeep: a later transaction takes them from its own clips.
+  function recount(delta: ReadonlyMap<string, number>): void {
+    if (!takeCounts) return;
+    for (const [id, change] of delta) {
+      const count = (takeCounts.get(id) ?? 0) + change;
+      if (count) takeCounts.set(id, count);
+      else takeCounts.delete(id);
+    }
+  }
   const history = createHistory(limits);
   const subscribers = new Set<DocumentSubscriber>();
   const historySubscribers = new Set<VersionedSubscriber<HistoryState>>();
@@ -475,7 +496,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
   function stageTracks(before: readonly Clip[], after: readonly Clip[]): TrackLayout {
     const removedIds = new Set(before.map((clip) => clip.id));
     const touched = new Set(before.concat(after).map((clip) => clip.trackId));
-    const layout = new Map(byTrack);
+    const layout = new Map<string, readonly Clip[]>(byTrack);
     const staged = new Map<string, Clip[]>();
     for (const trackId of touched) {
       const lane = (byTrack.get(trackId) ?? []).filter((clip) => !removedIds.has(clip.id));
@@ -588,7 +609,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         takes.stage(command, {
           clips,
           editable: editable(clips),
-          listings: (id) => (takeCounts.get(id) ?? 0) + (stagedDelta(clips).get(id) ?? 0),
+          listings: (id) => (listings().get(id) ?? 0) + (stagedDelta(clips).get(id) ?? 0),
         });
       else if (command?.type === "expect-clip") expectClip(command, clips);
       else if (command?.type === "expect-data") expectData(command, fields);
@@ -624,7 +645,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     const takes = rebaseTakes(
       forward.takes,
       snapshot.takes,
-      (id) => (takeCounts.get(id) ?? 0) + (delta.get(id) ?? 0) > 0,
+      (id) => (listings().get(id) ?? 0) + (delta.get(id) ?? 0) > 0,
     );
     return {
       forward: { clips, data: forward.data, markers, takes },
@@ -721,7 +742,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       const entityData = applyData(snapshot.entityData, data);
       const markerList = applyMarkers(snapshot.markers, markerPatches);
       const takeList = applyTakes(snapshot.takes, takePatches);
-      const counted = (id: string): number => (takeCounts.get(id) ?? 0) + (delta.get(id) ?? 0);
+      const counted = (id: string): number => (listings().get(id) ?? 0) + (delta.get(id) ?? 0);
       checkReferences(after, takePatches, takeList, counted);
       const clipList = geometry?.clips ?? snapshot.clips;
       // Clips that list a remapped take play different media without a patch of their own.
@@ -829,17 +850,13 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         const stored = history.record(entryOf(staged.forward, staged.backward));
         if (stored) entries.set(result, { entry: stored, kind: "record" });
       }
-      for (const [id, change] of delta) {
-        const count = (takeCounts.get(id) ?? 0) + change;
-        if (count) takeCounts.set(id, count);
-        else takeCounts.delete(id);
-      }
+      recount(delta);
       if (geometry) {
         byId = geometry.positions;
         byTrack = geometry.layout;
       }
       snapshot = Object.freeze(next);
-      reads.pin(snapshot, byTrack, byId);
+      pin();
       const pruned = geometry !== null && selection.some((id) => !byId.has(id));
       if (pruned) selection = Object.freeze(selection.filter((id) => byId.has(id)));
       notify(
@@ -885,11 +902,21 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         null,
         "The snapshot belongs to another project",
       );
-      const { revision: _current, ...current } = snapshot;
-      const { revision: _adopted, ...adopted } = target;
-      if (jsonEqual(current, adopted))
-        return { ok: true, revision: snapshot.revision, unchanged: true };
       const forward = difference(snapshot, target);
+      // A patch means a difference, so only snapshots without one are compared
+      // whole: they may still differ in the order of their clips or in a field
+      // the editor does not interpret.
+      if (
+        !forward.clips.length &&
+        !forward.data.length &&
+        !forward.markers.length &&
+        !forward.takes.length
+      ) {
+        const { revision: _current, ...current } = snapshot;
+        const { revision: _adopted, ...adopted } = target;
+        if (jsonEqual(current, adopted))
+          return { ok: true, revision: snapshot.revision, unchanged: true };
+      }
       const backward: Records = {
         clips: inverse(forward.clips),
         data: invertData(forward.data),
@@ -901,9 +928,12 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       // Clips that list a remapped take play different media without a patch of their own.
       const remapped = new Set(forward.takes.filter(remapsMedia).map((p) => p.id));
       const patchedIds = new Set(after.map((c) => c.id));
-      const relisted = target.clips.filter(
-        (clip) => !patchedIds.has(clip.id) && (clip.takeIds ?? []).some((id) => remapped.has(id)),
-      );
+      const relisted = remapped.size
+        ? target.clips.filter(
+            (clip) =>
+              !patchedIds.has(clip.id) && (clip.takeIds ?? []).some((id) => remapped.has(id)),
+          )
+        : [];
       // The revision only moves forward.
       const revision = Math.max(nextRevision(), target.revision);
       const oldIds = new Set(before.map((c) => c.id));
@@ -932,10 +962,10 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       ids.advance(target);
       rules = opened.rules;
       byTrack = opened.byTrack;
-      takeCounts = opened.takeCounts;
-      byId = positions(target.clips);
+      recount(referenceDelta(forward.clips));
+      byId = opened.positions ?? positions(target.clips);
       snapshot = Object.freeze({ ...target, revision });
-      reads.pin(snapshot, byTrack, byId);
+      pin();
       const pruned = selection.some((id) => !byId.has(id));
       if (pruned) selection = Object.freeze(selection.filter((id) => byId.has(id)));
       notify(result, false, pruned);
