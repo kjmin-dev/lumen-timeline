@@ -2,74 +2,195 @@
 
 The `@lumen-timeline/media` workspace executes core audio plans on Web Audio and exposes a project-tick interface to the timeline. Importing the package acquires no browser resources.
 
-```js
-const transport = createVideoTransport({
-  video,
-  context,
-  output: context.destination,
-  editor,
-  catalog,
-  resolveBuffer,
-  onError,
-});
-```
-
-The view takes the transport beside the editor it plays:
+`createVideoTransport` plays the project against a reference video. The video element supplies the clock, so a component makes the transport once the element exists and disposes it when the component goes. It also hands the editor and the transport to the panels inside it through the wrapper's context, as the sections below use. Each tab is a whole file; [`host.js`](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration) holds the editor, the `AudioContext`, the catalog and the buffer resolver.
 
 <!-- framework-tabs -->
 
 **Vanilla**
 
-```js
+```js title="player.js"
+import { createVideoTransport } from "@lumen-timeline/media";
 import { mountTimeline } from "@lumen-timeline/timeline";
+import "@lumen-timeline/timeline/style.css";
+import { catalog, context, editor, resolveBuffer } from "./host.js";
 
-const view = mountTimeline(container, { editor, transport });
+// The page holds <video src="/media/reference.webm" muted></video> and <div id="timeline"></div>.
+export const transport = createVideoTransport({
+  video: document.querySelector("video"),
+  context,
+  output: context.destination,
+  editor,
+  catalog,
+  resolveBuffer,
+  onError: (error) => console.warn(error),
+});
+export const view = mountTimeline(document.querySelector("#timeline"), { editor, transport });
+
+// To tear down: view.dispose(), then transport.dispose().
 ```
 
 **React**
 
-```jsx
-import { Timeline } from "@lumen-timeline/react";
+```jsx title="VideoEditor.jsx"
+import { useEffect, useRef, useState } from "react";
+import { createVideoTransport } from "@lumen-timeline/media";
+import { Timeline, TimelineProvider } from "@lumen-timeline/react";
+import "@lumen-timeline/timeline/style.css";
+import { catalog, context, editor, resolveBuffer } from "./host.js";
 
-<Timeline editor={editor} transport={transport} />;
+export function VideoEditor({ children }) {
+  const video = useRef(null);
+  const [transport, setTransport] = useState(null);
+  useEffect(() => {
+    const created = createVideoTransport({
+      video: video.current,
+      context,
+      output: context.destination,
+      editor,
+      catalog,
+      resolveBuffer,
+      onError: (error) => console.warn(error),
+    });
+    setTransport(created);
+    return () => created.dispose();
+  }, []);
+  return (
+    <>
+      <video ref={video} src="/media/reference.webm" muted />
+      {transport && (
+        <TimelineProvider editor={editor} transport={transport}>
+          <Timeline editor={editor} transport={transport} />
+          {children}
+        </TimelineProvider>
+      )}
+    </>
+  );
+}
 ```
 
 **Svelte**
 
-```svelte
+```svelte title="VideoEditor.svelte"
 <script>
-  import { timeline } from "@lumen-timeline/svelte";
+  import { createVideoTransport } from "@lumen-timeline/media";
+  import { setTimelineContext, timeline } from "@lumen-timeline/svelte";
+  import "@lumen-timeline/timeline/style.css";
+  import { catalog, context, editor, resolveBuffer } from "./host.js";
+
+  const { children } = $props();
+  let video = $state();
+  let transport = $state.raw(null);
+  // Panels inside read the editor and the transport from here.
+  setTimelineContext({
+    editor,
+    get transport() {
+      return transport;
+    },
+  });
+  $effect(() => {
+    const created = createVideoTransport({
+      video,
+      context,
+      output: context.destination,
+      editor,
+      catalog,
+      resolveBuffer,
+      onError: (error) => console.warn(error),
+    });
+    transport = created;
+    return () => created.dispose();
+  });
 </script>
 
-<div {@attach timeline(() => ({ editor, transport }))}></div>
+<video bind:this={video} src="/media/reference.webm" muted></video>
+{#if transport}
+  <div {@attach timeline(() => ({ editor, transport }))}></div>
+  {@render children?.()}
+{/if}
 ```
 
 **SolidJS**
 
-```jsx
-import { createSignal } from "solid-js";
-import { createTimeline } from "@lumen-timeline/solid";
+```jsx title="VideoEditor.jsx"
+import { createEffect, createSignal, Show } from "solid-js";
+import { createVideoTransport } from "@lumen-timeline/media";
+import { createTimeline, TimelineContext } from "@lumen-timeline/solid";
+import "@lumen-timeline/timeline/style.css";
+import { catalog, context, editor, resolveBuffer } from "./host.js";
 
-function Workspace() {
+export function VideoEditor(props) {
+  const [video, setVideo] = createSignal();
+  const [transport, setTransport] = createSignal();
   const [element, setElement] = createSignal();
-  createTimeline(element, () => ({ editor, transport }));
-  return <div ref={setElement} />;
+  createEffect(video, (node) => {
+    if (!node) return;
+    const created = createVideoTransport({
+      video: node,
+      context,
+      output: context.destination,
+      editor,
+      catalog,
+      resolveBuffer,
+      onError: (error) => console.warn(error),
+    });
+    setTransport(created);
+    return () => created.dispose();
+  });
+  createTimeline(element, () => ({ editor, transport: transport() }));
+  return (
+    <>
+      <video ref={setVideo} src="/media/reference.webm" muted />
+      <Show when={transport()}>
+        <TimelineContext value={{ editor, transport: transport() }}>
+          <div ref={setElement} />
+          {props.children}
+        </TimelineContext>
+      </Show>
+    </>
+  );
 }
 ```
 
 **Vue**
 
-```vue
+```vue title="VideoEditor.vue"
 <script setup>
-import { Timeline } from "@lumen-timeline/vue";
+import { onMounted, onUnmounted, shallowRef, useTemplateRef } from "vue";
+import { createVideoTransport } from "@lumen-timeline/media";
+import { provideTimeline, Timeline } from "@lumen-timeline/vue";
+import "@lumen-timeline/timeline/style.css";
+import { catalog, context, editor, resolveBuffer } from "./host.js";
+
+const video = useTemplateRef("video");
+const transport = shallowRef(null);
+// Panels in the slot read the editor and the transport from here.
+provideTimeline(() => ({ editor, transport: transport.value }));
+onMounted(() => {
+  transport.value = createVideoTransport({
+    video: video.value,
+    context,
+    output: context.destination,
+    editor,
+    catalog,
+    resolveBuffer,
+    onError: (error) => console.warn(error),
+  });
+});
+onUnmounted(() => transport.value?.dispose());
 </script>
 
 <template>
-  <Timeline :editor="editor" :transport="transport" />
+  <video ref="video" src="/media/reference.webm" muted />
+  <template v-if="transport">
+    <Timeline :editor="editor" :transport="transport" />
+    <slot />
+  </template>
 </template>
 ```
 
 <!-- /framework-tabs -->
+
+The element is muted because the transport plays the project's audio through Web Audio; the video supplies the picture and the clock.
 
 The `catalog` is a [stream catalog](playback-read-api.md): `{ version, streams }`, where `streams[assetId][streamId]` gives the decoded sample rate, asset version and available samples behind each take.
 
@@ -83,19 +204,14 @@ The host owns the editor, video element, AudioContext, output and asset cache. D
 
 Run `npm run example:vanilla` and follow **Audio workspace**. The route uses the same timeline mount, selection, clip inspector, edit commands and JSON save/reopen controls. It has its own storage key and loads no video. Its playhead clock display identifies the timing source in use.
 
-```js
-import { createAudioTransport } from "@lumen-timeline/media";
+The audio transport needs no element, so [`host.js`](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration) makes one for the whole page, and every tab on this site that imports `transport` uses it. A component that owns one instead makes and disposes it the way `VideoEditor` does above.
 
-const transport = createAudioTransport({
-  editor,
-  context,
-  output: context.destination,
-  catalog,
-  resolveBuffer,
-});
+```js title="host.js"
+// Plays the editor's document through Web Audio. It lives as long as the page.
+export const transport = createAudioTransport({ editor, context, catalog, resolveBuffer });
 ```
 
-The view and the framework wrappers take it as they take the video transport above.
+`output` defaults to `context.destination`.
 
 The audio driver supports arbitrary positive playback rates via `setPlaybackRate(rate)` (defaulting to `1`) and optional half-open loop ranges via `setLoop({ start, end } | null)`. On play or an active seek, it anchors the project tick to an absolute output sample one nominal 128-frame quantum ahead of the rendering clock. The shared scheduler fills from the target tick, including sources already in progress. It also advances the transport through silence, loops back to `loop.start` when playback reaches `loop.end`, and stops at the exclusive sequence end. A fixed project duration sets the end. With an implicit duration, the ruler and transport both use the last clip end, including after undo and redo.
 
@@ -109,10 +225,96 @@ The audio driver supports arbitrary positive playback rates via `setPlaybackRate
 
 `play({ until })` plays from the playhead and pauses at `until`, for a host action such as playing one line. Both transports implement it.
 
-```js
-await transport.seek(clip.start);
-await transport.play({ until: clip.start + clip.duration });
+A panel inside `VideoEditor` can play one line. Each tab is a whole file:
+
+<!-- framework-tabs -->
+
+**Vanilla**
+
+```js title="play-line.js"
+import { editor } from "./host.js";
+import { transport } from "./player.js";
+
+// The page holds <button id="play-line">Play line</button>.
+document.querySelector("#play-line").addEventListener("click", async () => {
+  const clip = editor.getSnapshot().clips.find((c) => c.id === "line-1");
+  await transport.seek(clip.start);
+  await transport.play({ until: clip.start + clip.duration });
+});
 ```
+
+**React**
+
+```jsx title="PlayLine.jsx"
+import { useTimelineContext } from "@lumen-timeline/react";
+
+export function PlayLine({ clipId }) {
+  const { editor, transport } = useTimelineContext();
+  const play = async () => {
+    const clip = editor.getSnapshot().clips.find((c) => c.id === clipId);
+    await transport.seek(clip.start);
+    await transport.play({ until: clip.start + clip.duration });
+  };
+  return <button onClick={play}>Play line</button>;
+}
+```
+
+**Svelte**
+
+```svelte title="PlayLine.svelte"
+<script>
+  import { getTimelineContext } from "@lumen-timeline/svelte";
+
+  const { clipId } = $props();
+  const { editor, transport } = getTimelineContext();
+  async function play() {
+    const clip = editor.getSnapshot().clips.find((c) => c.id === clipId);
+    await transport.seek(clip.start);
+    await transport.play({ until: clip.start + clip.duration });
+  }
+</script>
+
+<button onclick={play}>Play line</button>
+```
+
+**SolidJS**
+
+```jsx title="PlayLine.jsx"
+import { useTimelineContext } from "@lumen-timeline/solid";
+
+export function PlayLine(props) {
+  const { editor, transport } = useTimelineContext();
+  const play = async () => {
+    const clip = editor.getSnapshot().clips.find((c) => c.id === props.clipId);
+    await transport.seek(clip.start);
+    await transport.play({ until: clip.start + clip.duration });
+  };
+  return <button onClick={play}>Play line</button>;
+}
+```
+
+**Vue**
+
+```vue title="PlayLine.vue"
+<script setup>
+import { useTimelineContext } from "@lumen-timeline/vue";
+
+const { clipId } = defineProps(["clipId"]);
+const timeline = useTimelineContext();
+async function play() {
+  const { editor, transport } = timeline.value;
+  const clip = editor.getSnapshot().clips.find((c) => c.id === clipId);
+  await transport.seek(clip.start);
+  await transport.play({ until: clip.start + clip.duration });
+}
+</script>
+
+<template>
+  <button @click="play">Play line</button>
+</template>
+```
+
+<!-- /framework-tabs -->
 
 - **Exact end.** Every voice is booked to stop at the output sample of `until`, so nothing after it sounds. The audio transport then presents `until` in the segment it played through. The video element pauses at the first frame at or past the stop and seeks back to it, so a stop between two frames is still presented exactly.
 - **While playing.** Calling `play({ until })` again moves the stop, and `play()` clears it. An earlier stop cuts the voices already booked. A later one books them again from the presented position, as a seek there would.
@@ -123,11 +325,98 @@ await transport.play({ until: clip.start + clip.duration });
 
 `transport.audition({ clipId, takeId, mode })` previews one of a clip's candidates without editing the project. Both transports implement it. Applying the take stays a separate `selectTake` edit, which the host can dispatch during or after the audition.
 
-```js
-const result = await transport.audition({ clipId: "line", takeId: "take-b", mode: "isolated" });
-if (result === "finished")
-  editor.dispatch(commands.selectTake({ clipId: "line", takeId: "take-b" }));
+A panel inside `VideoEditor` can audition a candidate alone and apply it if it was heard to the end. Each tab is a whole file:
+
+<!-- framework-tabs -->
+
+**Vanilla**
+
+```js title="audition.js"
+import { commands } from "@lumen-timeline/core";
+import { editor } from "./host.js";
+import { transport } from "./player.js";
+
+// The page holds <button id="audition">Audition Take 2</button>.
+document.querySelector("#audition").addEventListener("click", async () => {
+  const request = { clipId: "line-1", takeId: "take-b" };
+  const result = await transport.audition({ ...request, mode: "isolated" });
+  if (result === "finished") editor.dispatch(commands.selectTake(request));
+});
 ```
+
+**React**
+
+```jsx title="Audition.jsx"
+import { commands } from "@lumen-timeline/core";
+import { useTimelineContext } from "@lumen-timeline/react";
+
+export function Audition({ clipId, takeId }) {
+  const { editor, transport } = useTimelineContext();
+  const audition = async () => {
+    const result = await transport.audition({ clipId, takeId, mode: "isolated" });
+    if (result === "finished") editor.dispatch(commands.selectTake({ clipId, takeId }));
+  };
+  return <button onClick={audition}>Audition {takeId}</button>;
+}
+```
+
+**Svelte**
+
+```svelte title="Audition.svelte"
+<script>
+  import { commands } from "@lumen-timeline/core";
+  import { getTimelineContext } from "@lumen-timeline/svelte";
+
+  const { clipId, takeId } = $props();
+  const { editor, transport } = getTimelineContext();
+  async function audition() {
+    const result = await transport.audition({ clipId, takeId, mode: "isolated" });
+    if (result === "finished") editor.dispatch(commands.selectTake({ clipId, takeId }));
+  }
+</script>
+
+<button onclick={audition}>Audition {takeId}</button>
+```
+
+**SolidJS**
+
+```jsx title="Audition.jsx"
+import { commands } from "@lumen-timeline/core";
+import { useTimelineContext } from "@lumen-timeline/solid";
+
+export function Audition(props) {
+  const { editor, transport } = useTimelineContext();
+  const audition = async () => {
+    const request = { clipId: props.clipId, takeId: props.takeId };
+    const result = await transport.audition({ ...request, mode: "isolated" });
+    if (result === "finished") editor.dispatch(commands.selectTake(request));
+  };
+  return <button onClick={audition}>Audition {props.takeId}</button>;
+}
+```
+
+**Vue**
+
+```vue title="Audition.vue"
+<script setup>
+import { commands } from "@lumen-timeline/core";
+import { useTimelineContext } from "@lumen-timeline/vue";
+
+const { clipId, takeId } = defineProps(["clipId", "takeId"]);
+const timeline = useTimelineContext();
+async function audition() {
+  const { editor, transport } = timeline.value;
+  const result = await transport.audition({ clipId, takeId, mode: "isolated" });
+  if (result === "finished") editor.dispatch(commands.selectTake({ clipId, takeId }));
+}
+</script>
+
+<template>
+  <button @click="audition">Audition {{ takeId }}</button>
+</template>
+```
+
+<!-- /framework-tabs -->
 
 - **What plays.** The transport pauses project playback, remembers the playhead and plays the clip's placement as it stands, from its start to its end. `mix` plays the candidate with the rest of the project. `isolated` plays the clip alone, even on a muted track or while another track is soloed, at its track's gain. A `takeId` of `null` plays the mix with the clip silent. Every voice stops at the clip's end, including one that continues past it.
 - **Ending.** At the clip's end the promise resolves `finished`, and presentation returns to the remembered position, paused. `cancelAudition()` and `pause()` resolve `cancelled` and return there too. `play()` returns there and plays the project from it. `seek(tick)` cancels the audition for its own target. A newer audition cancels the current one and keeps its return position.
@@ -142,13 +431,104 @@ if (result === "finished")
 
 `watchMarkerCrossings(editor, transport, listener)` from `@lumen-timeline/core` reports the markers that playback crosses. A podcast host can use it for its chapter display, and a dubbing host can use it to highlight the line being heard.
 
-```js
-import { watchMarkerCrossings } from "@lumen-timeline/core";
+A panel inside `VideoEditor` can show the last marker that playback crossed as a chapter title. It watches from mount until it goes, and stops before the transport is disposed. Each tab is a whole file:
 
-const stop = watchMarkerCrossings(editor, transport, ({ markers, after, through, revision }) => {
+<!-- framework-tabs -->
+
+**Vanilla**
+
+```js title="chapter.js"
+import { watchMarkerCrossings } from "@lumen-timeline/core";
+import { editor } from "./host.js";
+import { transport } from "./player.js";
+
+// The page holds <output id="chapter"></output>.
+const chapter = document.querySelector("#chapter");
+export const stop = watchMarkerCrossings(editor, transport, ({ markers }) => {
   chapter.textContent = markers.at(-1).label ?? "";
 });
 ```
+
+**React**
+
+```jsx title="Chapter.jsx"
+import { useEffect, useState } from "react";
+import { watchMarkerCrossings } from "@lumen-timeline/core";
+import { useTimelineContext } from "@lumen-timeline/react";
+
+export function Chapter() {
+  const { editor, transport } = useTimelineContext();
+  const [chapter, setChapter] = useState("");
+  useEffect(() => {
+    const stop = watchMarkerCrossings(editor, transport, ({ markers }) =>
+      setChapter(markers.at(-1).label ?? ""),
+    );
+    return () => void stop();
+  }, [editor, transport]);
+  return <output>{chapter}</output>;
+}
+```
+
+**Svelte**
+
+```svelte title="Chapter.svelte"
+<script>
+  import { watchMarkerCrossings } from "@lumen-timeline/core";
+  import { getTimelineContext } from "@lumen-timeline/svelte";
+
+  const { editor, transport } = getTimelineContext();
+  let chapter = $state("");
+  $effect(() => {
+    const stop = watchMarkerCrossings(editor, transport, ({ markers }) => {
+      chapter = markers.at(-1).label ?? "";
+    });
+    return () => void stop();
+  });
+</script>
+
+<output>{chapter}</output>
+```
+
+**SolidJS**
+
+```jsx title="Chapter.jsx"
+import { createSignal, onCleanup } from "solid-js";
+import { watchMarkerCrossings } from "@lumen-timeline/core";
+import { useTimelineContext } from "@lumen-timeline/solid";
+
+export function Chapter() {
+  const { editor, transport } = useTimelineContext();
+  const [chapter, setChapter] = createSignal("");
+  const stop = watchMarkerCrossings(editor, transport, ({ markers }) =>
+    setChapter(markers.at(-1).label ?? ""),
+  );
+  onCleanup(() => void stop());
+  return <output>{chapter()}</output>;
+}
+```
+
+**Vue**
+
+```vue title="Chapter.vue"
+<script setup>
+import { onUnmounted, ref } from "vue";
+import { watchMarkerCrossings } from "@lumen-timeline/core";
+import { useTimelineContext } from "@lumen-timeline/vue";
+
+const { editor, transport } = useTimelineContext().value;
+const chapter = ref("");
+const stop = watchMarkerCrossings(editor, transport, ({ markers }) => {
+  chapter.value = markers.at(-1).label ?? "";
+});
+onUnmounted(() => void stop());
+</script>
+
+<template>
+  <output>{{ chapter }}</output>
+</template>
+```
+
+<!-- /framework-tabs -->
 
 - **Order.** As the presented tick advances, the listener receives the markers with `after < start <= through`, in snapshot order. It reads them from the editor's current revision, so a marker added ahead of the playhead is crossed when playback reaches it, and a removed one is not. A marker reached exactly is crossed once, including one at the sequence end where playback stops.
 - **Segments.** Both transports' snapshots carry `segment` and `segmentStart`. Within one segment, `presentedTick` moves only by playback. Every other move starts a new segment: a paused or playing seek, replay from the end, a native seek on the video element and a sequence shortened behind the playhead. Crossings in a new segment count from `segmentStart`, so a seek skips both the markers it jumps over and the marker at its destination. An audio seek is often first observed a little after its target. Markers between the target and that first observation still count as crossed.

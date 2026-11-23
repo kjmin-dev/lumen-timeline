@@ -33,13 +33,15 @@ Open the printed local address to explore three runnable workspaces with zero re
 
 ## Minimal integration
 
-The host creates the `editor` and the `transport` once, in a module of its own:
+The host creates what every view shares once, in a module of its own: the editor, the `AudioContext`, the stream catalog, the buffer resolver and the transport. Later guides import these from `./host.js`.
 
-```js title="session.js"
+```js title="host.js"
 import { createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
 
-const sec = (n) => unitsToTicks(n, 1);
+export const sec = (n) => unitsToTicks(n, 1);
+
+// The document: one track, one line with two recorded takes, and a marker in the line.
 export const editor = createEditor({
   project: {
     schemaVersion: 1,
@@ -54,7 +56,7 @@ export const editor = createEditor({
         start: sec(2),
         duration: sec(4),
         contentIn: 0,
-        takeIds: ["take-a"],
+        takeIds: ["take-a", "take-b"],
         activeTakeId: "take-a",
       },
     ],
@@ -66,37 +68,80 @@ export const editor = createEditor({
         streamId: "mono",
         sourceAtContentZero: 0,
       },
+      {
+        id: "take-b",
+        label: "Take 2",
+        assetId: "voice-b",
+        streamId: "mono",
+        sourceAtContentZero: 0,
+      },
     ],
+    markers: [{ id: "breath", start: sec(4), label: "Breath" }],
   },
 });
 
-const context = new AudioContext({ sampleRate: 48000 });
+// One AudioContext for the page; it starts on the first play.
+export const context = new AudioContext({ sampleRate: 48000 });
+
+// What the planner needs to know about the decoded audio behind each take.
+const mono = { assetVersion: 1, sampleRate: 48000, availableStart: 0, availableEnd: 48000 * 4 };
+export const catalog = { version: 1, streams: { "voice-a": { mono }, "voice-b": { mono } } };
+
+// Decodes each asset once, the first time a voice or a waveform needs it.
+const decoded = new Map();
+export function decode(assetId) {
+  if (!decoded.has(assetId))
+    decoded.set(
+      assetId,
+      fetch(`/media/${assetId}.opus`)
+        .then((response) => response.arrayBuffer())
+        .then((bytes) => context.decodeAudioData(bytes)),
+    );
+  return decoded.get(assetId);
+}
+export const resolveBuffer = (span) => decode(span.assetId);
+
+// Plays the editor's document through Web Audio. It lives as long as the page.
 export const transport = createAudioTransport({ editor, context, catalog, resolveBuffer });
 ```
 
-Then mount the view on them in vanilla JavaScript, or through the [React](/frameworks/react/), [Svelte](/frameworks/svelte/), [SolidJS](/frameworks/solid/) or [Vue](/frameworks/vue/) wrapper. A wrapper never creates or disposes either. The tab you pick is kept on every page of this site:
+Then mount the view in vanilla JavaScript, or through the [React](/frameworks/react/), [Svelte](/frameworks/svelte/), [SolidJS](/frameworks/solid/) or [Vue](/frameworks/vue/) wrapper. Each tab is a whole file. A wrapper never creates or disposes the editor or the transport, and the button dispatches to the same editor the view edits. The tab you pick is kept on every page of this site:
 
 <Tabs syncKey="framework">
 <TabItem label="Vanilla">
 
 ```js title="main.js"
+import { commands } from "@lumen-timeline/core";
 import { mountTimeline } from "@lumen-timeline/timeline";
 import "@lumen-timeline/timeline/style.css";
-import { editor, transport } from "./session.js";
+import { editor, sec, transport } from "./host.js";
 
+// The page holds <button id="split">Split at 4 s</button> and <div id="timeline"></div>.
 const view = mountTimeline(document.querySelector("#timeline"), { editor, transport });
+
+document.querySelector("#split").addEventListener("click", () => {
+  editor.dispatch(commands.splitClip({ clipId: "line-1", at: sec(4) }));
+});
 ```
 
 </TabItem>
 <TabItem label="React">
 
 ```jsx title="App.jsx"
+import { commands } from "@lumen-timeline/core";
 import { Timeline } from "@lumen-timeline/react";
 import "@lumen-timeline/timeline/style.css";
-import { editor, transport } from "./session.js";
+import { editor, sec, transport } from "./host.js";
+
+const split = () => editor.dispatch(commands.splitClip({ clipId: "line-1", at: sec(4) }));
 
 export function App() {
-  return <Timeline editor={editor} transport={transport} />;
+  return (
+    <>
+      <button onClick={split}>Split at 4 s</button>
+      <Timeline editor={editor} transport={transport} />
+    </>
+  );
 }
 ```
 
@@ -105,11 +150,15 @@ export function App() {
 
 ```svelte title="App.svelte"
 <script>
+  import { commands } from "@lumen-timeline/core";
   import { timeline } from "@lumen-timeline/svelte";
   import "@lumen-timeline/timeline/style.css";
-  import { editor, transport } from "./session.js";
+  import { editor, sec, transport } from "./host.js";
+
+  const split = () => editor.dispatch(commands.splitClip({ clipId: "line-1", at: sec(4) }));
 </script>
 
+<button onclick={split}>Split at 4 s</button>
 <div {@attach timeline(() => ({ editor, transport }))}></div>
 ```
 
@@ -118,14 +167,22 @@ export function App() {
 
 ```jsx title="App.jsx"
 import { createSignal } from "solid-js";
+import { commands } from "@lumen-timeline/core";
 import { createTimeline } from "@lumen-timeline/solid";
 import "@lumen-timeline/timeline/style.css";
-import { editor, transport } from "./session.js";
+import { editor, sec, transport } from "./host.js";
+
+const split = () => editor.dispatch(commands.splitClip({ clipId: "line-1", at: sec(4) }));
 
 export function App() {
   const [element, setElement] = createSignal();
   createTimeline(element, () => ({ editor, transport }));
-  return <div ref={setElement} />;
+  return (
+    <>
+      <button onClick={split}>Split at 4 s</button>
+      <div ref={setElement} />
+    </>
+  );
 }
 ```
 
@@ -134,28 +191,22 @@ export function App() {
 
 ```vue title="App.vue"
 <script setup>
+import { commands } from "@lumen-timeline/core";
 import { Timeline } from "@lumen-timeline/vue";
 import "@lumen-timeline/timeline/style.css";
-import { editor, transport } from "./session.js";
+import { editor, sec, transport } from "./host.js";
+
+const split = () => editor.dispatch(commands.splitClip({ clipId: "line-1", at: sec(4) }));
 </script>
 
 <template>
+  <button @click="split">Split at 4 s</button>
   <Timeline :editor="editor" :transport="transport" />
 </template>
 ```
 
 </TabItem>
 </Tabs>
-
-Every view edits the same editor. Dispatch transactional edits from pointer gestures, the keyboard or host panels:
-
-```js
-import { commands, unitsToTicks } from "@lumen-timeline/core";
-import { editor } from "./session.js";
-
-editor.dispatch(commands.splitClip({ clipId: "line-1", at: unitsToTicks(4, 1) }));
-editor.history.undo();
-```
 
 ## Where to go next
 

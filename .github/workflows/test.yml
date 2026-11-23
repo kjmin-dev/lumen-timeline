@@ -90,3 +90,7 @@ jobs:
         env:
           DOCS_SITE: https://lumen-timeline.studiocyf.app
           LUMEN_SOFTWARE_GPU: "1"
+      # Every framework tab in the documentation, built and run as published.
+      - run: npm run verify:docs-examples
+        env:
+          LUMEN_SOFTWARE_GPU: "1"

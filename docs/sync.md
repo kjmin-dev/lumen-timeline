@@ -2,76 +2,215 @@
 
 `@lumen-timeline/sync` lets two or more editors work on one project and end on the same document. It is optional: the core edits, undoes, plays and saves without it, and the core never imports it. The package ships a protocol, an editor-side session and a sequencer. It opens no connection and stores nothing, and nothing in it requires a server. [Plan and decisions](plans/shared-sessions.md)
 
-```js
-import { connectSession, createSequencer } from "@lumen-timeline/sync";
+The sequencer orders edits wherever the host chooses: a server, one page, a worker or a test. Here it runs in the same page, and `connection.js` links each session to it with JSON messages delivered asynchronously, as a socket would. It starts from the document of [`host.js`](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration):
 
-// Wherever the host chooses to order edits: a server, one page, a worker or a test.
-const sequencer = createSequencer({ id: "tidal-study", project });
-const close = sequencer.connect(transportToEditor);
+```js title="connection.js"
+import { createSequencer } from "@lumen-timeline/sync";
+import { editor } from "./host.js";
 
-// In each editor.
-const session = connectSession({ id: "tidal-study", transport, policy: "queue" });
-const editor = await session.ready;
+const sequencer = createSequencer({ id: "tidal-study", project: editor.getSnapshot() });
+
+// One link per session: the session's end, and a function that closes the link.
+export function connect() {
+  const listeners = { session: new Set(), sequencer: new Set() };
+  const end = (from, to) => ({
+    send: (message) =>
+      queueMicrotask(() => {
+        for (const listener of [...listeners[to]]) listener(structuredClone(message));
+      }),
+    onMessage(listener) {
+      listeners[from].add(listener);
+      return () => listeners[from].delete(listener);
+    },
+  });
+  const close = sequencer.connect(end("sequencer", "session"));
+  return { transport: end("session", "sequencer"), close };
+}
 ```
 
-The session's editor is an ordinary editor, so the view mounts on it as on any other, with the host's media transport (`player` here, not the sync transport):
+Each editor joins with `connectSession`. Its editor is ready once the first snapshot arrives, and it is an ordinary editor: the view mounts on it with a media transport of its own, here called `player` so as not to confuse it with the sync link. A component joins when it mounts and leaves when it goes. Each tab is a whole file:
 
 <!-- framework-tabs -->
 
 **Vanilla**
 
-```js
+```js title="main.js"
+import { createAudioTransport } from "@lumen-timeline/media";
+import { connectSession } from "@lumen-timeline/sync";
 import { mountTimeline } from "@lumen-timeline/timeline";
+import "@lumen-timeline/timeline/style.css";
+import { connect } from "./connection.js";
+import { catalog, context, resolveBuffer } from "./host.js";
 
-mountTimeline(element, { editor, transport: player });
+const link = connect();
+const session = connectSession({ id: "tidal-study", transport: link.transport, policy: "queue" });
+const editor = await session.ready;
+const player = createAudioTransport({ editor, context, catalog, resolveBuffer });
+
+// The page holds <div id="timeline"></div>.
+const view = mountTimeline(document.querySelector("#timeline"), { editor, transport: player });
+
+// To leave: view.dispose(), player.dispose(), session.dispose(), then link.close().
 ```
 
 **React**
 
-```jsx
+```jsx title="SharedEditor.jsx"
+import { useEffect, useState } from "react";
+import { createAudioTransport } from "@lumen-timeline/media";
 import { Timeline } from "@lumen-timeline/react";
+import { connectSession } from "@lumen-timeline/sync";
+import "@lumen-timeline/timeline/style.css";
+import { connect } from "./connection.js";
+import { catalog, context, resolveBuffer } from "./host.js";
 
-<Timeline editor={editor} transport={player} />;
+export function SharedEditor() {
+  const [joined, setJoined] = useState(null);
+  useEffect(() => {
+    const link = connect();
+    const session = connectSession({
+      id: "tidal-study",
+      transport: link.transport,
+      policy: "queue",
+    });
+    let player = null;
+    // `ready` rejects when the session is disposed first.
+    session.ready.then(
+      (editor) => {
+        player = createAudioTransport({ editor, context, catalog, resolveBuffer });
+        setJoined({ editor, player });
+      },
+      () => {},
+    );
+    return () => {
+      player?.dispose();
+      session.dispose();
+      link.close();
+    };
+  }, []);
+  if (!joined) return <p>Joining…</p>;
+  return <Timeline editor={joined.editor} transport={joined.player} />;
+}
 ```
 
 **Svelte**
 
-```svelte
+```svelte title="SharedEditor.svelte"
 <script>
+  import { createAudioTransport } from "@lumen-timeline/media";
   import { timeline } from "@lumen-timeline/svelte";
+  import { connectSession } from "@lumen-timeline/sync";
+  import "@lumen-timeline/timeline/style.css";
+  import { connect } from "./connection.js";
+  import { catalog, context, resolveBuffer } from "./host.js";
+
+  let joined = $state.raw(null);
+  $effect(() => {
+    const link = connect();
+    const session = connectSession({ id: "tidal-study", transport: link.transport, policy: "queue" });
+    let player = null;
+    // `ready` rejects when the session is disposed first.
+    session.ready.then(
+      (editor) => {
+        player = createAudioTransport({ editor, context, catalog, resolveBuffer });
+        joined = { editor, player };
+      },
+      () => {},
+    );
+    return () => {
+      player?.dispose();
+      session.dispose();
+      link.close();
+    };
+  });
 </script>
 
-<div {@attach timeline(() => ({ editor, transport: player }))}></div>
+{#if joined}
+  <div {@attach timeline(() => ({ editor: joined.editor, transport: joined.player }))}></div>
+{:else}
+  <p>Joining…</p>
+{/if}
 ```
 
 **SolidJS**
 
-```jsx
-import { createSignal } from "solid-js";
+```jsx title="SharedEditor.jsx"
+import { createSignal, onCleanup, Show } from "solid-js";
+import { createAudioTransport } from "@lumen-timeline/media";
 import { createTimeline } from "@lumen-timeline/solid";
+import { connectSession } from "@lumen-timeline/sync";
+import "@lumen-timeline/timeline/style.css";
+import { connect } from "./connection.js";
+import { catalog, context, resolveBuffer } from "./host.js";
 
-function Workspace() {
+export function SharedEditor() {
+  const [joined, setJoined] = createSignal();
   const [element, setElement] = createSignal();
-  createTimeline(element, () => ({ editor, transport: player }));
-  return <div ref={setElement} />;
+  const link = connect();
+  const session = connectSession({ id: "tidal-study", transport: link.transport, policy: "queue" });
+  let player = null;
+  // `ready` rejects when the session is disposed first.
+  session.ready.then(
+    (editor) => {
+      player = createAudioTransport({ editor, context, catalog, resolveBuffer });
+      setJoined({ editor, player });
+    },
+    () => {},
+  );
+  onCleanup(() => {
+    player?.dispose();
+    session.dispose();
+    link.close();
+  });
+  createTimeline(element, () => ({ editor: joined()?.editor, transport: joined()?.player }));
+  return (
+    <Show when={joined()} fallback={<p>Joining…</p>}>
+      <div ref={setElement} />
+    </Show>
+  );
 }
 ```
 
 **Vue**
 
-```vue
+```vue title="SharedEditor.vue"
 <script setup>
+import { onUnmounted, shallowRef } from "vue";
+import { createAudioTransport } from "@lumen-timeline/media";
+import { connectSession } from "@lumen-timeline/sync";
 import { Timeline } from "@lumen-timeline/vue";
+import "@lumen-timeline/timeline/style.css";
+import { connect } from "./connection.js";
+import { catalog, context, resolveBuffer } from "./host.js";
+
+const joined = shallowRef(null);
+const link = connect();
+const session = connectSession({ id: "tidal-study", transport: link.transport, policy: "queue" });
+let player = null;
+// `ready` rejects when the session is disposed first.
+session.ready.then(
+  (editor) => {
+    player = createAudioTransport({ editor, context, catalog, resolveBuffer });
+    joined.value = { editor, player };
+  },
+  () => {},
+);
+onUnmounted(() => {
+  player?.dispose();
+  session.dispose();
+  link.close();
+});
 </script>
 
 <template>
-  <Timeline :editor="editor" :transport="player" />
+  <Timeline v-if="joined" :editor="joined.editor" :transport="joined.player" />
+  <p v-else>Joining…</p>
 </template>
 ```
 
 <!-- /framework-tabs -->
 
-Render the component once `session.ready` has resolved, for example by awaiting it before the application mounts.
+Two of these components on one page edit the same project, each through its own session.
 
 A transport is `{ send(message), onMessage(listener) }`, one per connection, and the host carries the JSON messages: over `BroadcastChannel`, a WebSocket, a WebRTC data channel or anything else. `createLink()` makes an in-memory pair for tests, with optional loss, duplication and reordering.
 

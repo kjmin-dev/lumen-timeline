@@ -35,39 +35,94 @@ The example's **Takes** panel lists the selected clip's candidates in order. Eac
 
 ## Waveforms
 
-Pass `waveforms` to `mountTimeline`, or to a [framework wrapper](frameworks.md), to draw a waveform in each clip whose active take or direct `clip.source` has peaks. The view asks the provider for the visible part of the source, one bucket per CSS pixel column, whenever it paints that clip:
+Pass `waveforms` to `mountTimeline`, or to a [framework wrapper](frameworks.md), to draw a waveform in each clip whose active take or direct `clip.source` has peaks. The view asks the provider for the visible part of the source, one bucket per CSS pixel column, whenever it paints that clip.
 
-```js
-const waveforms = {
+A provider is a plain object with no lifecycle, so it lives in a module of its own. This one reads the audio that `decode` in [`host.js`](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration) fetched, on the main thread, which suits short clips. For long sources, [waveform tiles](waveforms.md) build the peaks in a worker.
+
+```js title="peaks.js"
+import { TICKS_PER_SECOND } from "@lumen-timeline/core";
+import { decode } from "./host.js";
+
+const buffers = new Map(); // assetId → AudioBuffer, once decoded
+const listeners = new Set();
+
+export const waveforms = {
   // Source time is content time plus the take's sourceAtContentZero, in ticks.
-  peaks: ({ assetId, streamId, start, end, buckets }) => minMaxPairs ?? null,
-  subscribe: (listener) => cache.onReady(listener),
+  peaks({ assetId, start, end, buckets }) {
+    const buffer = buffers.get(assetId);
+    if (!buffer) {
+      if (!buffers.has(assetId)) {
+        buffers.set(assetId, null);
+        decode(assetId).then((decoded) => {
+          buffers.set(assetId, decoded);
+          for (const listener of listeners) listener(assetId);
+        });
+      }
+      return null; // Nothing to draw yet.
+    }
+    const samples = buffer.getChannelData(0);
+    const at = (tick) => Math.floor((tick / TICKS_PER_SECOND) * buffer.sampleRate);
+    const from = at(start);
+    const width = (at(end) - from) / buckets;
+    const pairs = new Float32Array(buckets * 2).fill(NaN); // NaN columns are not drawn.
+    for (let column = 0; column < buckets; column++) {
+      const first = Math.max(0, Math.floor(from + column * width));
+      const last = Math.min(samples.length, Math.floor(from + (column + 1) * width));
+      let min = Infinity;
+      let max = -Infinity;
+      for (let i = first; i < last; i++) {
+        min = Math.min(min, samples[i]);
+        max = Math.max(max, samples[i]);
+      }
+      if (min <= max) pairs.set([min, max], column * 2);
+    }
+    return pairs;
+  },
+  // The view listens while it is mounted, and repaints the clips that play the asset.
+  subscribe(listener) {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  },
 };
 ```
+
+Each tab is a whole file that mounts the view with the provider:
 
 <!-- framework-tabs -->
 
 **Vanilla**
 
-```js
+```js title="main.js"
 import { mountTimeline } from "@lumen-timeline/timeline";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./host.js";
+import { waveforms } from "./peaks.js";
 
-const view = mountTimeline(element, { editor, transport, waveforms });
+// The page holds <div id="timeline"></div>.
+const view = mountTimeline(document.querySelector("#timeline"), { editor, transport, waveforms });
 ```
 
 **React**
 
-```jsx
+```jsx title="App.jsx"
 import { Timeline } from "@lumen-timeline/react";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./host.js";
+import { waveforms } from "./peaks.js";
 
-<Timeline editor={editor} transport={transport} waveforms={waveforms} />;
+export function App() {
+  return <Timeline editor={editor} transport={transport} waveforms={waveforms} />;
+}
 ```
 
 **Svelte**
 
-```svelte
+```svelte title="App.svelte"
 <script>
   import { timeline } from "@lumen-timeline/svelte";
+  import "@lumen-timeline/timeline/style.css";
+  import { editor, transport } from "./host.js";
+  import { waveforms } from "./peaks.js";
 </script>
 
 <div {@attach timeline(() => ({ editor, transport, waveforms }))}></div>
@@ -75,11 +130,14 @@ import { Timeline } from "@lumen-timeline/react";
 
 **SolidJS**
 
-```jsx
+```jsx title="App.jsx"
 import { createSignal } from "solid-js";
 import { createTimeline } from "@lumen-timeline/solid";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./host.js";
+import { waveforms } from "./peaks.js";
 
-function Waveforms() {
+export function App() {
   const [element, setElement] = createSignal();
   createTimeline(element, () => ({ editor, transport, waveforms }));
   return <div ref={setElement} />;
@@ -88,9 +146,12 @@ function Waveforms() {
 
 **Vue**
 
-```vue
+```vue title="App.vue"
 <script setup>
 import { Timeline } from "@lumen-timeline/vue";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./host.js";
+import { waveforms } from "./peaks.js";
 </script>
 
 <template>
@@ -100,7 +161,7 @@ import { Timeline } from "@lumen-timeline/vue";
 
 <!-- /framework-tabs -->
 
-Create the provider once, outside a component's render. A wrapper passes its options to the mounted view on every render, and the view compares providers by identity: a new one is subscribed to again and repaints every clip.
+Keep the provider outside a component's render, as `peaks.js` does. A wrapper passes its options to the mounted view on every render, and the view compares providers by identity: a new one is subscribed to again and repaints every clip.
 
 - **Peaks.** `peaks` returns `buckets` minimum and maximum pairs between -1 and 1, or `null` to draw nothing for that source yet. A column whose pair is not finite is not drawn. A move keeps the requested range, and a trim or a take's new `sourceAtContentZero` changes it.
 - **Late peaks.** When peaks arrive or change, call the `subscribe` listener with the asset ID. The view repaints only the visible tracks whose drawn clips play that asset. The first notification repaints at once; any more before the next frame repaint together in it. A take that starts playing other media repaints the tracks of the clips that list it. Disposing the view unsubscribes.
