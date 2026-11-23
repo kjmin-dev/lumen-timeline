@@ -76,6 +76,16 @@ export interface TimelineLabels {
   readonly splitAtPlayhead?: string | undefined;
   readonly undo?: string | undefined;
   readonly redo?: string | undefined;
+  /** Accessible name of the inline track rename field. Defaults to "Track name". */
+  readonly trackName?: string | undefined;
+  /** Tooltip of a track header's drag handle. Defaults to "Drag to reorder". */
+  readonly reorderTrack?: string | undefined;
+  /**
+   * Announced to assistive technology after a track moves. `{name}`,
+   * `{position}` and `{count}` are filled in. Defaults to
+   * "{name} moved to position {position} of {count}".
+   */
+  readonly trackMoved?: string | undefined;
 }
 
 /**
@@ -94,6 +104,17 @@ export interface TimelineChrome {
   /** Clip `<select>` inside the toolbar. Set `false` to skip maintaining DOM `<option>` nodes. */
   readonly clipNavigator?: boolean | undefined;
   readonly markerNavigator?: boolean | undefined;
+  /**
+   * Inline rename in the track headers: double-click a name, or press Enter or
+   * F2 on a focused header. Off in the `"minimal"` preset and in `readOnly`.
+   */
+  readonly trackRename?: boolean | undefined;
+  /**
+   * Track reordering from the headers: drag a header or its grip, or press
+   * Alt+Arrow keys on a focused header. Off in the `"minimal"` preset and in
+   * `readOnly`.
+   */
+  readonly trackReorder?: boolean | undefined;
 }
 
 export type TimelineChromeOption = false | "minimal" | TimelineChrome;
@@ -150,7 +171,14 @@ export type ClipStyleFn = (
   trackIndex: number,
 ) => ClipAppearance | undefined;
 
-/** Context handed to `renderTrackHeader` for one virtualized track header row. */
+/**
+ * Context handed to `renderTrackHeader` for one virtualized track header row.
+ * Built-in rename and reorder reach a custom header through two markers in its
+ * content: an element with `data-lt-track-grip` starts a reorder drag, and
+ * double-clicking an element with `data-lt-track-name` swaps it for the inline
+ * rename field until the rename ends. The header element itself takes the
+ * arrow-key, Enter, F2 and Alt+Arrow keys.
+ */
 export interface TrackHeaderContext {
   readonly element: HTMLElement;
   readonly track: Track;
@@ -373,6 +401,14 @@ export interface TimelineView {
   reveal(clipId: string): boolean;
   /** Scrolls a track row into view. Returns false if the track does not exist. */
   scrollToTrack(trackId: string): boolean;
+  /**
+   * Scrolls a track into view and opens the inline rename field in its header,
+   * as after adding a track. Enter or a blur commits one undoable edit; Escape
+   * cancels. Returns false when the track does not exist, rename is off
+   * (`chrome.trackRename`, `readOnly`) or a custom header marks no
+   * `data-lt-track-name` element.
+   */
+  renameTrack(trackId: string): boolean;
   /**
    * Forces a redraw of the overlay (`"overlay"`) or the whole timeline (`"all"`,
    * default), e.g. when host state read by `renderOverlay` or `clipStyle` changes.

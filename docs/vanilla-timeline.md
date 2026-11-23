@@ -4,7 +4,7 @@ Run `npm ci` and `npm run example:vanilla`, then open the printed local address.
 
 Load `@lumen-timeline/timeline/style.css` and call `mountTimeline(element, { editor, transport })`. The view accepts a `TimelineTransport`: an adapter exposing `snapshot()`, `subscribe(listener)` (returning a disposer), `play()`, `pause()` and `seek(projectTick)`. Media transports satisfy it, and so can any player adapter that reports project ticks. Snapshots carry `playing`, `presentedTick` and a nullable `requestedTick`. The host publishes requests immediately and settles only the latest request. The example bridges the existing Web Audio scheduler and its video frame callback.
 
-`view.setViewport({startTick, pixelsPerSecond})` changes one mount. `view.update(options)` applies `snap`, `labels`, `waveforms`, `chrome`, `theme`, `layout`, `readOnly`, `shortcuts`, `formatTime`, `gridSpacing`, `clipStyle`, `renderTrackHeader`, `renderOverlay`, `events`, `pixelsPerSecond` and `startTick` without a new mount, as a framework wrapper does on every render. Equal config objects change nothing. A key left out keeps its value. `pixelsPerSecond` and `startTick` move the viewport only when they differ from the values last given, so a host that passes the same values again keeps the user's pan and zoom. `editor`, `transport` and `renderer` are fixed for a mount. `view.reveal(clipId)` scrolls a clip's lane into view and pans to its start when that is offscreen, for a host list that selects clips. `view.scrollToTrack(trackId)` scrolls a track row into view, and `view.repaint(scope?)` triggers an `"all"` or `"overlay"` redraw when external state read by callbacks changes. Ctrl/Command-wheel zooms at the pointer. Shift-wheel or the scroll slider pans. Use the ruler or its arrow keys to seek. Click a clip, Shift-click to change a group or use the native clip navigator. `editor.session.select(ids)`, `getSelection()` and `subscribeSelection(listener)` share a selection across views. Selection is ephemeral. Undo prunes missing IDs.
+`view.setViewport({startTick, pixelsPerSecond})` changes one mount. `view.update(options)` applies `snap`, `labels`, `waveforms`, `chrome`, `theme`, `layout`, `readOnly`, `shortcuts`, `formatTime`, `gridSpacing`, `clipStyle`, `renderTrackHeader`, `renderOverlay`, `events`, `pixelsPerSecond` and `startTick` without a new mount, as a framework wrapper does on every render. Equal config objects change nothing. A key left out keeps its value. `pixelsPerSecond` and `startTick` move the viewport only when they differ from the values last given, so a host that passes the same values again keeps the user's pan and zoom. `editor`, `transport` and `renderer` are fixed for a mount. `view.reveal(clipId)` scrolls a clip's lane into view and pans to its start when that is offscreen, for a host list that selects clips. `view.scrollToTrack(trackId)` scrolls a track row into view, `view.renameTrack(trackId)` opens the inline rename field in its header, and `view.repaint(scope?)` triggers an `"all"` or `"overlay"` redraw when external state read by callbacks changes. Ctrl/Command-wheel zooms at the pointer. Shift-wheel or the scroll slider pans. Use the ruler or its arrow keys to seek. Click a clip, Shift-click to change a group or use the native clip navigator. `editor.session.select(ids)`, `getSelection()` and `subscribeSelection(listener)` share a selection across views. Selection is ephemeral. Undo prunes missing IDs.
 
 The ruler and static clips are cached separately from selection and the moving playhead. Track subrows are assigned from complete track intervals and retained across horizontal pans. Each paint lays out the visible rows once, as rectangles, waveform columns and label crops in stacking order, and the drawing backend draws only that layout. Clip names and captions are rasterized once into a label atlas at the device pixel ratio. Painting and picking use CSS pixels; the backing canvas follows device pixel ratio. `view.hitTest({ x, y })` returns the clip, trim handle or body, track and tick under a point of the clip surface, read from the layout. `view.getDiagnostics()` returns paint and layout counts, the drawing backend, the clips in the current layout and the labels rasterized so far. `view.dispose()` releases that mount's observers, animation frame callbacks, subscriptions, DOM and GPU context. The host owns its editor and transport.
 
@@ -136,12 +136,54 @@ The clip navigator and numeric edit controls support keyboard operation. Choose 
 
 Save project stores the immutable JSON snapshot in local browser storage. Reopen saved loads it into a new editor with the same clip IDs, offsets and active takes, a fresh selection and empty undo/redo stacks. The browser regression repeats the same move and trim via pointer and numeric controls and checks the music node and its end reservation throughout playback.
 
+## Rename and reorder tracks
+
+The built-in track headers are a list with one tab stop. Each header's text is the track's name, or its ID when it has none.
+
+- **Rename.** Double-click a name, or press Enter or F2 on a focused header. The name becomes a text field with the old name selected.
+  - **Commit.** Enter, or a click elsewhere, commits one undoable `updateTrack` edit. Focus returns to the header after Enter.
+  - **Cancel.** Escape cancels.
+  - **No-op drafts.** The draft is trimmed. A blank draft, or the name already shown, makes no edit, so it adds no undo entry.
+  - **IME.** Enter during an IME composition only confirms the composed text.
+  - **Switching windows.** Leaving the window keeps the draft open.
+  - **API.** `view.renameTrack(trackId)` scrolls a track into view and opens its field. Use it to name a track just added with `commands.addTrack`.
+- **Reorder by pointer.**
+  - **Starting a drag.** Drag a header with the mouse or pen. On touch, drag its grip, which appears at the left edge on hover. A press shorter than 4 px stays a click or double-click.
+  - **During the drag.** The header dims, a lifted copy follows the pointer, and a line across headers and clips marks the gap where the track will land. Rows stay aligned with their headers until the drop, so the line is the only thing that moves. The drop line splits each row at its middle, and it hides over the track's own gaps, where a drop changes nothing.
+  - **Auto-scroll.** Holding the pointer within 32 px of the list's top or bottom scrolls it, faster nearer the edge.
+  - **Ending.** A drop commits one `reorderTracks` edit. Escape, a cancelled pointer or leaving the window discards the drag.
+- **Keyboard.** On a focused header:
+  - Up and Down arrows move focus between tracks; Home and End go to the first and last.
+  - Alt with Up, Down, Home or End moves the focused track one place, or to the top or bottom, as one undoable edit each.
+  - Focus follows the moved track and scrolls it into view. A polite live region announces "Music moved to position 2 of 4". Change its text with `labels.trackMoved`, which fills `{name}`, `{position}` and `{count}`.
+  - Ctrl/Command-Z undoes from the header.
+- **Focus and drafts across scrolls and outside edits.** The view keeps the focused header, and an open rename field, while its row scrolls out of view, so keyboard focus never falls back to the page. When another view or a sync peer reorders the tracks, focus stays with its track. Tab focus scrolls a partly hidden header into view.
+- **Turning it off.** `chrome: { trackRename: false }` and `chrome: { trackReorder: false }` turn either gesture off. The `"minimal"` and `false` presets turn both off. `readOnly` turns both off and leaves arrow-key focus. `shortcuts: false` keeps the pointer gestures and drops their keys.
+- **Custom headers.** Custom `renderTrackHeader` content opts in with two markers:
+  - `data-lt-track-grip` marks the element that starts a drag and takes Alt+Arrow keys.
+  - `data-lt-track-name` marks the element a double-click swaps for the rename field. The view restores it and renders the header again with the new name.
+  - The custom header's other controls keep their own pointer and keys.
+- **Labels.** `labels.trackName` names the rename field for assistive technology, and `labels.reorderTrack` is the grip's tooltip.
+
+`npm run verify:tracks` drives these with a real pointer and keyboard. Pass `firefox` or `webkit` to `node examples/vanilla/verify-tracks.mjs` for the other engines. It checks:
+
+- the list semantics;
+- rename by double-click, Enter and F2, with commit, Escape, blank and unchanged drafts, an IME Enter, a blur commit and undo;
+- arrow-key focus and Alt+Arrow moves;
+- a drag with its threshold, ghost, drop line and one edit;
+- a drop in place and an escaped drag, which make no edit;
+- auto-scroll to the last place;
+- focus and a draft surviving scrolls and outside edits;
+- `view.renameTrack` on a new track;
+- read-only, the chrome switches and the minimal preset;
+- custom headers with both markers.
+
 ## Customization and headless canvas
 
 Hosts can strip down or customize the built-in timeline UI for diverse domains (video review, podcast editing, DAWs, annotation tools or embedded players) without replacing the layout or GPU rendering pipeline:
 
-- **Composable chrome (`chrome`).** Defaults to showing all built-in controls. Pass `chrome: "minimal"` for ruler + track headers + clip surface with no toolbars or forms, `chrome: false` for a bare clip canvas, or an object toggling `toolbar`, `ruler`, `trackHeaders`, `scrollBar`, `markerEditor`, `editToolbar`, `status`, `clipNavigator` and `markerNavigator`. Hiding `clipNavigator` skips DOM `<option>` maintenance.
-- **Full localization (`labels`).** `labels` accepts text overrides for every built-in control (`play`, `pause`, `tracks`, `clip`, `selectClip`, `marker`, `selectMarker`, `addMarker`, `markerLabel`, `renameMarker`, `removeMarker`, `scroll`, `zoomIn`, `zoomOut`, `operation`, `move`, `trimStart`, `trimEnd`, `delta`, `apply`, `splitAtPlayhead`, `undo`, `redo`) in addition to candidate take captions (`take`, `takes`, `none`).
+- **Composable chrome (`chrome`).** Defaults to showing all built-in controls. Pass `chrome: "minimal"` for ruler + track headers + clip surface with no toolbars or forms, `chrome: false` for a bare clip canvas, or an object toggling `toolbar`, `ruler`, `trackHeaders`, `scrollBar`, `markerEditor`, `editToolbar`, `status`, `clipNavigator`, `markerNavigator`, `trackRename` and `trackReorder`. Hiding `clipNavigator` skips DOM `<option>` maintenance.
+- **Full localization (`labels`).** `labels` accepts text overrides for every built-in control (`play`, `pause`, `tracks`, `clip`, `selectClip`, `marker`, `selectMarker`, `addMarker`, `markerLabel`, `renameMarker`, `removeMarker`, `scroll`, `zoomIn`, `zoomOut`, `operation`, `move`, `trimStart`, `trimEnd`, `delta`, `apply`, `splitAtPlayhead`, `undo`, `redo`, `trackName`, `reorderTrack`, `trackMoved`) in addition to candidate take captions (`take`, `takes`, `none`).
 - **Theming and layout (`theme`, `layout`, CSS variables).** Override canvas and overlay colors, fonts and the fallback track palette via `theme` (`rowEven`, `rowOdd`, `grid`, `selectionStroke`, `handleFill`, `ghostFill`, `ghostStroke`, `marker`, `rulerText`, `rulerMarkerBackground`, `labelColor`, `nameFont`, `captionFont`, `palette`), and override DOM chrome colors via `--lumen-*` CSS custom properties in `@lumen-timeline/timeline/style.css`. Adjust row density with `layout: { laneHeight, rowInset }`.
 - **Time formatting and grids (`formatTime`, `gridSpacing`).** Customize ruler labels, time readouts and ARIA labels with `formatTime(tick)` (for SMPTE timecode, bars/beats or frame numbers) and choose grid intervals dynamically with `gridSpacing(pixelsPerSecond)`.
 - **Per-clip styling, custom headers and overlays (`clipStyle`, `renderTrackHeader`, `renderOverlay`).** Override any clip's colors, label or caption via `clipStyle(clip, track, trackIndex)` (clips and tracks can also carry static `color` fields in the project). Populate virtualized track header rows with custom DOM controls (such as mute/solo/gain knobs) via `renderTrackHeader(track, context)`. Draw arbitrary 2D graphics—automation curves, comments, loop brackets or spectrogram overlays—above clips via `renderOverlay({ ctx, width, height, scrollTop, view, snapshot, selection, pixelAt, tickAt, boxOf })`, and call `view.repaint("overlay")` or `view.repaint("all")` whenever external host state changes.

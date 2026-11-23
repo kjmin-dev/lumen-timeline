@@ -9,3 +9,5 @@ export { isImage, labelInset, labelTop, layoutRow, QuadList, quadFloats, rgba } 
 export type { LabelSlot, LabelSource, LayoutRow, RowLayout } from "./layout.ts";
 export { readPixels } from "./probe.ts";
 export type { PixelRect, Pixels } from "./renderer.ts";
+export { resolveChrome, resolveUiLabels, sameChrome, sameUiLabels } from "./config.ts";
+export { dropSlot, fillTemplate, moveToSlot, renamedTo } from "./track-headers.ts";
