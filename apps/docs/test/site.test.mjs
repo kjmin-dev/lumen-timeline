@@ -1,0 +1,303 @@
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { extname, join, resolve } from "node:path";
+import { describe, it } from "node:test";
+import { chromium } from "playwright";
+
+const dist = resolve(import.meta.dirname, "../dist");
+
+const MIME = new Map([
+  [".html", "text/html; charset=utf-8"],
+  [".js", "text/javascript; charset=utf-8"],
+  [".mjs", "text/javascript; charset=utf-8"],
+  [".css", "text/css; charset=utf-8"],
+  [".json", "application/json; charset=utf-8"],
+  [".svg", "image/svg+xml"],
+  [".png", "image/png"],
+  [".webp", "image/webp"],
+  [".wasm", "application/wasm"],
+  [".txt", "text/plain; charset=utf-8"],
+  [".md", "text/markdown; charset=utf-8"],
+  [".xml", "application/xml; charset=utf-8"],
+  [".pf_fragment", "application/octet-stream"],
+  [".pf_index", "application/octet-stream"],
+  [".pf_meta", "application/octet-stream"],
+  [".pagefind", "application/octet-stream"],
+]);
+
+async function walkHtml(dir) {
+  const entries = await readdir(dir, { recursive: true });
+  return entries.filter((entry) => entry.endsWith(".html"));
+}
+
+function startStaticServer(rootDir) {
+  return new Promise((resolveServer, rejectServer) => {
+    const server = createServer(async (req, res) => {
+      try {
+        const url = new URL(req.url ?? "/", "http://127.0.0.1");
+        let path = decodeURIComponent(url.pathname);
+        if (path.endsWith("/")) path += "index.html";
+        let full = resolve(rootDir, `.${path}`);
+        if (!full.startsWith(rootDir)) {
+          res.writeHead(403);
+          res.end();
+          return;
+        }
+        if (!existsSync(full) && existsSync(`${full}/index.html`)) {
+          full = `${full}/index.html`;
+        }
+        const body = await readFile(full);
+        res.writeHead(200, {
+          "Content-Type": MIME.get(extname(full)) ?? "application/octet-stream",
+        });
+        res.end(body);
+      } catch {
+        res.writeHead(404);
+        res.end("Not found");
+      }
+    });
+    server.on("error", rejectServer);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        rejectServer(new Error("Unexpected server address"));
+        return;
+      }
+      resolveServer({
+        url: `http://127.0.0.1:${address.port}`,
+        close: () => new Promise((done) => server.close(() => done(undefined))),
+      });
+    });
+  });
+}
+
+describe("built documentation site", () => {
+  it("emits core routes, Korean locales, _headers, llms.txt and plain Markdown copies", async () => {
+    const required = [
+      "index.html",
+      "getting-started/index.html",
+      "hosting/index.html",
+      "ko/index.html",
+      "ko/getting-started/index.html",
+      "ko/hosting/index.html",
+      "architecture/design/index.html",
+      "architecture/core/index.html",
+      "architecture/roadmap/index.html",
+      "guides/editing/index.html",
+      "guides/selective-history/index.html",
+      "guides/queries-and-planning/index.html",
+      "guides/transports/index.html",
+      "guides/incremental-playback/index.html",
+      "guides/timeline-view/index.html",
+      "guides/waveforms/index.html",
+      "guides/sync/index.html",
+      "frameworks/overview/index.html",
+      "frameworks/react/index.html",
+      "frameworks/svelte/index.html",
+      "frameworks/solid/index.html",
+      "frameworks/vue/index.html",
+      "frameworks/verification/index.html",
+      "packages/index.html",
+      "benchmarks/clock-and-wasm/index.html",
+      "benchmarks/measurements/index.html",
+      "demo/studio/index.html",
+      "demo/sync/index.html",
+      "_headers",
+      "llms.txt",
+      "llms-full.txt",
+      "llms-small.txt",
+      "index.md",
+      "getting-started.md",
+      "hosting.md",
+      "architecture/core.md",
+      "guides/editing.md",
+      "guides/timeline-view.md",
+      "guides/sync.md",
+      "packages.md",
+      "benchmarks/measurements.md",
+    ];
+    for (const rel of required) {
+      assert.ok(existsSync(join(dist, rel)), `missing built file: ${rel}`);
+    }
+    assert.ok(!existsSync(join(dist, "ko.md")), "ko.md should not be emitted");
+
+    const llms = await readFile(join(dist, "llms.txt"), "utf8");
+    assert.match(llms, /Lumen Timeline/);
+    assert.doesNotMatch(llms, /\/ko\//);
+
+    const coreMd = await readFile(join(dist, "architecture/core.md"), "utf8");
+    assert.match(coreMd, /```mermaid/);
+    assert.doesNotMatch(coreMd, /<figure class="arch-diagram/);
+
+    const packagesMd = await readFile(join(dist, "packages.md"), "utf8");
+    assert.match(packagesMd, /\| Package \| Runtime \| Peer \| Public exports \|/);
+    assert.doesNotMatch(packagesMd, /<PackageMatrix/);
+
+    const timelineMd = await readFile(join(dist, "guides/timeline-view.md"), "utf8");
+    assert.doesNotMatch(timelineMd, /<Demo /);
+    assert.doesNotMatch(timelineMd, /^import /m);
+  });
+
+  it("inlines demo frames with srcdoc and preloads island modules", async () => {
+    for (const name of ["studio", "sync"]) {
+      const demoHtml = await readFile(join(dist, "demo", name, "index.html"), "utf8");
+      assert.match(demoHtml, /<link rel="modulepreload" href="\/_astro\//);
+    }
+    for (const page of [
+      "index.html",
+      "ko/index.html",
+      "guides/timeline-view/index.html",
+      "guides/sync/index.html",
+    ]) {
+      const html = await readFile(join(dist, page), "utf8");
+      assert.match(html, /<iframe data-demo="(?:studio|sync)" srcdoc="/);
+    }
+  });
+
+  it("has zero broken internal links or heading anchors across all built HTML pages", async () => {
+    const htmlFiles = await walkHtml(dist);
+    assert.ok(htmlFiles.length >= 25, `expected at least 25 HTML files, got ${htmlFiles.length}`);
+
+    const idCache = new Map();
+    const idsFor = async (file) => {
+      const cached = idCache.get(file);
+      if (cached) return cached;
+      const html = await readFile(file, "utf8");
+      const ids = new Set();
+      for (const [, id] of html.matchAll(/\sid="([^"]+)"/g)) ids.add(id);
+      idCache.set(file, ids);
+      return ids;
+    };
+
+    const broken = [];
+    for (const rel of htmlFiles) {
+      if (rel.startsWith("demo/")) continue;
+      const html = await readFile(join(dist, rel), "utf8");
+      // Strip srcdoc attributes so we check links of the Starlight page itself.
+      const stripped = html.replace(/\ssrcdoc="[^"]*"/g, "");
+      for (const [, href] of stripped.matchAll(/<a\b[^>]*\shref="([^"]+)"/g)) {
+        if (
+          href.startsWith("http://") ||
+          href.startsWith("https://") ||
+          href.startsWith("mailto:") ||
+          href.startsWith("javascript:")
+        ) {
+          continue;
+        }
+        const [rawPath, hash] = href.split("#", 2);
+        const targetRel = rawPath
+          ? rawPath.startsWith("/")
+            ? rawPath.slice(1)
+            : join(rel, "..", rawPath)
+          : rel;
+        let targetFile = join(dist, targetRel);
+        if (targetRel === "" || targetRel.endsWith("/")) {
+          targetFile = join(dist, targetRel, "index.html");
+        } else if (!existsSync(targetFile) && existsSync(join(targetFile, "index.html"))) {
+          targetFile = join(targetFile, "index.html");
+        }
+        if (!existsSync(targetFile)) {
+          broken.push(`${rel}: broken href "${href}"`);
+          continue;
+        }
+        if (hash && targetFile.endsWith(".html")) {
+          const ids = await idsFor(targetFile);
+          if (!ids.has(decodeURIComponent(hash))) {
+            broken.push(`${rel}: missing anchor "#${hash}" in ${href}`);
+          }
+        }
+      }
+    }
+    assert.deepEqual(broken, []);
+  });
+
+  it("renders interactive studio, sync, theme sync, and package filter in Chromium with zero errors", async () => {
+    const server = await startStaticServer(dist);
+    const launchArgs =
+      process.env["LUMEN_SOFTWARE_GPU"] === "1"
+        ? ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
+        : [];
+    const browser = await chromium.launch({ args: launchArgs });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+      page.on("console", (msg) => {
+        if (msg.type() === "error") errors.push(`console.error: ${msg.text()}`);
+      });
+      page.on("response", (res) => {
+        if (res.status() >= 400) errors.push(`HTTP ${res.status()} ${res.url()}`);
+      });
+
+      // 1. Landing page + live studio demo inside srcdoc iframe
+      await page.goto(`${server.url}/`, { waitUntil: "networkidle" });
+      const studioFrame = page.frameLocator('iframe[data-demo="studio"]');
+      await studioFrame.locator('[data-demo-ready="studio"]').waitFor({ timeout: 15000 });
+      const canvasBox = await studioFrame.locator("canvas.lt-clips").boundingBox();
+      assert.ok(canvasBox && canvasBox.width > 200 && canvasBox.height > 60);
+
+      // Switch take in the Take Inspector
+      const altTake = studioFrame.locator('[data-apply-take="nar-1-b"]');
+      await altTake.click();
+      assert.equal(await altTake.getAttribute("aria-pressed"), "true");
+
+      // Split clip and verify Undo becomes enabled, then undo
+      const undoBtn = studioFrame.locator("[data-demo-undo]");
+      await studioFrame.locator("[data-demo-split]").click();
+      assert.equal(await undoBtn.isDisabled(), false);
+      await undoBtn.click();
+
+      // Verify site light/dark theme propagates into the demo frame
+      await page.evaluate(() => {
+        document.documentElement.dataset.theme = "light";
+      });
+      await page.waitForFunction(() => {
+        const iframe = document.querySelector('iframe[data-demo="studio"]');
+        return iframe?.contentDocument?.documentElement.dataset.theme === "light";
+      });
+
+      // 2. Korean landing page
+      await page.goto(`${server.url}/ko/`, { waitUntil: "networkidle" });
+      assert.match(await page.locator("h1").first().textContent(), /Lumen Timeline/);
+      await page
+        .frameLocator('iframe[data-demo="studio"]')
+        .locator('[data-demo-ready="studio"]')
+        .waitFor({ timeout: 15000 });
+
+      // 3. Shared sessions live two-editor demo on /guides/sync/
+      await page.goto(`${server.url}/guides/sync/`, { waitUntil: "networkidle" });
+      const syncFrame = page.frameLocator('iframe[data-demo="sync"]');
+      await syncFrame.locator('[data-demo-ready="sync"]').waitFor({ timeout: 15000 });
+      const paneA = syncFrame.locator('[data-sync-pane="Editor A"]');
+      const paneB = syncFrame.locator('[data-sync-pane="Editor B"]');
+      await paneA.locator("[data-nudge-right]").click();
+      await syncFrame
+        .locator('[data-sync-pane="Editor B"] .demo-badge', { hasText: "rev 1" })
+        .waitFor({
+          timeout: 5000,
+        });
+
+      // Toggle Editor B offline, make local edit, reconnect and verify convergence
+      await paneB.locator("[data-toggle-offline]").click();
+      await paneB.locator("[data-nudge-right]").click();
+      await paneB.locator("[data-toggle-offline]").click();
+      await syncFrame
+        .locator('[data-sync-pane="Editor A"] .demo-badge', { hasText: "rev 2" })
+        .waitFor({
+          timeout: 5000,
+        });
+
+      // 4. Interactive PackageMatrix filter on /packages/
+      await page.goto(`${server.url}/packages/`, { waitUntil: "networkidle" });
+      await page.locator('.pkg-matrix__filter button[data-show="wrapper"]').click();
+      assert.match(await page.locator(".pkg-matrix__count").textContent(), /4 of 8 packages/);
+
+      assert.deepEqual(errors, []);
+    } finally {
+      await browser.close();
+      await server.close();
+    }
+  });
+});

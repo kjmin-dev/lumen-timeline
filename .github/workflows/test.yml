@@ -70,3 +70,18 @@ jobs:
           LUMEN_SOFTWARE_GPU: "1"
       # A short run keeps the comparison working; its figures come from real hardware.
       - run: npm run bench:wrappers -- --runs 1 --seconds 4 --renderer canvas2d --channel chromium --no-build
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run check:docs
+        env:
+          DOCS_SITE: https://lumen-timeline.studiocyf.app
+          LUMEN_SOFTWARE_GPU: "1"

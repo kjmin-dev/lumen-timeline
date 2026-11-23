@@ -1,0 +1,30 @@
+---
+// Embeds a live Lumen Timeline example in an isolated frame so the timeline stylesheet stays apart
+// from Starlight's. In a production build, scripts/demo-frames.ts writes the built demo page into
+// this iframe as `srcdoc` and finds it by `data-demo`, which must stay the first attribute.
+interface Props {
+  name: string;
+  title: string;
+  height?: string;
+}
+const { name, title, height = "28rem" } = Astro.props;
+---
+
+<div class="demo not-content">
+  <iframe data-demo={name} title={title} src={`/demo/${name}/`} style={`height: ${height}`}></iframe>
+</div>
+
+<style>
+  .demo {
+    margin-block: 1.25rem;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background: var(--lt-bg-surface);
+  }
+  iframe {
+    display: block;
+    width: 100%;
+    border: 0;
+  }
+</style>

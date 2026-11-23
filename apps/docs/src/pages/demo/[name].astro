@@ -1,0 +1,52 @@
+---
+// One interactive Lumen Timeline demo in a page of its own, embedded in a frame so the timeline
+// stylesheet stays isolated from Starlight's.
+import { DEMO_NAMES, Demo } from "../../demos/index.tsx";
+import "../../styles/demo.css";
+
+export function getStaticPaths() {
+  return DEMO_NAMES.map((name) => ({ params: { name } }));
+}
+
+const raw = Astro.params.name;
+const name = DEMO_NAMES.find((item) => item === raw) ?? "studio";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Lumen Timeline — {name} demo</title>
+    <script is:inline>
+      // Match the embedding Starlight page's color mode before first paint, or `?theme=` when
+      // opened standalone.
+      const host = frameElement && parent.document.documentElement;
+      const apply = (theme) => {
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      };
+      apply(new URLSearchParams(location.search).get("theme") ?? host?.dataset.theme ?? "dark");
+      if (host) {
+        new MutationObserver(() => apply(host.dataset.theme)).observe(host, {
+          attributes: true,
+          attributeFilter: ["data-theme"],
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <Demo name={name} client:only="react" />
+    <script is:inline>
+      // Resize the embedding iframe automatically as content mounts or wraps.
+      if (frameElement) {
+        const resize = () => {
+          const height = document.documentElement.scrollHeight;
+          if (height > 0) frameElement.style.height = `${height}px`;
+        };
+        new ResizeObserver(resize).observe(document.body);
+        resize();
+      }
+    </script>
+  </body>
+</html>

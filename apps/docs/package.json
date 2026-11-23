@@ -1,0 +1,24 @@
+{
+  "name": "@lumen-timeline/docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node scripts/generate.ts",
+    "dev": "node scripts/generate.ts && astro dev",
+    "build": "node scripts/generate.ts && astro build",
+    "preview": "astro preview",
+    "typecheck": "tsrs --noEmit",
+    "test": "node --test test/generate.test.ts test/site.test.mjs"
+  },
+  "dependencies": {
+    "@astrojs/react": "^7.1.8",
+    "@astrojs/starlight": "^0.42.11",
+    "@lumen-timeline/core": "0.0.0",
+    "@lumen-timeline/media": "0.0.0",
+    "@lumen-timeline/react": "0.0.0",
+    "@lumen-timeline/sync": "0.0.0",
+    "@lumen-timeline/timeline": "0.0.0",
+    "astro": "^7.4.11",
+    "starlight-llms-txt": "^0.12.0"
+  }
+}

@@ -19,6 +19,7 @@ The core owns editing commands, time and history. A shared browser view handles 
 - [Framework wrappers](docs/frameworks.md) mount the same view in React, Svelte, SolidJS and Vue and let their components select editor and transport fields, checked against the vanilla consumer.
 - [Sharing a project between editors](docs/sync.md) covers the optional sync package: sessions, the sequencer, confirmation policies and handover, with no server required.
 - [Delivery plans](docs/plans/README.md) record each completed slice: its user outcome, the PRs that delivered it and their merge gates.
+- [Documentation site](https://lumen-timeline.studiocyf.app) publishes the guides, package reference, benchmarks and live demos from `apps/docs`.
 
 ## Development
 

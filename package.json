@@ -9,7 +9,8 @@
     "packages/react",
     "packages/svelte",
     "packages/solid",
-    "packages/vue"
+    "packages/vue",
+    "apps/docs"
   ],
   "type": "module",
   "scripts": {
@@ -26,6 +27,13 @@
     "api:check": "node scripts/api-snapshot.mjs",
     "api:update": "node scripts/api-snapshot.mjs --update",
     "docs:check": "node scripts/docs-links.mjs",
+    "docs:dev": "npm --workspace @lumen-timeline/docs run dev",
+    "docs:build": "npm --workspace @lumen-timeline/docs run build",
+    "docs:preview": "npm --workspace @lumen-timeline/docs run preview",
+    "docs:typecheck": "npm --workspace @lumen-timeline/docs run typecheck",
+    "docs:test": "npm --workspace @lumen-timeline/docs run test",
+    "check:docs": "npm run docs:build && npm run docs:typecheck && npm run docs:test",
+    "deploy:docs": "./tools/deploy/node_modules/.bin/wrangler deploy --cwd apps/docs",
     "verify:sync": "node experiments/sync/run.mjs",
     "bench:wasm": "node experiments/wasm/run.mjs",
     "bench:peaks": "node experiments/peaks/run.mjs",

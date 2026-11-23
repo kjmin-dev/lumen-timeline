@@ -1,0 +1,22 @@
+// The documentation site on Cloudflare Workers, as static assets: no Worker script runs, so
+// requests are not counted against the free plan's daily limit.
+{
+  "name": "lumen-timeline-docs",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page",
+  },
+  // A Custom Domain: each deploy makes sure the DNS record and the certificate exist. The zone
+  // has to be in the same Cloudflare account, and the hostname must not have a CNAME record
+  // already. In a fork, put a hostname of your own here.
+  "routes": [{ "pattern": "lumen-timeline.studiocyf.app", "custom_domain": true }],
+  // The hostname above is the only address. Said outright rather than left to Wrangler's
+  // defaults, so that no deploy publishes the site, or a version of it, under the account's
+  // workers.dev subdomain. Without a domain, remove routes and set workers_dev to true.
+  "workers_dev": false,
+  "preview_urls": false,
+  // Nothing here names the Cloudflare account. Wrangler takes it from CLOUDFLARE_ACCOUNT_ID in
+  // the workflow and from `wrangler login` on your machine; keep account_id out of this file.
+}

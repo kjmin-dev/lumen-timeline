@@ -1,0 +1,160 @@
+/*
+ * Lumen Timeline documentation palette, drawn from packages/timeline/style.css and
+ * examples/vanilla/studio.css: deep studio slate surfaces with warm copper/amber playhead accents
+ * and muted seafoam secondary highlights, tuned for high contrast in both dark and light modes.
+ */
+
+:root {
+  --lt-font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --lt-font-mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+
+  /* Dark mode (Starlight default) */
+  --lt-bg-base: #101619;
+  --lt-bg-surface: #171d20;
+  --lt-bg-elevated: #1e262a;
+  --lt-border: #323c40;
+  --lt-border-strong: #465358;
+  --lt-text: #e7ebe8;
+  --lt-text-muted: #a8b6b7;
+  --lt-accent: #dca27b;
+  --lt-accent-high: #ffd7a4;
+  --lt-accent-low: #302219;
+  --lt-accent-text-invert: #23160e;
+  --lt-mint: #87d6cb;
+  --lt-mint-subtle: #182b2a;
+
+  --sl-font: var(--lt-font-sans);
+  --sl-font-mono: var(--lt-font-mono);
+  --sl-color-accent-low: var(--lt-accent-low);
+  --sl-color-accent: var(--lt-accent);
+  --sl-color-accent-high: var(--lt-accent-high);
+  --sl-color-white: var(--lt-text);
+  --sl-color-gray-1: #dde3e0;
+  --sl-color-gray-2: var(--lt-text-muted);
+  --sl-color-gray-3: #8c9c9e;
+  --sl-color-gray-4: var(--lt-border-strong);
+  --sl-color-gray-5: var(--lt-border);
+  --sl-color-gray-6: var(--lt-bg-surface);
+  --sl-color-gray-7: var(--lt-bg-elevated);
+  --sl-color-black: var(--lt-bg-base);
+  --sl-color-bg-nav: var(--lt-bg-base);
+  --sl-color-bg-sidebar: var(--lt-bg-base);
+  --sl-color-hairline: var(--lt-border);
+  --sl-color-hairline-light: var(--lt-border);
+  --sl-color-hairline-shade: #252e32;
+  --sl-color-text-accent: var(--lt-accent-high);
+  --sl-color-text-invert: var(--lt-accent-text-invert);
+  --sl-badge-note-bg: var(--lt-mint-subtle);
+  --sl-badge-note-border: var(--lt-mint);
+  --sl-badge-note-text: var(--lt-mint);
+}
+
+:root[data-theme="light"],
+:root[data-theme="light"] ::backdrop {
+  --lt-bg-base: #f7f8f7;
+  --lt-bg-surface: #ffffff;
+  --lt-bg-elevated: #eef1ef;
+  --lt-border: #d2dad6;
+  --lt-border-strong: #9aa7a2;
+  --lt-text: #14191c;
+  --lt-text-muted: #4b595c;
+  --lt-accent: #9c4b1e;
+  --lt-accent-high: #7c3711;
+  --lt-accent-low: #f9ebe1;
+  --lt-accent-text-invert: #ffffff;
+  --lt-mint: #0d6b61;
+  --lt-mint-subtle: #e3f4f1;
+
+  --sl-color-accent-low: var(--lt-accent-low);
+  --sl-color-accent: var(--lt-accent);
+  --sl-color-accent-high: var(--lt-accent-high);
+  --sl-color-white: var(--lt-text);
+  --sl-color-gray-1: #1f272b;
+  --sl-color-gray-2: var(--lt-text-muted);
+  --sl-color-gray-3: #5d6c70;
+  --sl-color-gray-4: var(--lt-border-strong);
+  --sl-color-gray-5: var(--lt-border);
+  --sl-color-gray-6: var(--lt-bg-elevated);
+  --sl-color-gray-7: var(--lt-bg-surface);
+  --sl-color-black: var(--lt-bg-base);
+  --sl-color-bg-nav: var(--lt-bg-surface);
+  --sl-color-bg-sidebar: var(--lt-bg-base);
+  --sl-color-hairline: var(--lt-border);
+  --sl-color-hairline-light: var(--lt-border);
+  --sl-color-hairline-shade: var(--lt-border);
+  --sl-color-text-accent: var(--lt-accent-high);
+  --sl-color-text-invert: var(--lt-accent-text-invert);
+  --sl-badge-note-bg: var(--lt-mint-subtle);
+  --sl-badge-note-border: var(--lt-mint);
+  --sl-badge-note-text: var(--lt-mint);
+}
+
+html[lang="ko"] {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.card,
+.sl-link-card {
+  border-radius: 0.75rem;
+}
+
+.sl-link-button {
+  border-radius: 9999px;
+}
+
+.sl-link-button.primary {
+  background-color: var(--lt-accent);
+  border-color: var(--lt-accent);
+  color: var(--lt-accent-text-invert);
+}
+
+.sl-markdown-content code:not(pre code) {
+  border-radius: 0.25rem;
+}
+
+.sl-markdown-content table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status badges and pills */
+.pill {
+  display: inline-block;
+  padding: 0 0.5rem;
+  border-radius: 9999px;
+  background: var(--lt-mint-subtle);
+  color: var(--lt-mint);
+  font-size: var(--sl-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pill[data-kind="accent"] {
+  background: var(--lt-accent-low);
+  color: var(--lt-accent-high);
+}
+
+/* Architecture SVG diagram */
+.arch-diagram {
+  margin: 1.5rem 0;
+  padding: 1.25rem;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.75rem;
+  background: var(--lt-bg-surface);
+  overflow-x: auto;
+}
+
+.arch-diagram svg {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+  margin: 0 auto;
+}
+
+.arch-diagram figcaption {
+  margin-top: 0.75rem;
+  font-size: var(--sl-text-xs);
+  color: var(--lt-text-muted);
+  text-align: center;
+}

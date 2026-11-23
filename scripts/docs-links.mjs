@@ -7,7 +7,7 @@ import { dirname, relative, resolve } from "node:path";
 
 const files = execFileSync("git", ["ls-files", "-z", "*.md"], { encoding: "utf8" })
   .split("\0")
-  .filter(Boolean);
+  .filter((file) => Boolean(file) && !file.startsWith("apps/docs/"));
 
 // Fenced code is not Markdown, so neither its links nor its "#" lines count.
 function prose(text) {

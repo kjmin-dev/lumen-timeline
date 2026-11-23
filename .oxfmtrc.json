@@ -1,4 +1,16 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["docs/measurements/**", "packages/*/api/**"]
+  "ignorePatterns": [
+    "docs/measurements/**",
+    "packages/*/api/**",
+    "apps/docs/.astro/**",
+    "apps/docs/dist/**",
+    "apps/docs/src/generated/**",
+    "apps/docs/src/content/docs/architecture/**",
+    "apps/docs/src/content/docs/guides/**",
+    "apps/docs/src/content/docs/frameworks/**",
+    "apps/docs/src/content/docs/packages/**",
+    "apps/docs/src/content/docs/benchmarks/**",
+    "tools/deploy/package-lock.json"
+  ]
 }
