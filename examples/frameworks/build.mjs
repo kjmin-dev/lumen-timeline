@@ -15,6 +15,21 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 export const consumers = {
   vanilla: { plugins: async () => [] },
   react: { plugins: async () => [], server: "server.jsx", development: true },
+  svelte: {
+    plugins: async () => [(await import("@sveltejs/vite-plugin-svelte")).svelte()],
+    server: "server.js",
+    development: true,
+  },
+  solid: {
+    plugins: async ({ ssr }) => [(await import("vite-plugin-solid")).default({ ssr })],
+    server: "server.jsx",
+    development: true,
+  },
+  vue: {
+    plugins: async () => [(await import("@vitejs/plugin-vue")).default()],
+    server: "server.js",
+    development: true,
+  },
 };
 
 // Records the modules of the client bundle, relative to the repository.

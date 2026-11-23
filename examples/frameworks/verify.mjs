@@ -3,8 +3,9 @@
 //
 // 1. Lifecycle: mount, update every option, unmount, five times; swap the
 //    editor and the renderer; nothing is left behind and the host's editor
-//    keeps working. The React consumer also runs in development, where
-//    StrictMode mounts every effect twice.
+//    keeps working. Each framework consumer also runs this as a development
+//    build, where React's StrictMode mounts every effect twice and each
+//    framework reports misuse it only checks in development.
 // 2. Steady playback: ten seconds with a fixed viewport, selection and take.
 //    The take inspector receives no update and the view uploads no geometry.
 // 3. Replay: the same pointer, keyboard and inspector trace ends on the same
@@ -128,6 +129,10 @@ async function open(name, query = "") {
   page.on("console", (message) => {
     if (message.type() === "error" || /webgl contexts/i.test(message.text()))
       errors.push(message.text());
+    // A framework reports misuse as a warning, mostly in development builds.
+    // The browser's own GPU notices are not the consumer's.
+    else if (message.type() === "warning" && !/webgl|gpu|swiftshader/i.test(message.text()))
+      warnings.push(`${name}: ${message.text()}`);
   });
   await page.addInitScript(instrument);
   await page.goto(`${origin}/${name}/index.html?renderer=${renderer}&${query}`);
@@ -161,6 +166,7 @@ async function setOptions(page, options) {
   await settle(page);
 }
 
+const warnings = [];
 const counts = (page) =>
   page.evaluate(() => {
     const subscriptions = Object.fromEntries(
@@ -205,7 +211,7 @@ async function lifecycle(name) {
   const depth = await page.evaluate(() => window.consumer.pairs.a.editor.history.undoDepth);
   // StrictMode in development mounts a new component's effects twice, so the
   // first view is disposed at once; a changed editor or renderer mounts once.
-  const fresh = name.endsWith("-dev") ? 2 : 1;
+  const fresh = name === "react-dev" ? 2 : 1;
   let views = 0;
   for (let round = 0; round < 5; round++) {
     await set(page, { timeline: true });
@@ -470,6 +476,7 @@ try {
         (rendered === null ? "" : `, server render ${rendered} bytes with no subscription`),
     );
   }
+  assert.deepEqual([...new Set(warnings)], [], "no consumer printed a warning");
 } finally {
   await browser.close();
   server.close();
