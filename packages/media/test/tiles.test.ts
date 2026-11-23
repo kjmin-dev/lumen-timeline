@@ -190,9 +190,47 @@ test("columns hold the extremes of the buckets they overlap, at every level and 
   }
   const report = tiles.diagnostics();
   assert.equal(report.compute, "main-thread");
+  assert.equal(report.kernel, "wasm-simd");
+  assert.equal(report.batches.js, 0);
+  assert.ok(report.batches.wasm > 0);
+  tiles.dispose();
+});
+
+test("main-thread slices use the worker's kernels, and name a module that cannot load", async (t) => {
+  const request = { assetId: "a", streamId: "s", start: 0, end: at(samples.length), buckets: 300 };
+  const width = samples.length / 300;
+  // Five whole tiles and one of 21,011 samples: the cutoff sends that one to JS.
+  const cutoff = createWaveformTiles({
+    source: () => source(samples),
+    worker: null,
+    wasmFrom: 30000,
+  });
+  sameColumns(await settled(cutoff, request), samples, 0, width, "cutoff");
+  assert.deepEqual(cutoff.diagnostics().batches, { js: 1, wasm: 5 });
+  assert.equal(cutoff.diagnostics().fallback, null);
+  cutoff.dispose();
+  const js = createWaveformTiles({ source: () => source(samples), worker: null, wasm: false });
+  sameColumns(await settled(js, request), samples, 0, width, "wasm: false");
+  assert.deepEqual(js.diagnostics().batches, { js: 6, wasm: 0 });
+  assert.equal(js.diagnostics().fallback, null);
+  js.dispose();
+  // A content security policy without wasm-unsafe-eval stops the worker and the module.
+  t.mock.method(WebAssembly, "instantiate", () => Promise.reject(new Error("refused by policy")));
+  const blocked = createWaveformTiles({
+    source: () => source(samples),
+    worker: () => {
+      throw new Error("blocked");
+    },
+  });
+  sameColumns(await settled(blocked, request), samples, 0, width, "blocked");
+  const report = blocked.diagnostics();
   assert.equal(report.kernel, "js");
   assert.equal(report.batches.wasm, 0);
-  tiles.dispose();
+  assert.equal(
+    report.fallback,
+    "No peak worker: blocked; WebAssembly unavailable: refused by policy",
+  );
+  blocked.dispose();
 });
 
 test("a worker builds batches with WASM from 4,096 samples and JS below, transferring its scratch", async () => {
@@ -329,7 +367,7 @@ test("a failed or missing worker falls back to main-thread slices and says why",
     sameColumns(await settled(tiles, request), samples, 0, samples.length / 300, String(reason));
     const report = tiles.diagnostics();
     assert.match(report.fallback ?? "", reason);
-    assert.equal(report.kernel, "js");
+    assert.equal(report.kernel, "wasm-simd");
     tiles.dispose();
   }
 });

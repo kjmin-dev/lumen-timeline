@@ -262,7 +262,10 @@ export interface WaveformTilesOptions {
      * computes on the main thread in slices of a few milliseconds.
      */
     readonly worker?: (() => PeakWorker) | null | undefined;
-    /** Use the Rust SIMD kernels in the worker for large batches. Defaults to true. */
+    /**
+     * Use the Rust SIMD kernels for large batches, in the worker and in
+     * main-thread slices. Defaults to true.
+     */
     readonly wasm?: boolean | undefined;
     /** The smallest batch, in samples, that uses them. Defaults to 4,096. */
     readonly wasmFrom?: number | undefined;

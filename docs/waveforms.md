@@ -32,8 +32,8 @@ A tile holds 65,536 samples of one stream at six levels: 16, 64, 256, 1,024, 4,0
 ## Compute
 
 - **Worker.** The package's module worker, `peak-worker.js`, starts on the first batch. Pass `worker` to start it another way, for instance from a bundler's worker import; `null` builds on the main thread.
-- **Rust SIMD.** In the worker, batches of at least `wasmFrom` samples, 4,096 by default, use the kernels in `packages/media/wasm/peaks.rs`, built with Rust 1.100.0. Smaller batches use the JavaScript kernels. Both return the same bits. `wasm: false` keeps the worker on JavaScript. [The shipping kernel](clock-and-wasm.md#the-shipping-kernel)
-- **Fallbacks.** When the module cannot load or its memory cannot grow, the worker uses JavaScript. When the worker cannot start, fails or sends an unreadable reply, the tiles build on the main thread, one tile per step, yielding every 4 ms, and stop when the source changes.
+- **Rust SIMD.** In the worker, batches of at least `wasmFrom` samples, 4,096 by default, use the kernels in `packages/media/wasm/peaks.rs`, built with Rust 1.100.0. Smaller batches use the JavaScript kernels. Both return the same bits. Main-thread slices choose their kernels the same way, so a page without the worker spends less than half as long building each tile. `wasm: false` keeps both on JavaScript. [The shipping kernel](clock-and-wasm.md#the-shipping-kernel)
+- **Fallbacks.** When the module cannot load or its memory cannot grow, the worker uses JavaScript. When the worker cannot start, fails or sends an unreadable reply, the tiles build on the main thread, one tile per step, yielding every 4 ms, and stop when the source changes. When the module cannot load there either, as under a content security policy without `wasm-unsafe-eval`, they build with JavaScript, and the fallback reason names both failures.
 
 `diagnostics()` reports where tiles are built, the kernel of the last batch, batches per kernel, tiles and bytes held, pending, evicted and stale tiles, the reason for any fallback and the last read error. `idle()` resolves once nothing is wanted or building, and `dispose()` stops the worker.
 
@@ -49,4 +49,4 @@ A tile holds 65,536 samples of one stream at six levels: 16, 64, 256, 1,024, 4,0
 - a worker that fails, cannot start or cannot build a batch, and a module that cannot load, each with its reason;
 - notifications, invalidation, short and failing reads, unknown sources and disposal.
 
-`npm run verify:peaks` builds the same columns in the browser with the package's worker and the Rust SIMD kernel, with its JavaScript kernel and on the main thread, compares them bit for bit, and checks the fallback when the worker cannot load. CI runs it. Pass `firefox` or `webkit` to `node examples/vanilla/verify-peaks.mjs` for the other engines.
+`npm run verify:peaks` builds the same columns in the browser with the package's worker and on the main thread, each with the Rust SIMD kernel and with the JavaScript one, compares them bit for bit, and checks that a worker that cannot load leaves the main thread on SIMD. CI runs it. Pass `firefox` or `webkit` to `node examples/vanilla/verify-peaks.mjs` for the other engines.

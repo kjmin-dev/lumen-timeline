@@ -1,6 +1,7 @@
 // Waveform tiles in a real browser: the package's module worker builds the same
-// columns with the Rust SIMD kernel, with its JS kernel and on the main thread,
-// bit for bit; and a worker that cannot start leaves main-thread slices. Usage:
+// columns with the Rust SIMD kernel, with its JS kernel and on the main thread
+// with either, bit for bit; and a worker that cannot start leaves main-thread
+// slices on the SIMD kernel. Usage:
 // node examples/vanilla/verify-peaks.mjs [chromium|firefox|webkit]   (build first)
 import assert from "node:assert/strict";
 import { chromium, firefox, webkit } from "playwright";
@@ -58,6 +59,7 @@ try {
       wasm: await columns({}),
       js: await columns({ wasm: false }),
       main: await columns({ worker: null }),
+      mainJs: await columns({ worker: null, wasm: false }),
       missing: await columns({
         worker: () => new Worker("/packages/media/dist/missing-worker.js", { type: "module" }),
       }),
@@ -84,7 +86,7 @@ try {
   assert.ok(drawn > 2000, "only " + drawn + " values were drawn");
   assert.deepEqual(
     differences,
-    { wasm: 0, js: 0, main: 0, missing: 0 },
+    { wasm: 0, js: 0, main: 0, mainJs: 0, missing: 0 },
     JSON.stringify(differences),
   );
   assert.equal(reports.wasm.compute, "worker");
@@ -97,13 +99,22 @@ try {
   assert.equal(reports.js.compute, "worker");
   assert.equal(reports.js.kernel, "js");
   assert.equal(reports.main.compute, "main-thread");
+  assert.equal(reports.main.kernel, "wasm-simd");
+  assert.ok(
+    reports.main.batches.wasm >= 1 && reports.main.batches.js === 0,
+    JSON.stringify(reports.main),
+  );
+  assert.equal(reports.mainJs.compute, "main-thread");
+  assert.equal(reports.mainJs.kernel, "js");
+  assert.equal(reports.mainJs.batches.wasm, 0);
   assert.equal(reports.missing.compute, "main-thread");
+  assert.equal(reports.missing.kernel, "wasm-simd");
   assert.match(reports.missing.fallback ?? "", /peak worker/);
   console.log(
     engine +
-      ": the worker's SIMD and JS tiles and main-thread slices drew the same " +
+      ": the worker's and the main thread's SIMD and JS tiles drew the same " +
       drawn +
-      " values, and a missing worker fell back",
+      " values, and a missing worker fell back to SIMD on the main thread",
   );
   assert.deepEqual(errors, []);
 } finally {

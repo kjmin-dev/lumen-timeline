@@ -404,7 +404,9 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
   function record(used: PeakBackend, note: string | null): void {
     kernel = used;
     counts[used === "js" ? "js" : "wasm"]++;
-    if (note && !fallback) fallback = note;
+    // A worker that failed and a module that then failed on the main thread
+    // are both reported, each once.
+    if (note && !fallback?.includes(note)) fallback = fallback ? fallback + "; " + note : note;
   }
 
   // The worker, started on the first batch. A failure leaves main-thread slices.
@@ -457,9 +459,11 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
     });
   }
   // Builds on the main thread, one tile at a time, yielding every few
-  // milliseconds and stopping when the stream changes.
+  // milliseconds and stopping when the stream changes. The kernels are the
+  // worker's: WebAssembly from `wasmFrom` samples unless `wasm` is false, and
+  // JavaScript where the module cannot load.
   async function sliced(batch: Batch, samples: Float32Array, n: number): Promise<void> {
-    local ??= createTileBuilder({ wasm: false, wasmFrom });
+    local ??= createTileBuilder({ wasm, wasmFrom });
     let since = performance.now();
     for (let t = 0; t < batch.count; t++) {
       if (!current(batch.stream)) {
@@ -468,7 +472,7 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
       }
       const part = samples.subarray(t * tileSamples, Math.min(n, (t + 1) * tileSamples));
       const built = await local.build(part);
-      record(built.kernel, null);
+      record(built.kernel, built.note);
       const tile = built.tiles[0];
       if (tile) store(batch.stream, batch.first + t, tile);
       if (performance.now() - since > sliceMs) {
