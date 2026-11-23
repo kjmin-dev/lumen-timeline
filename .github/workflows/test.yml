@@ -68,3 +68,5 @@ jobs:
       - run: npm run verify:wrappers
         env:
           LUMEN_SOFTWARE_GPU: "1"
+      # A short run keeps the comparison working; its figures come from real hardware.
+      - run: npm run bench:wrappers -- --runs 1 --seconds 4 --renderer canvas2d --channel chromium --no-build

@@ -2,9 +2,9 @@
 
 Lumen Timeline is a planned JavaScript framework for building browser-based audio and video editors. Its smallest integration is a timeline mounted beneath an existing player. A dubbing studio can add synchronized audio tracks, alternate takes and a bilingual script inspector. A podcast editor can use the same engine with an audio clock and a chapter list.
 
-The core will own editing commands, time and history. A shared browser view will handle waveforms, pointer input and playhead updates. React, Svelte, SolidJS and Vue will each get a thin wrapper around that view, targeting the latest stable major of the framework.
+The core owns editing commands, time and history. A shared browser view handles waveforms, pointer input and playhead updates. React, Svelte, SolidJS and Vue each have a thin wrapper around that view, targeting the latest stable major of the framework.
 
-**Project status** — Milestone 4 is complete. Headless clip and marker commands, selective history and incremental playback drive video and audio-only workspaces on one timeline, drawn through WebGL2, WebGPU or Canvas 2D from a single layout, with waveforms built in a worker. The dubbing example adds a track per speaker, a bilingual line list with line play, a reference stem drawn as a waveform, candidate takes with audition, and a host-supplied take generator. A 20,000-clip benchmark project meets the rendering target. Milestone 5, the framework wrappers, is next.
+**Project status** — Milestone 5 is complete. Headless clip and marker commands, selective history and incremental playback drive video and audio-only workspaces on one timeline, drawn through WebGL2, WebGPU or Canvas 2D from a single layout, with waveforms built in a worker. The dubbing example adds a track per speaker, a bilingual line list with line play, a reference stem drawn as a waveform, candidate takes with audition, and a host-supplied take generator. A 20,000-clip benchmark project meets the rendering target. React, Svelte, SolidJS and Vue wrappers mount the same view and select fields for their own panels, and match the vanilla consumer in one acceptance suite and benchmark. Milestone 6, validating the first release, is next.
 
 - [Core implementation architecture](docs/core-architecture.md) defines the TypeScript editing engine, sample scheduling and optional Rust waveform worker.
 - [Design](docs/design.md) covers the project format, playback clocks, editing semantics, GPU rendering and extension API.
@@ -22,7 +22,7 @@ The core will own editing commands, time and history. A shared browser view will
 
 ## Development
 
-The core, media, timeline and sync packages are written in strict TypeScript. [tsrs](https://github.com/oxc-project/tsrs) type-checks them and emits each package's `dist`, which browsers and Node load by default. `npm install` builds them. `npm run build` rebuilds them, and `npm test` runs the suite directly against the TypeScript sources on Node 26. [oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) formats the repository with its default configuration. [Oxlint](https://oxc.rs/docs/guide/usage/linter.html) enforces correctness rules, package boundaries and type-aware rules that keep `any` out of the core. It also bans `as` and non-null `!` assertions, so the compiler checks every type.
+The core, media, timeline, sync and framework wrapper packages are written in strict TypeScript. [tsrs](https://github.com/oxc-project/tsrs) type-checks them and emits each package's `dist`, which browsers and Node load by default. `npm install` builds them. `npm run build` rebuilds them, and `npm test` runs the suite directly against the TypeScript sources on Node 26. [oxfmt](https://oxc.rs/docs/guide/usage/formatter.html) formats the repository with its default configuration. [Oxlint](https://oxc.rs/docs/guide/usage/linter.html) enforces correctness rules, package boundaries and type-aware rules that keep `any` out of the core. It also bans `as` and non-null `!` assertions, so the compiler checks every type.
 
 Run `npm run check` before committing. It runs:
 

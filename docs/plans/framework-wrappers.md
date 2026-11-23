@@ -1,6 +1,6 @@
 # Four framework wrappers
 
-**Status.** Planned. It starts from 8691618, after #50. [Milestone 5](../../ROADMAP.md#milestones) · [Wrapper contract](../design.md#framework-wrapper-contract) · [Wrapper acceptance tests](../../ROADMAP.md#wrapper-acceptance-tests)
+**Status.** Delivered: the plan in [#51](https://github.com/kjmin-dev/lumen-timeline/pull/51), W1 in [#52](https://github.com/kjmin-dev/lumen-timeline/pull/52), W2 in [#53](https://github.com/kjmin-dev/lumen-timeline/pull/53), W3 in [#54](https://github.com/kjmin-dev/lumen-timeline/pull/54) and W4 in [#55](https://github.com/kjmin-dev/lumen-timeline/pull/55). It started from 8691618, after #50. [Milestone 5](../../ROADMAP.md#milestones) · [Wrapper contract](../design.md#framework-wrapper-contract) · [Wrapper acceptance tests](../../ROADMAP.md#wrapper-acceptance-tests)
 
 **User outcome.** A React, Svelte, SolidJS or Vue application mounts the same timeline as the vanilla example and passes it the editor and transport it already owns. It builds its own panels, such as a take inspector, a selection readout or a clock, from fields it selects from the editor and the transport. A panel updates only when its fields change, so a take inspector does no work during playback. Unmounting releases everything the view made and leaves the host's editor and transport as they were. [Architecture](../core-architecture.md#package-and-runtime-boundaries)
 
@@ -78,6 +78,16 @@ SolidJS 2's JSX compiler was published only under `next` tags on 2026-11-23: vit
 | W4  | `bench:wrappers`, published measurements, framework guide, milestone 5 status                         | The benchmark runs on all five consumers and its results are published with the hardware and browser. The roadmap marks milestone 5 complete.                                                                                                                                    |
 
 W1 adds API and changes no behavior except the WebGL2 context's release. W2 and W3 add packages and examples only.
+
+## As delivered
+
+- **`view.update` takes what it is given.** A key left out keeps its value and a key given as `undefined` returns to its default, so a vanilla host can change one option and a wrapper can pass every prop. Invalid snap settings throw before anything changes. `npm run verify:mounts` checks the view's side, and twenty mounts in a row, on its own.
+- **Every framework runs the lifecycle in development too.** The plan had React's `StrictMode` only. Svelte, SolidJS and Vue each also build a development consumer, where a framework reports misuse it checks only in development, and the suite fails on any console warning or error from any consumer. None prints one.
+- **Transports follow their editors.** An audio transport subscribes to its editor, so the lifecycle compares each count with the host's own subscriptions, measured with the view and panels unmounted, rather than with zero.
+- **Mutations fail the suite.** A React or SolidJS wrapper that remounts on an option change, a Svelte attachment whose mount effect reads every option, a Vue component that skips disposal and a SolidJS selector that never subscribes each fail it. Without the WebGL2 release, `verify:mounts` finds a live context after the first dispose.
+- **Context follows a switched editor.** Vue's `provideTimeline` takes a ref or a getter and `useTimelineContext` returns a computed reference. Svelte and SolidJS hosts pass an object whose properties are getters. The selectors take a function returning the editor, so a panel follows a host that switches editors.
+- **The API check follows `.svelte` modules.** Declarations of `attach.svelte.ts` were not reachable by the snapshot's file pattern, which now accepts dots in module names.
+- **The benchmark reads a coarse clock.** Without cross-origin isolation Chrome reports time in 0.1 ms steps, so the comparison treats a difference that small as within variation.
 
 ## Settled
 
