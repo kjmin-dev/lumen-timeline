@@ -6,9 +6,30 @@ export type { SnapHold, SnapRead } from "./gestures.ts";
 export { activeTake, captionWords, takeCaption } from "./captions.ts";
 export { placeWaveform, unit } from "./waveforms.ts";
 export type { PlacedWaveform } from "./waveforms.ts";
-export { isImage, labelInset, labelTop, layoutRow, QuadList, quadFloats, rgba } from "./layout.ts";
-export type { LabelSlot, LabelSource, LayoutRow, RowLayout } from "./layout.ts";
+export {
+  inkOn,
+  isImage,
+  labelInset,
+  layoutRow,
+  mixHex,
+  nameRow,
+  QuadList,
+  quadFloats,
+  radiusOf,
+  rgba,
+  stripGap,
+  takeLanePitch,
+  takeLanesHeight,
+} from "./layout.ts";
+export type { LabelSlot, LabelSource, LayoutRow, RowLayout, TakeBox } from "./layout.ts";
 export { readPixels } from "./probe.ts";
 export type { PixelRect, Pixels } from "./renderer.ts";
-export { resolveChrome, resolveUiLabels, sameChrome, sameUiLabels } from "./config.ts";
-export { dropSlot, fillTemplate, moveToSlot, renamedTo } from "./track-headers.ts";
+export {
+  resolveChrome,
+  resolveTheme,
+  resolveUiLabels,
+  sameChrome,
+  sameTheme,
+  sameUiLabels,
+} from "./config.ts";
+export { dropSlot, fillTemplate, gainText, moveToSlot, renamedTo } from "./track-headers.ts";

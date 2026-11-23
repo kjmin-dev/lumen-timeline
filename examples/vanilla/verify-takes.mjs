@@ -15,7 +15,7 @@ async function open(path) {
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url + path);
-  await page.waitForSelector(".lt-edit");
+  await page.waitForSelector(".lt-edit", { state: "attached" });
   await page.evaluate(async () => {
     window.lumenApp = await import("./app.mjs");
   });

@@ -151,6 +151,8 @@ async function mount(renderer) {
       transport,
       waveforms,
       pixelsPerSecond: 40,
+      // Compact rows, 46 px each, which the probes below are placed for.
+      layout: { laneHeight: 34, rowInset: 6 },
       snap: { gridTicks: hz / 10 },
       renderer,
     });
@@ -397,7 +399,7 @@ try {
     assert.deepEqual(r.hits, reference.hits, backend + ": hit tests differ");
     for (const fill of r.fills)
       assert.ok(
-        close(fill, [96, 67, 50]) || close(fill, [43, 85, 85]) || close(fill, [70, 67, 96]),
+        close(fill, [249, 168, 112]) || close(fill, [76, 215, 200]) || close(fill, [195, 174, 255]),
         backend + " fill " + fill,
       );
     assert.deepEqual(
@@ -405,10 +407,7 @@ try {
       reference.fills.map((c) => c),
       backend + ": fills differ",
     );
-    assert.ok(
-      close(r.background, [25, 30, 34]) || close(r.background, [27, 32, 37]),
-      backend + " background " + r.background,
-    );
+    assert.ok(close(r.background, [9, 10, 12]), backend + " background " + r.background);
     const off = differing(r.image, reference.image);
     assert.ok(
       off < 0.02,

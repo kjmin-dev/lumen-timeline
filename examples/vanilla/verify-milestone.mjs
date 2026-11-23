@@ -21,7 +21,7 @@ async function open(context, path) {
   const page = await context.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url + path);
-  await page.waitForSelector(".lt-edit");
+  await page.waitForSelector(".lt-edit", { state: "attached" });
   // waitForFunction treats a returned promise as truthy, so predicates read
   // the live module namespace synchronously.
   await page.evaluate(async () => {
@@ -47,7 +47,7 @@ async function editSession(context) {
       window.lumenApp.studio.view.getViewport(),
     );
     const r = await surface.boundingBox();
-    return { x: r.x + (second - startTick / hz) * pixelsPerSecond, y: r.y + 20 + 46 * row };
+    return { x: r.x + (second - startTick / hz) * pixelsPerSecond, y: r.y + 30 + 67 * row };
   }
   async function drag(from, to) {
     await surface.scrollIntoViewIfNeeded();

@@ -848,7 +848,7 @@ export async function generateAll(): Promise<void> {
       mdx: true,
       prefix: [
         'import Demo from "../../../components/Demo.astro";',
-        '<Demo name="studio" title="Interactive Lumen Timeline studio demo" />',
+        '<Demo name="studio" title="Interactive Lumen Timeline studio demo" height="35rem" />',
         "The live timeline above runs the real `@lumen-timeline/core`, `@lumen-timeline/media`, `@lumen-timeline/timeline` and `@lumen-timeline/react` packages in this browser with synthesized audio and waveform tiles.",
       ].join("\n\n"),
     },

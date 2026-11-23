@@ -346,7 +346,7 @@ async function replay(name) {
     return s.requestedTick === null && Math.abs(s.presentedTick - 6 * hz) < hz / 10;
   }, hz);
   // Trim the end of Ines 2 (5 s to 8.5 s, first row) half a second earlier.
-  const y = 6 + 17;
+  const y = 30;
   const edge = await page.evaluate(({ x, y }) => window.consumer.view.hitTest({ x, y }), {
     x: 8.5 * pps - 2,
     y,
@@ -367,7 +367,7 @@ async function replay(name) {
   await page.keyboard.press("Control+z");
   await settle(page);
   // Select Mara 3 (10.5 s to 14 s, second row) and choose its third take.
-  await page.mouse.click(surface.x + 12 * pps, surface.y + 46 + y);
+  await page.mouse.click(surface.x + 12 * pps, surface.y + 67 + y);
   await settle(page);
   await page.click('.inspector [data-take="voice-b-2-take-2"]');
   await settle(page);

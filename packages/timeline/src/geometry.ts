@@ -31,8 +31,8 @@ export interface Box<C extends Span = Span> {
   readonly height: number;
 }
 
-export const laneHeight = 34;
-export const rowInset = 6;
+export const laneHeight = 47;
+export const rowInset = 10;
 export const tickAt = (x: number, view: Viewport): Tick =>
   view.startTick + Math.round((x * hz) / view.pixelsPerSecond);
 export const pixelAt = (tick: Tick, view: Viewport): number =>

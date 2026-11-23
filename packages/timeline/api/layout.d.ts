@@ -7,6 +7,10 @@ export declare const quadFloats = 8;
 /** A packed color: red in the lowest byte, alpha in the highest, as GPUs read RGBA8. */
 export type Rgba = number;
 export declare function rgba(hex: string, alpha?: number): Rgba;
+/** `from` moved toward `to` by `amount` (0 to 1), as an opaque `#rrggbb`. Unparsable colors stay as given. */
+export declare function mixHex(from: string, to: string, amount: number): string;
+/** The ink that reads on a fill: near black on a light one, near white on a dark one. */
+export declare function inkOn(fill: string): string;
 /** The quads of one row, reused from paint to paint. */
 export declare class QuadList {
     count: number;
@@ -16,11 +20,18 @@ export declare class QuadList {
     private reserve;
     /** A solid rectangle. Its atlas region is empty. */
     rect(x: number, y: number, w: number, h: number, color: Rgba): void;
+    /**
+     * A solid rectangle with rounded corners. The radius rides in the second
+     * atlas coordinate, which a solid quad does not otherwise use.
+     */
+    round(x: number, y: number, w: number, h: number, color: Rgba, radius: number): void;
     /** A crop of the label atlas, drawn unchanged. */
     image(x: number, y: number, w: number, h: number, u0: number, v0: number, u1: number, v1: number): void;
 }
 /** Whether quad `i` crops the atlas rather than filling a color. */
 export declare const isImage: (list: QuadList, i: number) => boolean;
+/** The corner radius of solid quad `i`, in CSS pixels. */
+export declare const radiusOf: (list: QuadList, i: number) => number;
 /** A label rasterized in the atlas, in normalized atlas coordinates and CSS pixels. */
 export interface LabelSlot {
     readonly u0: number;
@@ -31,7 +42,7 @@ export interface LabelSlot {
     readonly height: number;
 }
 /** Rasterizes a clip's name and caption, or returns `null` when the atlas is full. */
-export type LabelSource = (name: string, caption: string | undefined, captionColor: string) => LabelSlot | null;
+export type LabelSource = (name: string, caption: string | undefined, captionColor: string, nameColor: string) => LabelSlot | null;
 /** A track row as the view lays it out. */
 export interface LayoutRow extends Packed {
     readonly track: Track;
@@ -39,16 +50,40 @@ export interface LayoutRow extends Packed {
     /** Top in the scrolled content, in CSS pixels. */
     readonly top: number;
 }
+/** One palette entry as the layout reads it. */
+export interface RowColors {
+    readonly stripeHex: string;
+    readonly textHex: string;
+    readonly fill: Rgba;
+    readonly stripe: Rgba;
+    readonly waveform: Rgba;
+}
 export interface RowTheme {
+    readonly scheme?: "light" | "dark" | undefined;
     readonly rowEven: Rgba;
     readonly rowOdd: Rgba;
     readonly grid: Rgba;
-    readonly palette: readonly {
-        readonly stripeHex: string;
-        readonly fill: Rgba;
-        readonly stripe: Rgba;
-        readonly waveform: Rgba;
-    }[];
+    readonly drawer?: Rgba | undefined;
+    readonly drawerLine?: Rgba | undefined;
+    /** One color for every clip name, instead of each entry's own. */
+    readonly labelColor?: string | undefined;
+    readonly palette: readonly RowColors[];
+    /** The colors of a locked track's clips. */
+    readonly locked?: RowColors | undefined;
+}
+/** The candidates a row shows as take lanes under its clip lanes. */
+export interface TakeLanes {
+    readonly clipId: string;
+    readonly takes: readonly Take[];
+}
+/** A take lane's rectangle in CSS pixels, for hit tests. */
+export interface TakeBox {
+    readonly clipId: string;
+    readonly takeId: string;
+    readonly x: number;
+    readonly endX: number;
+    readonly y: number;
+    readonly height: number;
 }
 export interface RowLayout {
     readonly view: Viewport;
@@ -68,10 +103,13 @@ export interface RowLayout {
     readonly rowInset?: number | undefined;
     readonly theme?: RowTheme | undefined;
     readonly clipStyle?: ClipStyleFn | undefined;
+    /** Take lanes at the bottom of the row; the row's height already holds them. */
+    readonly takeLanes?: TakeLanes | undefined;
+    /** Collects the take lanes' rectangles. */
+    readonly takeBoxes?: TakeBox[] | undefined;
 }
-/** Where a label starts after its clip's left edge, and its top below the clip's. */
-export declare const labelInset = 9;
-export declare const labelTop = 6;
+/** Where a label starts after its clip's left edge. */
+export declare const labelInset = 8;
 /**
  * The least room, in CSS pixels, a clip needs for its label. Narrower clips,
  * as when zoomed far out, would show a letter or two, and their labels would
@@ -81,8 +119,19 @@ export declare const labelRoom = 24;
 /** Label height in CSS pixels, with the text's baseline 15 pixels down. */
 export declare const labelHeight = 20;
 export declare const labelBaseline = 15;
-/** A row's fill and stripe colors. */
-export declare const palette: (index: number) => readonly [string, string];
+/** The pitch of a take lane and the height of the lane itself, in CSS pixels. */
+export declare const takeLanePitch = 26;
+export declare const takeLaneHeight = 22;
+/** The height `count` take lanes add to a row. */
+export declare const takeLanesHeight: (count: number) => number;
+/**
+ * The height of a clip's name row: the label sits there, above the waveform.
+ * A clip too short for both draws its waveform over its full height instead,
+ * with the label on top.
+ */
+export declare const nameRow: (clipHeight: number) => number;
+/** The gap above a row's lane strip, and its rounding. */
+export declare const stripGap: (inset: number) => number;
 /**
  * Lays out one row's visible clips into `quads`, appending their boxes to
  * `boxes` for hit tests. `clips` are the row's clips in the visible range.

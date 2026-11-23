@@ -18,7 +18,7 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url + "/examples/vanilla/lab.html");
   // Four of the eight rows fit, so a drag to an edge scrolls.
-  await page.addStyleTag({ content: ".lt { --lt-scroll-height: 184px; }" });
+  await page.addStyleTag({ content: ".lt { --lt-scroll-height: 268px; }" });
   await page.evaluate(async () => {
     const { createEditor, TICKS_PER_SECOND: hz } = await import("@lumen-timeline/core");
     const { mountTimeline } = await import("@lumen-timeline/timeline");

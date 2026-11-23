@@ -57,6 +57,7 @@
     "verify:mounts": "node examples/vanilla/verify-mounts.mjs",
     "verify:reusability": "node examples/vanilla/verify-reusability.mjs",
     "verify:tracks": "node examples/vanilla/verify-tracks.mjs",
+    "verify:chrome": "node examples/vanilla/verify-chrome.mjs",
     "verify:shared": "node examples/sync/verify.mjs",
     "build:consumers": "node examples/frameworks/build.mjs",
     "verify:wrappers": "node examples/frameworks/verify.mjs",

@@ -25,8 +25,8 @@ export interface Box<C extends Span = Span> {
     readonly y: number;
     readonly height: number;
 }
-export declare const laneHeight = 34;
-export declare const rowInset = 6;
+export declare const laneHeight = 47;
+export declare const rowInset = 10;
 export declare const tickAt: (x: number, view: Viewport) => Tick;
 export declare const pixelAt: (tick: Tick, view: Viewport) => number;
 export declare function viewport(startTick: Tick, pixelsPerSecond: number, width: number, duration: Tick): Viewport;

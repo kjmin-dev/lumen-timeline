@@ -1,25 +1,11 @@
-import {
-  commands,
-  createEditor,
-  shallowEqual,
-  TICKS_PER_SECOND as hz,
-  type Editor,
-  type EditorState,
-} from "@lumen-timeline/core";
+import { commands, createEditor, TICKS_PER_SECOND as hz, type Editor } from "@lumen-timeline/core";
 import {
   createAudioTransport,
   createWaveformTiles,
   type AudioTransport,
-  type AudioTransportState,
   type WaveformTiles,
 } from "@lumen-timeline/media";
-import {
-  Timeline,
-  TimelineProvider,
-  useEditorSelector,
-  useTimelineContext,
-  useTransportSelector,
-} from "@lumen-timeline/react";
+import { Timeline, TimelineProvider, useEditorSelector } from "@lumen-timeline/react";
 import {
   connectSession,
   createSequencer,
@@ -27,8 +13,13 @@ import {
   type SessionStatus,
   type SyncSession,
 } from "@lumen-timeline/sync";
-import type { TimelineOptions, TimelineTransport, TimelineView } from "@lumen-timeline/timeline";
-import { type ReactElement, useCallback, useEffect, useRef, useState } from "react";
+import type {
+  TimelineEvents,
+  TimelineOptions,
+  TimelineTransport,
+  TimelineView,
+} from "@lumen-timeline/timeline";
+import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import {
   createClockTransport,
   createDemoCatalog,
@@ -46,10 +37,6 @@ type RendererChoice = NonNullable<TimelineOptions["renderer"]>;
 
 const RENDERERS: readonly RendererChoice[] = ["auto", "webgl2", "canvas2d"];
 
-function formatSeconds(tick: number): string {
-  return `${(tick / hz).toFixed(1)} s`;
-}
-
 // ---------------------------------------------------------------- studio demo
 
 interface StudioSession {
@@ -62,6 +49,7 @@ interface StudioSession {
 function createStudioSession(): StudioSession {
   const editor = createEditor({ project: createStudioProject(), actor: "studio.demo" });
   editor.session.select(["nar-1"]);
+  const first = editor.getSnapshot().clips.find((clip) => clip.id === "nar-1");
   const audio = createStudioAudioHost();
   const catalog = createDemoCatalog();
   const transport = createAudioTransport({
@@ -74,6 +62,8 @@ function createStudioSession(): StudioSession {
       return buffer;
     },
   });
+  // The playhead starts inside the selected line, so Split has somewhere to cut.
+  if (first) void transport.seek(first.start + Math.round(first.duration / 3));
   const sources = createPeakSourceMap();
   const waveforms = createWaveformTiles({
     source: (assetId) => sources.get(assetId) ?? null,
@@ -93,142 +83,34 @@ function createStudioSession(): StudioSession {
   };
 }
 
-interface SelectedClipInfo {
-  readonly id: string;
-  readonly name: string;
-  readonly activeTakeId: string | null;
-  readonly start: number;
-  readonly end: number;
-  readonly takes: readonly { readonly id: string; readonly label: string }[];
+type Scheme = "light" | "dark";
+
+function readScheme(): Scheme {
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
-function selectClipInfo(editor: Editor) {
-  return ({ snapshot, selection }: EditorState): SelectedClipInfo | null => {
-    const id = selection.at(-1);
-    if (!id) return null;
-    const clip = snapshot.clips.find((item) => item.id === id);
-    if (!clip) return null;
-    const takes = editor
-      .read(snapshot)
-      .takesOf(clip.id)
-      .map((take) => ({ id: take.id, label: take.label ?? take.id }));
-    return {
-      id: clip.id,
-      name: clip.name ?? clip.id,
-      activeTakeId: clip.activeTakeId ?? null,
-      start: clip.start,
-      end: clip.start + clip.duration,
-      takes,
-    };
-  };
-}
-
-function sameClipInfo(a: SelectedClipInfo | null, b: SelectedClipInfo | null): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.id === b.id &&
-    a.name === b.name &&
-    a.activeTakeId === b.activeTakeId &&
-    a.start === b.start &&
-    a.end === b.end &&
-    a.takes.length === b.takes.length &&
-    a.takes.every((take, i) => take.id === b.takes[i]?.id && take.label === b.takes[i]?.label)
-  );
-}
-
-function StudioClock(): ReactElement {
-  const { transport } = useTimelineContext();
-  const tenths = useTransportSelector(transport, (state) =>
-    Math.floor((state.requestedTick ?? state.presentedTick) / (hz / 10)),
-  );
-  return (
-    <output className="demo-meta" data-demo-clock>
-      {(tenths / 10).toFixed(1)} s
-    </output>
-  );
-}
-
-function StudioTakeInspector({
-  audioTransport,
-}: {
-  readonly audioTransport: AudioTransport;
-}): ReactElement {
-  const { editor } = useTimelineContext();
-  const clip = useEditorSelector(editor, selectClipInfo(editor), sameClipInfo);
-  const audition = useTransportSelector(
-    audioTransport,
-    (state: AudioTransportState) => state.audition?.takeId ?? null,
-  );
-  const [renders, setRenders] = useState(0);
+/** The site's color scheme, which the docs page copies onto the demo frame's root. */
+function useSiteScheme(): Scheme {
+  const [scheme, setScheme] = useState<Scheme>("dark");
   useEffect(() => {
-    setRenders((count) => count + 1);
-  }, [clip]);
-
-  if (!clip) {
-    return (
-      <div className="demo-inspector" data-demo-inspector>
-        <p className="demo-hint">Select a clip on the timeline to inspect and switch its takes.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="demo-inspector" data-demo-inspector>
-      <div className="demo-inspector__info">
-        <strong>{clip.name}</strong>
-        <span className="demo-meta">
-          {formatSeconds(clip.start)} – {formatSeconds(clip.end)}
-        </span>
-        <span className="demo-meta" title="Number of times the selected-clip inspector updated">
-          inspector updates: {renders}
-        </span>
-      </div>
-      <div className="demo-takes" role="group" aria-label="Candidate takes">
-        {clip.takes.map((take) => {
-          const active = take.id === clip.activeTakeId;
-          const auditioning = audition === take.id;
-          return (
-            <span key={take.id} className="demo-controls">
-              <button
-                type="button"
-                className="demo-btn"
-                data-apply-take={take.id}
-                aria-pressed={active}
-                onClick={() => {
-                  editor.dispatch(commands.selectTake({ clipId: clip.id, takeId: take.id }));
-                }}
-              >
-                {take.label}
-              </button>
-              <button
-                type="button"
-                className="demo-btn"
-                aria-label={`Audition ${take.label}`}
-                aria-pressed={auditioning}
-                onClick={() => {
-                  if (auditioning) {
-                    audioTransport.cancelAudition();
-                  } else {
-                    void audioTransport.audition({
-                      clipId: clip.id,
-                      takeId: take.id,
-                      mode: "isolated",
-                    });
-                  }
-                }}
-              >
-                {auditioning ? "Stop" : "Audition"}
-              </button>
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
+    setScheme(readScheme());
+    const watch = new MutationObserver(() => setScheme(readScheme()));
+    watch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => watch.disconnect();
+  }, []);
+  return scheme;
 }
 
-function StudioToolbar({
+const DEMO_FONTS = {
+  nameFont: '600 11.5px "Inter", system-ui, sans-serif',
+  captionFont: '10.5px "Inter", system-ui, sans-serif',
+  markerFont: '700 10px "Inter", system-ui, sans-serif',
+} as const;
+
+// The selected clip's own toolbar splits it, so the edit form stays out.
+const STUDIO_CHROME = { editToolbar: false } as const;
+
+function StudioFooter({
   renderer,
   backend,
   onRenderer,
@@ -239,98 +121,35 @@ function StudioToolbar({
   readonly onRenderer: (next: RendererChoice) => void;
   readonly onReset: () => void;
 }): ReactElement {
-  const { editor, transport } = useTimelineContext();
-  const history = useEditorSelector(
-    editor,
-    (state) => ({ undo: state.history.undoDepth, redo: state.history.redoDepth }),
-    shallowEqual,
-  );
-  const selectedId = useEditorSelector(editor, (state) => state.selection.at(-1) ?? null);
-  const [status, setStatus] = useState("");
-
-  const handleSplit = () => {
-    if (!selectedId) {
-      setStatus("Select a clip first.");
-      return;
-    }
-    const tick = transport.snapshot().presentedTick;
-    const clip = editor.getSnapshot().clips.find((item) => item.id === selectedId);
-    const cutAt =
-      clip && tick > clip.start && tick < clip.start + clip.duration
-        ? tick
-        : clip
-          ? clip.start + Math.floor(clip.duration / 2)
-          : tick;
-    const result = editor.dispatch(commands.splitClip({ clipId: selectedId, at: cutAt }));
-    if (result.ok && !("unchanged" in result) && result.createdIds[0]) {
-      editor.session.select([result.createdIds[0]]);
-      setStatus(`Split ${selectedId} at ${formatSeconds(cutAt)}.`);
-    } else if (!result.ok) {
-      setStatus(result.reason);
-    }
-  };
-
   return (
-    <div className="demo-bar">
-      <strong>Dubbing studio</strong>
-      <StudioClock />
+    <div className="demo-footer">
+      <p className="demo-hint">
+        Drag clips to move or trim, click the ruler to scrub. <kbd>S</kbd> splits, <kbd>T</kbd>{" "}
+        shows takes, <kbd>Ctrl/Cmd+Z</kbd> undoes.
+      </p>
+      <span className="demo-spacer" />
       <span className="demo-badge" data-demo-backend>
         {backend}
       </span>
-      <span className="demo-spacer" />
-      <div className="demo-controls">
-        <button type="button" className="demo-btn" data-demo-split onClick={handleSplit}>
-          Split clip
-        </button>
-        <button
-          type="button"
-          className="demo-btn"
-          data-demo-undo
-          disabled={history.undo === 0}
-          onClick={() => {
-            editor.history.undo();
-            setStatus("Undid last edit.");
+      <label className="demo-meta">
+        Renderer{" "}
+        <select
+          className="demo-select"
+          aria-label="Drawing backend"
+          value={renderer}
+          onChange={(event) => {
+            const found = RENDERERS.find((item) => item === event.target.value);
+            if (found) onRenderer(found);
           }}
         >
-          Undo ({history.undo})
-        </button>
-        <button
-          type="button"
-          className="demo-btn"
-          data-demo-redo
-          disabled={history.redo === 0}
-          onClick={() => {
-            editor.history.redo();
-            setStatus("Redid edit.");
-          }}
-        >
-          Redo ({history.redo})
-        </button>
-        <label className="demo-meta">
-          Renderer{" "}
-          <select
-            className="demo-select"
-            aria-label="Drawing backend"
-            value={renderer}
-            onChange={(event) => {
-              const found = RENDERERS.find((item) => item === event.target.value);
-              if (found) onRenderer(found);
-            }}
-          >
-            <option value="auto">auto</option>
-            <option value="webgl2">webgl2</option>
-            <option value="canvas2d">canvas2d</option>
-          </select>
-        </label>
-        <button type="button" className="demo-btn" onClick={onReset}>
-          Reset
-        </button>
-      </div>
-      {status && (
-        <span className="demo-meta" role="status">
-          {status}
-        </span>
-      )}
+          <option value="auto">auto</option>
+          <option value="webgl2">webgl2</option>
+          <option value="canvas2d">canvas2d</option>
+        </select>
+      </label>
+      <button type="button" className="demo-btn" onClick={onReset}>
+        Reset
+      </button>
     </div>
   );
 }
@@ -339,7 +158,9 @@ function StudioDemo(): ReactElement {
   const [session, setSession] = useState<StudioSession | null>(null);
   const [renderer, setRenderer] = useState<RendererChoice>("auto");
   const [backend, setBackend] = useState("mounting");
-  const viewRef = useRef<TimelineView | null>(null);
+  // Counts resets, so each session mounts a view of its own.
+  const [generation, setGeneration] = useState(0);
+  const scheme = useSiteScheme();
 
   useEffect(() => {
     const created = createStudioSession();
@@ -350,10 +171,10 @@ function StudioDemo(): ReactElement {
   }, []);
 
   const handleViewRef = useCallback((view: TimelineView | null) => {
-    viewRef.current = view;
-    if (view) {
-      setBackend(view.getDiagnostics().backend);
-    }
+    if (!view) return;
+    setBackend(view.getDiagnostics().backend);
+    // The selected line opens with its candidates as take lanes.
+    view.showTakeLanes("nar-1");
   }, []);
 
   const handleReset = useCallback(() => {
@@ -361,15 +182,27 @@ function StudioDemo(): ReactElement {
       prev?.dispose();
       return createStudioSession();
     });
+    setGeneration((count) => count + 1);
   }, []);
+
+  const transport = session?.transport;
+  const events = useMemo<TimelineEvents | undefined>(
+    () =>
+      transport && {
+        // The view asks; the audio transport plays the candidate on its own.
+        onTakeAudition({ clipId, takeId }) {
+          if (transport.snapshot().audition?.takeId === takeId) transport.cancelAudition();
+          else void transport.audition({ clipId, takeId, mode: "isolated" });
+        },
+      },
+    [transport],
+  );
+  const theme = useMemo(() => ({ scheme, ...DEMO_FONTS }), [scheme]);
 
   if (!session) {
     return (
       <div className="demo-shell">
-        <div className="demo-bar">
-          <strong>Dubbing studio</strong>
-          <span className="demo-meta">Initializing Web Audio &amp; waveforms…</span>
-        </div>
+        <p className="demo-hint">Initializing Web Audio &amp; waveforms…</p>
       </div>
     );
   }
@@ -377,13 +210,8 @@ function StudioDemo(): ReactElement {
   return (
     <TimelineProvider editor={session.editor} transport={session.transport}>
       <div className="demo-shell" data-demo-ready="studio">
-        <StudioToolbar
-          renderer={renderer}
-          backend={backend}
-          onRenderer={setRenderer}
-          onReset={handleReset}
-        />
         <Timeline
+          key={generation}
           className="demo-timeline"
           editor={session.editor}
           transport={session.transport}
@@ -391,13 +219,17 @@ function StudioDemo(): ReactElement {
           renderer={renderer}
           pixelsPerSecond={36}
           snap={{ gridTicks: hz / 10 }}
+          chrome={STUDIO_CHROME}
+          theme={theme}
+          events={events}
           ref={handleViewRef}
         />
-        <StudioTakeInspector audioTransport={session.transport} />
-        <p className="demo-hint">
-          Drag clips to move or trim, click the ruler to scrub, press <code>S</code> to split or{" "}
-          <code>Ctrl/Cmd+Z</code> to undo.
-        </p>
+        <StudioFooter
+          renderer={renderer}
+          backend={backend}
+          onRenderer={setRenderer}
+          onReset={handleReset}
+        />
       </div>
     </TimelineProvider>
   );
@@ -417,6 +249,16 @@ interface SyncDemoState {
   readonly toggleOfflineB: () => boolean;
   readonly dispose: () => void;
 }
+
+// Two editors side by side: each keeps the transport, history and the lanes.
+const SYNC_CHROME = {
+  clipNavigator: false,
+  markerNavigator: false,
+  markerEditor: false,
+  editToolbar: false,
+  snapToggle: false,
+  trackControls: false,
+} as const;
 
 function SyncPane({
   label,
@@ -439,7 +281,8 @@ function SyncPane({
 }): ReactElement {
   const revision = useEditorSelector(editor, (state) => state.snapshot.revision);
   const selectedId = useEditorSelector(editor, (state) => state.selection.at(-1) ?? null);
-  const undoDepth = useEditorSelector(editor, (state) => state.history.undoDepth);
+  const scheme = useSiteScheme();
+  const theme = useMemo(() => ({ scheme, ...DEMO_FONTS }), [scheme]);
 
   const nudge = (deltaSec: number) => {
     const target = selectedId ?? editor.getSnapshot().clips[0]?.id;
@@ -460,16 +303,6 @@ function SyncPane({
           <button type="button" className="demo-btn" data-nudge-right onClick={() => nudge(0.5)}>
             Move +0.5s
           </button>
-          <button
-            type="button"
-            className="demo-btn"
-            disabled={undoDepth === 0}
-            onClick={() => {
-              editor.history.undo();
-            }}
-          >
-            Undo
-          </button>
           {offlineControl && (
             <button
               type="button"
@@ -489,6 +322,8 @@ function SyncPane({
         waveforms={waveforms}
         pixelsPerSecond={26}
         snap={{ gridTicks: hz / 10 }}
+        chrome={SYNC_CHROME}
+        theme={theme}
       />
     </div>
   );

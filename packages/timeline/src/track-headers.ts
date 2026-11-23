@@ -9,6 +9,17 @@ export interface HeaderRow {
   readonly index: number;
   readonly top: number;
   readonly height: number;
+  /** The row's height without the take lanes under it. Defaults to `height`. */
+  readonly base?: number | undefined;
+}
+
+/** A track's gain as a decibel readout, such as "−6.0 dB". */
+export function gainText(gain: number | undefined): string {
+  const value = gain ?? 1;
+  if (!(value > 0)) return "−∞ dB";
+  const db = 20 * Math.log10(value);
+  const text = Math.abs(db).toFixed(1);
+  return (db < 0 && text !== "0.0" ? "−" : "") + text + " dB";
 }
 
 /**
@@ -211,22 +222,82 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
     const keys = ["ArrowUp", "ArrowDown", "Home", "End"];
     if (shortcuts() && canRename()) keys.push("Enter", "F2");
     if (shortcuts() && canReorder()) keys.push("Alt+ArrowUp", "Alt+ArrowDown");
+    if (shortcuts() && canSwitch()) keys.push("M", "S");
     return keys.join(" ");
   }
 
-  function fillDefault(header: Header, name: string): void {
-    const grip = doc.createElement("span");
-    grip.className = "lt-grip";
+  const hasControls = (): boolean => chrome().trackControls;
+  const canSwitch = (): boolean => hasControls() && !readOnly();
+
+  // The name is the header's only text: the switches and the gain readout
+  // draw theirs from attributes, so the header still reads as the track's name.
+  function fillDefault(header: Header, track: Track, name: string): void {
+    const make = (tag: "span" | "div" | "button", className: string): HTMLElement => {
+      const el = doc.createElement(tag);
+      el.className = className;
+      return el;
+    };
+    const grip = make("span", "lt-grip");
     grip.setAttribute("data-lt-track-grip", "");
     grip.setAttribute("aria-hidden", "true");
     grip.title = uiLabels().reorderTrack;
     grip.hidden = !canReorder();
-    const text = doc.createElement("span");
-    text.className = "lt-name";
+    const dot = make("span", "lt-dot");
+    dot.setAttribute("aria-hidden", "true");
+    const text = make("span", "lt-name");
     text.setAttribute("data-lt-track-name", "");
     text.textContent = name;
-    header.element.replaceChildren(grip, text);
+    const line = make("div", "lt-label-line");
+    line.append(dot, text);
+    const main = make("div", "lt-label-main");
+    main.append(line);
+    if (hasControls()) {
+      const labels = uiLabels();
+      if (track.locked === true) {
+        const lock = make("span", "lt-lock");
+        lock.setAttribute("role", "img");
+        lock.setAttribute("aria-label", labels.locked);
+        lock.title = labels.locked;
+        line.append(lock);
+      }
+      const controls = make("span", "lt-track-controls");
+      for (const [key, label, on] of [
+        ["mute", labels.mute, track.mute === true],
+        ["solo", labels.solo, track.solo === true],
+      ] as const) {
+        const button = make("button", "lt-" + key);
+        button.setAttribute("type", "button");
+        button.setAttribute("data-lt-track-" + key, "");
+        button.setAttribute("aria-label", label + " " + name);
+        button.setAttribute("aria-pressed", String(on));
+        button.setAttribute("tabindex", "-1");
+        button.title = label;
+        if (!canSwitch()) button.setAttribute("disabled", "");
+        controls.append(button);
+      }
+      line.append(controls);
+      const gain = make("div", "lt-gain");
+      gain.setAttribute("data-gain", gainText(track.gain));
+      gain.setAttribute("aria-hidden", "true");
+      const level = Math.max(0, Math.min(1, track.gain ?? 1));
+      gain.style.setProperty("--lt-gain", Math.round(level * 100) + "%");
+      main.append(gain);
+    }
+    header.element.replaceChildren(grip, main);
     header.element.title = name;
+  }
+
+  function toggle(trackId: string, key: "mute" | "solo"): void {
+    if (!canSwitch()) return;
+    const track = editor.getSnapshot().tracks.find((t) => t.id === trackId);
+    if (!track) return;
+    report(
+      editor.dispatch(
+        key === "mute"
+          ? commands.updateTrack({ trackId, mute: track.mute !== true })
+          : commands.updateTrack({ trackId, solo: track.solo !== true }),
+      ),
+    );
   }
 
   function place(visible: readonly HeaderRow[]): void {
@@ -286,6 +357,9 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
         byElement.set(el, header);
       }
       const el = header.element;
+      const base = (row.base ?? row.height) + "px";
+      if (el.style.getPropertyValue("--lt-row-base") !== base)
+        el.style.setProperty("--lt-row-base", base);
       if (header.color !== accent) {
         header.color = accent;
         el.style.setProperty("--track-color", accent);
@@ -322,7 +396,8 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
         if (content) el.replaceChildren(content);
       } else {
         const name = row.track.name ?? row.track.id;
-        const key = [row.top, row.height, row.track.id, name].join("\n");
+        const { locked, mute, solo, gain } = row.track;
+        const key = [row.top, row.height, row.track.id, name, locked, mute, solo, gain].join("\n");
         header.track = row.track;
         if (header.key === key && header.renderer === undefined) continue;
         header.key = key;
@@ -330,7 +405,7 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
         el.classList.remove("lt-label-custom");
         el.style.top = row.top + "px";
         el.style.height = row.height + "px";
-        fillDefault(header, name);
+        fillDefault(header, row.track, name);
       }
     }
     list.style.transform = "translateY(" + -options.scrollTop() + "px)";
@@ -575,6 +650,7 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
     if (e.button !== 0 || !canReorder()) return undefined;
     const header = headerAt(e.target);
     if (!header?.track || partOf(e.target, ".lt-name-input", header.element)) return undefined;
+    if (partOf(e.target, ".lt-track-controls", header.element)) return undefined;
     const grip = partOf(e.target, "[data-lt-track-grip]", header.element);
     return grip || (!isCustom(header) && !touch) ? header : undefined;
   }
@@ -660,6 +736,13 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
     },
     true,
   );
+  listen(list, "click", (e) => {
+    const header = headerAt(e.target);
+    const trackId = header?.track?.id;
+    if (!header || trackId === undefined) return;
+    if (partOf(e.target, "[data-lt-track-mute]", header.element)) toggle(trackId, "mute");
+    else if (partOf(e.target, "[data-lt-track-solo]", header.element)) toggle(trackId, "solo");
+  });
 
   // Keyboard and focus -------------------------------------------------------
 
@@ -696,6 +779,13 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
     const edits = shortcuts() && !readOnly();
     if (plain && onHeader && (e.key === "Enter" || e.key === "F2")) {
       if (edits && startRename(header)) e.preventDefault();
+      return;
+    }
+    const letter = e.key.toLowerCase();
+    if (plain && onHeader && edits && !isCustom(header) && (letter === "m" || letter === "s")) {
+      if (!canSwitch()) return;
+      e.preventDefault();
+      toggle(trackId, letter === "m" ? "mute" : "solo");
       return;
     }
     const steps: Record<string, readonly [focus: number, slot: number]> = {

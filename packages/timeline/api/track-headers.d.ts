@@ -7,7 +7,11 @@ export interface HeaderRow {
     readonly index: number;
     readonly top: number;
     readonly height: number;
+    /** The row's height without the take lanes under it. Defaults to `height`. */
+    readonly base?: number | undefined;
 }
+/** A track's gain as a decibel readout, such as "−6.0 dB". */
+export declare function gainText(gain: number | undefined): string;
 /**
  * The gap between rows that a pointer at content height `y` points to: `0`
  * above the first row's middle, `rows.length` below the last row's middle.

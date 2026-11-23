@@ -3,7 +3,7 @@ import { devicePixels, size, Staging } from "./renderer.ts";
 import type { DeviceEvents, Frame, PixelRect, Pixels, Renderer } from "./renderer.ts";
 
 const shader = /* wgsl */ `
-struct Uniforms { viewport: vec2f, pad: vec2f };
+struct Uniforms { viewport: vec2f, dpr: f32, pad: f32 };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 @group(0) @binding(1) var atlas: texture_2d<f32>;
 @group(0) @binding(2) var atlasSampler: sampler;
@@ -12,6 +12,9 @@ struct Out {
   @location(0) uv: vec2f,
   @location(1) color: vec4f,
   @location(2) @interpolate(flat) image: u32,
+  @location(3) local: vec2f,
+  @location(4) @interpolate(flat) half: vec2f,
+  @location(5) @interpolate(flat) radius: f32,
 };
 @vertex fn vs(@builtin(vertex_index) v: u32, @location(0) rect: vec4f, @location(1) uv: vec4f,
     @location(2) color: vec4f) -> Out {
@@ -22,12 +25,22 @@ struct Out {
   out.uv = mix(uv.xy, uv.zw, corner);
   out.color = color;
   out.image = select(0u, 1u, uv.z > uv.x);
+  out.local = (corner - 0.5) * rect.zw;
+  out.half = rect.zw * 0.5;
+  out.radius = uv.y;
   return out;
 }
 @fragment fn fs(input: Out) -> @location(0) vec4f {
   let texel = textureSampleLevel(atlas, atlasSampler, input.uv, 0.0);
   if (input.image == 1u) { return texel; }
-  return vec4f(input.color.rgb * input.color.a, input.color.a);
+  var a = input.color.a;
+  // A rounded quad fades over one device pixel at its corners.
+  if (input.radius > 0.0) {
+    let q = abs(input.local) - (input.half - input.radius);
+    let d = length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - input.radius;
+    a = a * clamp(0.5 - d * u.dpr, 0.0, 1.0);
+  }
+  return vec4f(input.color.rgb * a, a);
 }`;
 
 const gpuOf = (): GPU | undefined => {
@@ -150,7 +163,7 @@ export async function createWebGPURenderer(
     device.queue.writeBuffer(
       uniforms,
       0,
-      new Float32Array([Math.max(1, frame.width), Math.max(1, frame.height), 0, 0]),
+      new Float32Array([Math.max(1, frame.width), Math.max(1, frame.height), frame.dpr, 0]),
     );
     const count = staging.gather(frame.rows);
     if (!geometry || !colors || count > capacity) {

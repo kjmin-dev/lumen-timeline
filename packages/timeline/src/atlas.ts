@@ -1,16 +1,14 @@
 import { labelBaseline, labelHeight } from "./layout.ts";
 import type { LabelSlot } from "./layout.ts";
 
-const defaultNameFont = "500 12px system-ui, sans-serif";
-const defaultCaptionFont = "11px system-ui, sans-serif";
-const defaultNameColor = "#faf6e9";
+const defaultNameFont = "600 11.5px system-ui, sans-serif";
+const defaultCaptionFont = "10.5px system-ui, sans-serif";
 /** Labels wider than this, in CSS pixels, are cut. */
 const maxLabelWidth = 480;
 
 export interface LabelAtlasStyle {
   readonly nameFont?: string | undefined;
   readonly captionFont?: string | undefined;
-  readonly nameColor?: string | undefined;
 }
 
 /**
@@ -33,7 +31,12 @@ export interface LabelAtlas {
    * reaches back that far. GPU backends upload only these rows.
    */
   changes(version: number): { readonly y0: number; readonly y1: number } | "all" | null;
-  slot(name: string, caption: string | undefined, captionColor: string): LabelSlot | null;
+  slot(
+    name: string,
+    caption: string | undefined,
+    captionColor: string,
+    nameColor: string,
+  ): LabelSlot | null;
   clear(): void;
   dispose(): void;
 }
@@ -46,7 +49,6 @@ export function createLabelAtlas(
 ): LabelAtlas {
   const nameFont = style.nameFont ?? defaultNameFont;
   const captionFont = style.captionFont ?? defaultCaptionFont;
-  const nameColor = style.nameColor ?? defaultNameColor;
   const canvas = doc.createElement("canvas");
   canvas.width = canvas.height = size;
   const context = canvas.getContext("2d");
@@ -94,8 +96,9 @@ export function createLabelAtlas(
         }
       return y0 < y1 ? { y0, y1: Math.min(size, y1) } : null;
     },
-    slot(name, caption, captionColor) {
-      const key = name + "\u0000" + (caption ?? "") + "\u0000" + captionColor;
+    slot(name, caption, captionColor, nameColor) {
+      const key =
+        name + "\u0000" + (caption ?? "") + "\u0000" + captionColor + "\u0000" + nameColor;
       const found = slots.get(key);
       if (found) return found;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -104,7 +107,7 @@ export function createLabelAtlas(
       let width = nameWidth;
       if (caption) {
         ctx.font = captionFont;
-        width += 10 + ctx.measureText(caption).width;
+        width += 8 + ctx.measureText(caption).width;
       }
       width = Math.min(maxLabelWidth, Math.ceil(width) + 1);
       const w = Math.ceil(width * dpr) + 1;
@@ -127,7 +130,7 @@ export function createLabelAtlas(
       if (caption) {
         ctx.font = captionFont;
         ctx.fillStyle = captionColor;
-        ctx.fillText(caption, nameWidth + 10, labelBaseline);
+        ctx.fillText(caption, nameWidth + 8, labelBaseline);
       }
       ctx.restore();
       const slot: LabelSlot = Object.freeze({

@@ -2,7 +2,6 @@ import type { LabelSlot } from "./layout.ts";
 export interface LabelAtlasStyle {
     readonly nameFont?: string | undefined;
     readonly captionFont?: string | undefined;
-    readonly nameColor?: string | undefined;
 }
 /**
  * Clip labels rasterized once at the device pixel ratio, in rows of equal
@@ -27,7 +26,7 @@ export interface LabelAtlas {
         readonly y0: number;
         readonly y1: number;
     } | "all" | null;
-    slot(name: string, caption: string | undefined, captionColor: string): LabelSlot | null;
+    slot(name: string, caption: string | undefined, captionColor: string, nameColor: string): LabelSlot | null;
     clear(): void;
     dispose(): void;
 }

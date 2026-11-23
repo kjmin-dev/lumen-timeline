@@ -86,6 +86,20 @@ export interface TimelineLabels {
    * "{name} moved to position {position} of {count}".
    */
   readonly trackMoved?: string | undefined;
+  /** The toolbar's snapping switch. Defaults to "Snap". */
+  readonly snap?: string | undefined;
+  /** The selected clip's split button. Defaults to "Split". */
+  readonly split?: string | undefined;
+  /** The switch that shows a clip's candidates as lanes under its track. Defaults to "Takes". */
+  readonly takeLanes?: string | undefined;
+  /** A track header's mute switch; the track name follows. Defaults to "Mute". */
+  readonly mute?: string | undefined;
+  /** A track header's solo switch; the track name follows. Defaults to "Solo". */
+  readonly solo?: string | undefined;
+  /** Shown for a locked track. Defaults to "Locked". */
+  readonly locked?: string | undefined;
+  /** A take lane's audition button; the take's label follows. Defaults to "Audition". */
+  readonly audition?: string | undefined;
 }
 
 /**
@@ -115,19 +129,56 @@ export interface TimelineChrome {
    * `readOnly`.
    */
   readonly trackReorder?: boolean | undefined;
+  /** Undo and redo buttons in the toolbar. Off in the `"minimal"` preset. */
+  readonly history?: boolean | undefined;
+  /** The toolbar switch that suspends snapping. Off in the `"minimal"` preset. */
+  readonly snapToggle?: boolean | undefined;
+  /**
+   * The floating toolbar above a single selected clip: split at the playhead,
+   * and the take lanes switch for a clip with several candidates. Off in the
+   * `"minimal"` preset and in `readOnly`.
+   */
+  readonly clipToolbar?: boolean | undefined;
+  /**
+   * Take lanes: the selected clip's candidates as lanes under its track, each
+   * with its own waveform. A click on a lane makes that candidate active. Opened
+   * from the clip toolbar, with T on the focused clip surface, or through
+   * `view.showTakeLanes`. Off in the `"minimal"` preset.
+   */
+  readonly takeLanes?: boolean | undefined;
+  /**
+   * Mute and solo switches, the lock mark and the gain readout in the default
+   * track headers. Off in the `"minimal"` preset.
+   */
+  readonly trackControls?: boolean | undefined;
 }
 
 export type TimelineChromeOption = false | "minimal" | TimelineChrome;
 
-/** Fill, accent stripe and optional waveform colors for one track or clip (`#rrggbb` hex). */
+/**
+ * Clip colors for one track or clip (`#rrggbb` hex). `fill` is the clip body and
+ * `stripe` its accent: the track header's dot and the outline of an inactive
+ * take lane. `waveform` defaults to the accent at 40% opacity, and `text`, the
+ * clip's name, to whichever of a dark or a light ink reads better on `fill`.
+ */
 export interface TimelineTrackColors {
   readonly fill: string;
   readonly stripe: string;
   readonly waveform?: string | undefined;
+  readonly text?: string | undefined;
 }
 
-/** Canvas and overlay theme overrides. Unspecified fields keep the default dark palette. */
+/**
+ * Canvas and overlay theme overrides. Unspecified fields keep the palette of
+ * `scheme`.
+ */
 export interface TimelineTheme {
+  /**
+   * The built-in palette the view starts from, for its DOM chrome and its
+   * canvases alike: `"dark"`, the default, or `"light"`. The other fields
+   * override single colors of it.
+   */
+  readonly scheme?: "light" | "dark" | undefined;
   readonly rowEven?: string | undefined;
   readonly rowOdd?: string | undefined;
   readonly grid?: string | undefined;
@@ -141,15 +192,21 @@ export interface TimelineTheme {
   readonly labelColor?: string | undefined;
   readonly nameFont?: string | undefined;
   readonly captionFont?: string | undefined;
+  /** The ruler's time labels. Defaults to a 10px monospace face. */
+  readonly rulerFont?: string | undefined;
+  /** The ruler's marker flags. Defaults to a bold 10px system face. */
+  readonly markerFont?: string | undefined;
   /** Track colors cycled by row index when neither clip nor track sets `color`. */
   readonly palette?: readonly TimelineTrackColors[] | undefined;
+  /** The colors of a locked track's clips. Defaults to a neutral grey. */
+  readonly locked?: TimelineTrackColors | undefined;
 }
 
 /** Row spacing in CSS pixels. */
 export interface TimelineLayoutOptions {
-  /** Height of one clip lane in CSS pixels (`>= 16`). Defaults to `34`. */
+  /** Height of one clip lane in CSS pixels (`>= 16`). Defaults to `47`. */
   readonly laneHeight?: number | undefined;
-  /** Top and bottom padding per track row in CSS pixels (`>= 0`). Defaults to `6`. */
+  /** Top and bottom padding per track row in CSS pixels (`>= 0`). Defaults to `10`. */
   readonly rowInset?: number | undefined;
 }
 
@@ -239,6 +296,18 @@ export interface TimelineEvents {
   readonly onContextMenu?: ((event: TimelinePointerEvent) => void) | undefined;
   readonly onTrackClick?: ((event: TimelinePointerEvent) => void) | undefined;
   readonly onViewportChange?: ((viewport: Viewport) => void) | undefined;
+  /**
+   * Makes each take lane show an audition button, and receives its clicks. The
+   * view plays nothing itself: the host auditions the candidate with its own
+   * transport.
+   */
+  readonly onTakeAudition?: ((event: TimelineTakeEvent) => void) | undefined;
+}
+
+/** A candidate of a clip, as a take lane names it. */
+export interface TimelineTakeEvent {
+  readonly clipId: string;
+  readonly takeId: string;
 }
 
 /**
@@ -409,6 +478,13 @@ export interface TimelineView {
    * `data-lt-track-name` element.
    */
   renameTrack(trackId: string): boolean;
+  /**
+   * Shows a clip's candidates as take lanes under its track, or hides the open
+   * lanes for `null`. The lanes close when the selection moves to other clips.
+   * Returns false when take lanes are off (`chrome.takeLanes`) or the clip does
+   * not list at least two candidates.
+   */
+  showTakeLanes(clipId: string | null): boolean;
   /**
    * Forces a redraw of the overlay (`"overlay"`) or the whole timeline (`"all"`,
    * default), e.g. when host state read by `renderOverlay` or `clipStyle` changes.
