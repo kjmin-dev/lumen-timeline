@@ -32,6 +32,9 @@ export declare function mergeList(found: readonly string[], before: readonly str
 export declare function rebase(patches: readonly ClipPatch[], clips: readonly Clip[], positions: ReadonlyMap<string, number>, validate: (clip: Clip) => void): readonly ClipPatch[];
 /**
  * Applies patches whose `before` states match the clips. A new clip goes after
- * the clip it follows, or to the end when that clip is absent.
+ * the clip it follows, or to the end when that clip is absent. `positions`
+ * holds the index of every clip in `clips`, where the caller keeps them: the
+ * patches then cost a copy of the list and the clips they name, not a lookup
+ * per clip.
  */
-export declare function applyClips(clips: readonly Clip[], patches: readonly ClipPatch[]): readonly Clip[];
+export declare function applyClips(clips: readonly Clip[], patches: readonly ClipPatch[], positions?: ReadonlyMap<string, number>): readonly Clip[];

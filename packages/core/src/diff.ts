@@ -59,7 +59,8 @@ function records<T extends Marker | Take>(
     (from ?? []).map((record) => [record.id, undefined]),
   );
   for (const record of to ?? []) staged.set(record.id, record);
-  return stagedPatches(new Map((from ?? []).map((record) => [record.id, record])), staged);
+  const was = new Map((from ?? []).map((record) => [record.id, record]));
+  return stagedPatches((id) => was.get(id), staged);
 }
 
 function data(from: EntityData | undefined, to: EntityData | undefined): readonly DataPatch[] {

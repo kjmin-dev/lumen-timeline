@@ -142,7 +142,10 @@ interface Geometry {
 }
 
 function positions(clips: readonly Clip[]): Map<string, number> {
-  return new Map(clips.map((clip, index) => [clip.id, index]));
+  const byId = new Map<string, number>();
+  for (let index = 0; index < clips.length; index++)
+    byId.set(defined(clips[index], "listed clip").id, index);
+  return byId;
 }
 
 function intervals(clips: readonly Clip[]): readonly AffectedInterval[] {
@@ -224,7 +227,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
   const ids = idAllocator(actor, snapshot);
   let byId = positions(snapshot.clips);
   const reads = readRegistry(snapshot.tracks);
-  reads.pin(snapshot, byTrack);
+  reads.pin(snapshot, byTrack, byId);
   const history = createHistory(limits);
   const subscribers = new Set<DocumentSubscriber>();
   const historySubscribers = new Set<VersionedSubscriber<HistoryState>>();
@@ -491,7 +494,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     after: readonly Clip[],
   ): Geometry {
     const layout = stageTracks(before, after);
-    const clips = applyClips(snapshot.clips, patches);
+    const clips = applyClips(snapshot.clips, patches, byId);
     // Placement-only changes keep every ID at its existing array position.
     const structural = patches.some((p) => p.before === undefined || p.after === undefined);
     return { clips, layout, positions: structural ? positions(clips) : byId };
@@ -717,9 +720,9 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       const geometry = patches.length ? prepareLayout(patches, before, after) : null;
       const entityData = applyData(snapshot.entityData, data);
       const markerList = applyMarkers(snapshot.markers, markerPatches);
-      const takeState = applyTakes(snapshot.takes, takePatches);
+      const takeList = applyTakes(snapshot.takes, takePatches);
       const counted = (id: string): number => (takeCounts.get(id) ?? 0) + (delta.get(id) ?? 0);
-      checkReferences(after, takePatches, takeState.byId, counted);
+      checkReferences(after, takePatches, takeList, counted);
       const clipList = geometry?.clips ?? snapshot.clips;
       // Clips that list a remapped take play different media without a patch of their own.
       const remapped = new Set(takePatches.filter(remapsMedia).map((p) => p.id));
@@ -798,8 +801,8 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       else next.entityData = entityData;
       if (markerList === undefined) delete next.markers;
       else next.markers = markerList;
-      if (takeState.list === undefined) delete next.takes;
-      else next.takes = takeState.list;
+      if (takeList === undefined) delete next.takes;
+      else next.takes = takeList;
 
       // Validation, conflict checks, staging and the gate finish before any observable write.
       let amended = false;
@@ -836,7 +839,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         byTrack = geometry.layout;
       }
       snapshot = Object.freeze(next);
-      reads.pin(snapshot, byTrack);
+      reads.pin(snapshot, byTrack, byId);
       const pruned = geometry !== null && selection.some((id) => !byId.has(id));
       if (pruned) selection = Object.freeze(selection.filter((id) => byId.has(id)));
       notify(
@@ -932,7 +935,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       takeCounts = opened.takeCounts;
       byId = positions(target.clips);
       snapshot = Object.freeze({ ...target, revision });
-      reads.pin(snapshot, byTrack);
+      reads.pin(snapshot, byTrack, byId);
       const pruned = selection.some((id) => !byId.has(id));
       if (pruned) selection = Object.freeze(selection.filter((id) => byId.has(id)));
       notify(result, false, pruned);

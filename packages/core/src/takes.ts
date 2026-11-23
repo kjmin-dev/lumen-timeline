@@ -1,5 +1,6 @@
 import type { ClipDraft } from "./clip-patches.ts";
-import { applyRecords, invertRecords, rebaseRecords, stagedPatches } from "./record-patches.ts";
+import { defined } from "./invariant.ts";
+import { invertRecords, rebaseRecords, stagedPatches } from "./record-patches.ts";
 import { MAX_TICK } from "./time.ts";
 import type {
   Clip,
@@ -17,6 +18,28 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 export function compareTakes(a: Take, b: Take): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** The index of the first take whose ID is not below `id`, in a list in ID order. */
+function takeIndex(takes: readonly Take[], id: string): number {
+  let lo = 0;
+  let hi = takes.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (defined(takes[mid], "listed take").id < id) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * The take with this ID. A snapshot lists its takes in ID order, so a lookup
+ * searches the list, and no edit pays for an index of every take.
+ */
+export function findTake(takes: readonly Take[] | undefined, id: string): Take | undefined {
+  if (!takes) return undefined;
+  const take = takes[takeIndex(takes, id)];
+  return take?.id === id ? take : undefined;
 }
 
 const optionalText = (value: unknown): value is string | undefined =>
@@ -200,16 +223,16 @@ export interface TakeStage {
 
 /** Stages take commands for one transaction. `undefined` marks a removal. */
 export class TakeDraft {
-  readonly byId: ReadonlyMap<string, Take>;
+  readonly base: readonly Take[] | undefined;
   readonly staged: Map<string, Take | undefined>;
 
   constructor(base: readonly Take[] | undefined) {
-    this.byId = new Map((base ?? []).map((take) => [take.id, take]));
+    this.base = base;
     this.staged = new Map();
   }
 
   get(id: string): Take | undefined {
-    return this.staged.has(id) ? this.staged.get(id) : this.byId.get(id);
+    return this.staged.has(id) ? this.staged.get(id) : findTake(this.base, id);
   }
 
   stage(command: TakeCommand, stage: TakeStage): void {
@@ -416,7 +439,8 @@ export class TakeDraft {
       null,
       "Expected distinct take IDs",
     );
-    const targets = takeIds ?? new Set([...this.byId.keys(), ...this.staged.keys()]);
+    const targets =
+      takeIds ?? new Set([...(this.base ?? []).map((take) => take.id), ...this.staged.keys()]);
     for (const id of targets) {
       const take = this.get(id);
       requireEdit(take || takeIds === undefined, "missing-take", id, "Take does not exist");
@@ -453,7 +477,7 @@ export class TakeDraft {
   }
 
   patches(): readonly TakePatch[] {
-    return stagedPatches(this.byId, this.staged);
+    return stagedPatches((id) => findTake(this.base, id), this.staged);
   }
 }
 
@@ -472,24 +496,48 @@ export function rebaseTakes(
   base: readonly Take[] | undefined,
   listed: (id: string) => boolean,
 ): readonly TakePatch[] {
-  const current = new Map((base ?? []).map((take) => [take.id, take]));
+  const current = (id: string): Take | undefined => findTake(base, id);
   const kept = patches.filter(({ id, before, after }) =>
     before === undefined
-      ? !current.has(id)
-      : after !== undefined || (current.has(id) && !listed(id)),
+      ? current(id) === undefined
+      : after !== undefined || (current(id) !== undefined && !listed(id)),
   );
   return rebaseRecords(kept.length === patches.length ? patches : kept, current, checkTake, "take");
 }
 
-/** The resulting takes by ID and their canonical list. */
+/**
+ * Applies patches whose `before` states match the base. Returns the canonical
+ * list, in ID order: the base with each patched take replaced, removed or
+ * inserted at its place.
+ */
 export function applyTakes(
   base: readonly Take[] | undefined,
   patches: readonly TakePatch[],
-): { readonly byId: ReadonlyMap<string, Take>; readonly list: readonly Take[] | undefined } {
-  const byId = applyRecords(base, patches);
-  if (!patches.length) return { byId, list: base };
-  const list = [...byId.values()].sort(compareTakes);
-  return { byId, list: list.length ? Object.freeze(list) : undefined };
+): readonly Take[] | undefined {
+  if (!patches.length) return base;
+  // The last patch of an ID decides it, as when they apply one by one.
+  const changes = new Map<string, Take | undefined>();
+  for (const { id, after } of patches) changes.set(id, after);
+  const from = base ?? [];
+  const ids = [...changes.keys()].sort();
+  // Updates alone leave every take in its place. Array.from copies a frozen
+  // array as a block, which slice() does not.
+  if (ids.every((id) => changes.get(id) && findTake(from, id))) {
+    const updated = Array.from(from);
+    for (const id of ids) updated[takeIndex(from, id)] = defined(changes.get(id), "updated take");
+    return Object.freeze(updated);
+  }
+  const list: Take[] = [];
+  let at = 0;
+  for (const id of ids) {
+    const end = takeIndex(from, id);
+    for (; at < end; at++) list.push(defined(from[at], "listed take"));
+    if (from[at]?.id === id) at++;
+    const after = changes.get(id);
+    if (after) list.push(after);
+  }
+  for (; at < from.length; at++) list.push(defined(from[at], "listed take"));
+  return list.length ? Object.freeze(list) : undefined;
 }
 
 /**
@@ -500,7 +548,7 @@ export function applyTakes(
 export function checkReferences(
   clips: readonly Clip[],
   patches: readonly TakePatch[],
-  takes: ReadonlyMap<string, Take>,
+  takes: readonly Take[] | undefined,
   listings: (id: string) => number,
 ): void {
   for (const clip of clips) {
@@ -512,7 +560,7 @@ export function checkReferences(
       continue;
     }
     for (const id of list)
-      requireEdit(takes.has(id), "missing-take", id, "Clip lists a missing take");
+      requireEdit(findTake(takes, id), "missing-take", id, "Clip lists a missing take");
     requireEdit(
       list.length > 0 && (active === null || (active !== undefined && list.includes(active))),
       "invalid-take",

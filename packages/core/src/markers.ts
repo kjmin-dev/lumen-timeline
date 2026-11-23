@@ -7,6 +7,22 @@ export function compareMarkers(a: Marker, b: Marker): number {
   return a.start - b.start || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
+// Snapshots share their frozen marker list until an edit replaces it, so one
+// index serves every transaction that leaves the markers alone.
+const indexes = new WeakMap<readonly Marker[], ReadonlyMap<string, Marker>>();
+const noMarkers: ReadonlyMap<string, Marker> = new Map();
+
+/** A snapshot's markers by ID. */
+function markersById(list: readonly Marker[] | undefined): ReadonlyMap<string, Marker> {
+  if (!list?.length) return noMarkers;
+  let byId = indexes.get(list);
+  if (!byId) {
+    byId = new Map(list.map((marker) => [marker.id, marker]));
+    indexes.set(list, byId);
+  }
+  return byId;
+}
+
 const optionalText = (value: unknown): value is string | undefined =>
   value === undefined || typeof value === "string";
 
@@ -67,7 +83,7 @@ export class MarkerDraft {
   readonly staged: Map<string, Marker | undefined>;
 
   constructor(base: readonly Marker[] | undefined) {
-    this.byId = new Map((base ?? []).map((marker) => [marker.id, marker]));
+    this.byId = markersById(base);
     this.staged = new Map();
   }
 
@@ -139,7 +155,7 @@ export class MarkerDraft {
   }
 
   patches(): readonly MarkerPatch[] {
-    return stagedPatches(this.byId, this.staged);
+    return stagedPatches((id) => this.byId.get(id), this.staged);
   }
 }
 
@@ -156,10 +172,10 @@ export function rebaseMarkers(
   base: readonly Marker[] | undefined,
   rules: Rules,
 ): readonly MarkerPatch[] {
-  const current = new Map((base ?? []).map((marker) => [marker.id, marker]));
+  const current = markersById(base);
   return rebaseRecords(
     patches,
-    current,
+    (id) => current.get(id),
     (marker) => checkStart(marker.start, marker.id, rules),
     "marker",
   );
@@ -171,8 +187,11 @@ export function applyMarkers(
   patches: readonly MarkerPatch[],
 ): readonly Marker[] | undefined {
   if (!patches.length) return base;
-  const list = [...applyRecords(base, patches).values()].sort(compareMarkers);
-  return list.length ? Object.freeze(list) : undefined;
+  const byId = applyRecords(markersById(base), patches);
+  if (!byId.size) return undefined;
+  const list = Object.freeze([...byId.values()].sort(compareMarkers));
+  indexes.set(list, byId);
+  return list;
 }
 
 /** The first index whose marker starts at or after `tick` (or after it when `strict`). */

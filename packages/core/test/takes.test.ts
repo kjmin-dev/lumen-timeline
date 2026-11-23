@@ -881,6 +881,158 @@ test("reads list a clip's candidates and the clips that list a take", () => {
   assert.throws(() => read.clipsListing("ghost"), { code: "missing-take" });
 });
 
+test("a kept snapshot lists its own candidates after clips and takes change", () => {
+  const e = editor();
+  const first = e.read();
+  const listed = first.takesOf("line");
+  // A split moves every later clip one place down the project's clip order.
+  commit(e.dispatch(commands.splitClip({ clipId: "line", at: 14 * hz, rightId: "r" })));
+  const cut = e.read();
+  commit(e.dispatch(add(["other"], "c", true)));
+  commit(e.dispatch(commands.updateTake({ takeId: "a", label: "Second" })));
+  const labels = (read: typeof first, id: string): unknown[] =>
+    read.takesOf(id).map((t) => [t.id, t.label]);
+  const now = e.read();
+  assert.deepEqual(labels(now, "line"), [
+    ["b", undefined],
+    ["a", "Second"],
+  ]);
+  assert.deepEqual(labels(now, "r"), labels(now, "line"));
+  assert.deepEqual(labels(now, "other"), [["c", undefined]]);
+  assert.deepEqual(labels(now, "bed"), [["m", undefined]]);
+  // The revision after the split still has no take on `other` and the old label.
+  assert.deepEqual(labels(cut, "other"), []);
+  assert.deepEqual(labels(cut, "r"), [
+    ["b", undefined],
+    ["a", "First"],
+  ]);
+  assert.deepEqual(labels(cut, "bed"), [["m", undefined]]);
+  // The first revision has no right half, and its lists are the ones it gave before.
+  assert.throws(() => first.takesOf("r"), { code: "missing-clip" });
+  assert.equal(first.takesOf("line"), listed);
+  assert.deepEqual(labels(first, "other"), []);
+  assert.deepEqual(labels(first, "bed"), [["m", undefined]]);
+  // Undoing the split restores every clip's place.
+  for (let n = 0; n < 3; n++) commit(e.history.undo());
+  assert.throws(() => e.read().takesOf("r"), { code: "missing-clip" });
+  assert.deepEqual(labels(e.read(), "line"), labels(first, "line"));
+  assert.deepEqual(labels(e.read(), "other"), []);
+  assert.deepEqual(labels(e.read(), "bed"), [["m", undefined]]);
+});
+
+test("a clip's takes are one frozen list while the clip and the project's takes stay", () => {
+  const e = editor();
+  const listed = e.read().takesOf("line");
+  assert.ok(Object.isFrozen(listed));
+  assert.equal(e.read().takesOf("line"), listed);
+  assert.ok(Object.isFrozen(e.read().takesOf("other")));
+  // Another clip moves and a field changes: the same clip, the same takes.
+  commit(e.dispatch(commands.moveClips({ clipIds: ["other"], delta: hz })));
+  commit(e.dispatch(commands.setEntityData({ scope: "notes", id: "line", key: "k", value: 1 })));
+  assert.equal(e.read().takesOf("line"), listed);
+  // The clip moves: an equal list of the same takes.
+  commit(e.dispatch(commands.moveClips({ clipIds: ["line"], delta: hz })));
+  assert.deepEqual(e.read().takesOf("line"), listed);
+  assert.equal(e.read().takesOf("line")[1], listed[1]);
+  // A take changes: the list holds the new take, and the old revision's list the old one.
+  const before = e.read();
+  commit(e.dispatch(commands.updateTake({ takeId: "a", label: "Renamed" })));
+  assert.equal(e.read().takesOf("line")[1]?.label, "Renamed");
+  assert.equal(before.takesOf("line")[1]?.label, "First");
+  commit(e.dispatch(commands.selectTake({ clipId: "line", takeId: "b" })));
+  assert.equal(e.read().takesOf("line")[1]?.label, "Renamed");
+});
+
+test("takes stay in ID order through every edit, and each one is found by its ID", () => {
+  // Code unit order differs from a dictionary's: capitals first, a prefix
+  // before what extends it, and a surrogate pair before U+FFFD.
+  const ids = ["a", "B", "a-1", "a0", "ä", "Z", "aa", "\u{1F600}", "\uFFFD", "_", "a\u0000"];
+  const p = project();
+  p.takes = ids.map((id) => ({ id, ...fresh }));
+  const line = p.clips[0];
+  assert.ok(line);
+  line.takeIds = [...ids];
+  p.clips.splice(2, 1);
+  const e = editor(p);
+  const holds = (expected: readonly string[]): void => {
+    assert.deepEqual(takeIds(e), [...expected].sort());
+    for (const id of expected) assert.equal(e.read().clipsListing(id).length >= 0, true, id);
+    assert.deepEqual(
+      e
+        .read()
+        .takesOf("line")
+        .map((t) => t.id),
+      clip(e, "line")?.takeIds,
+    );
+    assert.deepEqual(reopen(e.getSnapshot()).getSnapshot(), e.getSnapshot());
+  };
+  holds(ids);
+  // Before the first, between two and after the last.
+  const added = ["A", "a-2", "\uFFFE"];
+  for (const id of added) {
+    commit(e.dispatch(add(["line"], id)));
+    holds([...ids, ...added.slice(0, added.indexOf(id) + 1)]);
+  }
+  assert.equal(takeIds(e)[0], "A");
+  assert.equal(takeIds(e).at(-1), "\uFFFE");
+  // An update keeps the take's place.
+  commit(e.dispatch(commands.updateTake({ takeId: "a0", label: "kept" })));
+  assert.equal(take(e, "a0")?.label, "kept");
+  holds([...ids, ...added]);
+  // One transaction adds, updates and removes takes on both sides of each other.
+  commit(
+    e.dispatch([
+      add(["line"], "a-0"),
+      commands.updateTake({ takeId: "Z", label: "z" }),
+      commands.removeTake({ clipId: "line", takeId: "A" }),
+      commands.removeTake({ clipId: "line", takeId: "\uFFFE" }),
+      commands.removeTake({ clipId: "line", takeId: "aa" }),
+      commands.pruneTakes({ takeIds: ["A", "\uFFFE", "aa"] }),
+    ]),
+  );
+  const left = [...ids, "a-2", "a-0"].filter((id) => id !== "aa");
+  holds(left);
+  assert.equal(take(e, "Z")?.label, "z");
+  assert.equal(
+    codeOf(e.dispatch(commands.updateTake({ takeId: "aa", label: "gone" }))),
+    "missing-take",
+  );
+  // Removing every take leaves no list.
+  commit(
+    e.dispatch([
+      commands.selectTake({ clipId: "line", takeId: null }),
+      ...left.map((takeId) => commands.removeTake({ clipId: "line", takeId })),
+      commands.pruneTakes(),
+    ]),
+  );
+  assert.equal(e.getSnapshot().takes, undefined);
+  assert.deepEqual(e.read().takesOf("line"), []);
+  while (e.history.canUndo) commit(e.history.undo());
+  holds(ids);
+});
+
+test("a replay with several patches of one take ends on the last", () => {
+  const e = editor();
+  const a = take(e, "a");
+  assert.ok(a);
+  const result = commit(
+    e.dispatch(
+      commands.replay({
+        takePatches: [
+          { id: "a", before: a, after: { ...a, label: "One" } },
+          { id: "z", before: undefined, after: { id: "z", ...fresh } },
+          { id: "a", before: a, after: { ...a, label: "Two" } },
+          { id: "z", before: undefined, after: { id: "z", ...fresh, label: "Last" } },
+        ],
+      }),
+    ),
+  );
+  assert.equal(result.takePatches.length, 4);
+  assert.deepEqual(takeIds(e), ["a", "b", "m", "z"]);
+  assert.equal(take(e, "a")?.label, "Two");
+  assert.equal(take(e, "z")?.label, "Last");
+});
+
 // A seeded random walk over take commands. After every step the references
 // hold, each clip state has its one form, and the snapshot reopens identically.
 // Full undo and redo return to the first and last snapshots.
