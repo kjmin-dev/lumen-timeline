@@ -146,6 +146,7 @@ export function createWebGL2Renderer(
   try {
     resources = setup(gl);
   } catch {
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
     return "unavailable";
   }
   const staging = new Staging();
@@ -258,6 +259,10 @@ export function createWebGL2Renderer(
         gl.deleteVertexArray(r.vao);
         gl.deleteProgram(r.program);
       }
+      // Release the context now rather than at garbage collection: browsers
+      // keep only a few live contexts and lose the oldest beyond that, which a
+      // host that remounts the view would otherwise reach.
+      if (!gl.isContextLost()) gl.getExtension("WEBGL_lose_context")?.loseContext();
     },
   };
   return renderer;

@@ -59,6 +59,9 @@ jobs:
       - run: npm run verify:renderers
         env:
           LUMEN_SOFTWARE_GPU: "1"
+      - run: npm run verify:mounts
+        env:
+          LUMEN_SOFTWARE_GPU: "1"
       # A short run keeps the benchmark page working; its figures come from real hardware.
       - run: npm run bench:render -- --seconds 6 --backends canvas2d --channel chromium
       - run: npm run verify:shared

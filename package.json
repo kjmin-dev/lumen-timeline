@@ -42,6 +42,7 @@
     "verify:peaks": "node examples/vanilla/verify-peaks.mjs",
     "verify:scale": "node examples/vanilla/verify-scale.mjs",
     "verify:renderers": "node examples/vanilla/verify-renderers.mjs",
+    "verify:mounts": "node examples/vanilla/verify-mounts.mjs",
     "verify:shared": "node examples/sync/verify.mjs"
   },
   "devDependencies": {
