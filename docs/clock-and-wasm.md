@@ -88,7 +88,9 @@ For clip lookups, the JS implementation was faster in all three engines. For lat
 The media package's peak kernels follow this decision. `packages/media/wasm/peaks.rs` reduces any bucket size, including a final partial bucket, and builds a waveform tile's six levels in one call. It has no imports and allocates nothing: the JS binding validates every length, places input and output in the module's memory and refreshes its views after growth. A pair holds the minimum and maximum of a bucket's finite samples. NaN and infinities are left out, a bucket without a finite sample is `+∞`/`−∞`, and negative zero is stored as zero. The JS kernels in `packages/media/src/peaks.ts` follow the same rules, so both return the same bits whatever order they visit samples in.
 
 - **Bytes.** `npm run wasm:build` compiles the source with Rust 1.100.0, `opt-level=3`, one codegen unit, `simd128` and the repository path remapped, and writes the module to `packages/media/src/peaks-wasm.ts` with its SHA-256. `npm run wasm:check` rebuilds it and fails when the committed bytes differ. CI runs it.
-- **Parity.** `packages/media/test/peaks.test.ts` compares both kernels with a direct reduction, bit for bit, over seeded PCM with NaN, infinities, both zeros and denormals, bucket sizes from 1 to 4,096 and partial lengths. Folding four pairs equals reducing at the coarser size. Both refuse a length they cannot honour before touching memory.
+- **Tiles.** The finest level reduces four 16-sample buckets at a time and transposes their lanes in one step, instead of collapsing each bucket's lanes alone. It skips the finite test: `pmin(extreme, sample)` keeps the extreme when the sample is NaN, so only `−∞` can reach a minimum and `+∞` a maximum, and a group where either did is reduced again with both left out. The coarser levels fold two pairs a step in SIMD, since a tile's levels hold no NaN and no negative zero. The exported `reduce` and `fold` accept any input and keep the general path.
+- **Parity.** `packages/media/test/peaks.test.ts` compares both kernels with a direct reduction, bit for bit, over seeded PCM with NaN, infinities, both zeros and denormals, bucket sizes from 1 to 4,096 and partial lengths. Folding four pairs equals reducing at the coarser size. Tiles of finite PCM, of NaN, of a lone infinity at each place in a group, of groups of only special values and of every length of tail give the same bits through both paths. Both refuse a length they cannot honour before touching memory.
+- **Browsers.** `npm run bench:peaks` compares the JS and WASM tiles bit for bit in Chrome, Firefox and WebKit over 3.2 million values, then times `kernel.tiles` in the page and the package worker's round trip with each kernel. `--baseline <rev>` times the module committed at that revision alongside, and `--write` records [`measurements/peaks.json`](measurements/peaks.json). In Chrome 157 on an Apple M1, a 1,048,576-sample batch took 0.21 ms in the kernel and 0.34 ms for the round trip, against 0.48 and 0.60 ms with the previous kernel.
 
 ## Reproduce
 
@@ -111,6 +113,8 @@ npm run wasm:check
 npm run bench:wasm
 npm run bench:wasm -- firefox
 npm run bench:wasm -- webkit
+npm run build
+npm run bench:peaks
 ```
 
 The sync runners exit unsuccessfully for an incomplete or out-of-budget short probe, a missed seek or sample assertion, or a continuous run below 99% coverage or above its p95 budget. The negative control succeeds when the observer detects the injected delay. The benchmark exits unsuccessfully if the algorithms disagree.

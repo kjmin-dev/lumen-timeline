@@ -128,6 +128,50 @@ test("tiles hold six levels of the same peaks, with the last tile partial and it
   }
 });
 
+test("tiles reduce four buckets at once, retrying a group an infinity reached, to the same bits", () => {
+  // The WASM kernel skips the finite test for whole 64-sample groups and
+  // redoes a group only when -inf or +inf reached its extremes.
+  const next = random(23);
+  const finite = (length: number): Float32Array =>
+    Float32Array.from({ length }, () => (next(20001) - 10000) / 7919);
+  const cases: [string, Float32Array][] = [];
+  // Finite samples, with a tail of 17 after the last whole group.
+  cases.push(["finite", finite(tileSamples + 3 * 64 + 17)]);
+  // NaN never reaches an extreme, so it keeps the fast path.
+  const nan = finite(4 * 64);
+  for (let i = 0; i < nan.length; i += 7) nan[i] = NaN;
+  cases.push(["NaN", nan]);
+  // A lone -inf, then a lone +inf, at every place of a group.
+  const lone = finite(128 * 64);
+  for (let place = 0; place < 64; place++) {
+    lone[64 * place + place] = -Infinity;
+    lone[64 * (64 + place) + place] = Infinity;
+  }
+  cases.push(["lone infinities", lone]);
+  // Groups of only NaN, only one infinity, both, zeros of both signs, extremes
+  // and denormals.
+  const groups = [[NaN], [Infinity], [-Infinity], [Infinity, -Infinity, NaN], [-0], [-0, 0]];
+  groups.push([3.4e38, -3.4e38, 1e-45, -1e-45]);
+  const special = new Float32Array(64 * groups.length);
+  groups.forEach((values, g) => {
+    for (let i = 0; i < 64; i++) special[64 * g + i] = values[i % values.length] ?? NaN;
+  });
+  cases.push(["special groups", special]);
+  // Every length of tail after whole groups.
+  for (let tail = 1; tail < 64; tail++) cases.push([`tail ${tail}`, finite(2 * 64 + tail)]);
+  for (const [label, samples] of cases) {
+    const count = Math.ceil(samples.length / tileSamples);
+    const [js, simd] = kernels.map((kernel) => {
+      const out = new Float32Array(count * 2 * tilePairs);
+      kernel.tiles(samples, out);
+      return out;
+    });
+    sameBits(simd, js, label);
+    const finest = expected(samples.subarray(0, tileSamples), 16);
+    sameBits(simd.subarray(0, finest.length), finest, `${label}, finest level`);
+  }
+});
+
 test("both kernels refuse lengths they cannot honour before touching memory", () => {
   const samples = new Float32Array(100);
   for (const kernel of kernels) {
