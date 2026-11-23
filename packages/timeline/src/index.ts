@@ -18,15 +18,19 @@ import type {
   Track,
 } from "@lumen-timeline/core";
 import { captionWords } from "./captions.ts";
+import type { CaptionWords } from "./captions.ts";
 import { element } from "./dom.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
 import type {
+  SnapConfig,
   TimelineDiagnostics,
   TimelineHit,
   TimelineOptions,
+  TimelineUpdate,
   TimelineView,
   TransportState,
+  WaveformProvider,
 } from "./types.ts";
 export type * from "./types.ts";
 export type { Viewport } from "./geometry.ts";
@@ -46,6 +50,16 @@ import {
 const maxTick = 7 * 86400 * hz;
 const clampTick = (tick: Tick, end: Tick): Tick => Math.max(0, Math.min(end, tick));
 const markerColor = "#ffd7a4";
+const defaultPixelsPerSecond = 48;
+
+const sameSnap = (a: SnapConfig, b: SnapConfig): boolean =>
+  a.gridTicks === b.gridTicks &&
+  a.tolerancePx === b.tolerancePx &&
+  a.neighbors === b.neighbors &&
+  a.playhead === b.playhead &&
+  a.markers === b.markers;
+const sameWords = (a: CaptionWords, b: CaptionWords): boolean =>
+  a.take === b.take && a.takes === b.takes && a.none === b.none;
 
 interface Row extends Packed {
   readonly track: Track;
@@ -64,21 +78,14 @@ function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   return ctx;
 }
 
-export function mountTimeline(
-  container: HTMLElement,
-  {
-    editor,
-    transport,
-    pixelsPerSecond = 48,
-    startTick = 0,
-    snap,
-    labels,
-    waveforms,
-    renderer = "auto",
-  }: TimelineOptions,
-): TimelineView {
-  const config = snapConfig(snap);
-  const words = captionWords(labels);
+export function mountTimeline(container: HTMLElement, options: TimelineOptions): TimelineView {
+  const { editor, transport, snap, labels, renderer = "auto" } = options;
+  const { pixelsPerSecond = defaultPixelsPerSecond, startTick = 0 } = options;
+  let config = snapConfig(snap);
+  let words = captionWords(labels);
+  let waveforms: WaveformProvider | undefined = options.waveforms;
+  // The viewport values the host last gave, which `update` compares against.
+  let given = { pixelsPerSecond: options.pixelsPerSecond, startTick: options.startTick };
   const doc = container.ownerDocument;
   const windowProxy = doc.defaultView;
   if (!windowProxy) throw new Error("Mount the timeline in a document with a window");
@@ -317,6 +324,7 @@ export function mountTimeline(
     const grid: number[] = [];
     gridLines((x) => grid.push(x));
     const atlas = labelAtlas();
+    const provider = waveforms;
     if (!dirty) {
       boxes = [];
       for (const index of scenes.keys())
@@ -344,7 +352,7 @@ export function mountTimeline(
           grid,
           words,
           takesOf: (id) => read.takesOf(id),
-          peaks: waveforms && ((request) => waveforms.peaks(request)),
+          peaks: provider && ((request) => provider.peaks(request)),
           label: (name, caption, color) => atlas.slot(name, caption, color),
           assets,
         },
@@ -656,7 +664,7 @@ export function mountTimeline(
       paintOverlay();
     },
     message,
-    config,
+    config: () => config,
   });
   // Scrolls a clip's lane into view and, when its start is offscreen, pans to it.
   function hitTest({ x, y }: { readonly x: number; readonly y: number }): TimelineHit | null {
@@ -804,16 +812,52 @@ export function mountTimeline(
     paint(tracks);
     waveFrame = win.requestAnimationFrame(waveRepaint);
   }
-  const offWaveforms =
-    waveforms?.subscribe?.((assetId) => {
-      const repaint = (): void => {
-        if (disposed) return;
-        for (const track of playing(assetId)) waveTracks.add(track);
-        if (waveTracks.size && !waveFrame) waveRepaint();
-      };
-      if (painting) queueMicrotask(repaint);
-      else repaint();
-    }) ?? (() => {});
+  function watchWaveforms(provider: WaveformProvider | undefined): () => unknown {
+    return (
+      provider?.subscribe?.((assetId) => {
+        const repaint = (): void => {
+          if (disposed || provider !== waveforms) return;
+          for (const track of playing(assetId)) waveTracks.add(track);
+          if (waveTracks.size && !waveFrame) waveRepaint();
+        };
+        if (painting) queueMicrotask(repaint);
+        else repaint();
+      }) ?? (() => {})
+    );
+  }
+  let offWaveforms = watchWaveforms(waveforms);
+  function update(next: TimelineUpdate): void {
+    if (disposed) return;
+    const has = (key: keyof TimelineUpdate): boolean => Object.hasOwn(next, key);
+    // Validate everything before changing anything.
+    const nextConfig = has("snap") ? snapConfig(next.snap) : config;
+    const nextWords = has("labels") ? captionWords(next.labels) : words;
+    const nextWaveforms = has("waveforms") ? next.waveforms : waveforms;
+    const moved: { pixelsPerSecond?: number; startTick?: Tick } = {};
+    if (has("pixelsPerSecond") && next.pixelsPerSecond !== given.pixelsPerSecond)
+      moved.pixelsPerSecond = next.pixelsPerSecond ?? defaultPixelsPerSecond;
+    if (has("startTick") && next.startTick !== given.startTick)
+      moved.startTick = next.startTick ?? 0;
+    given = {
+      pixelsPerSecond: has("pixelsPerSecond") ? next.pixelsPerSecond : given.pixelsPerSecond,
+      startTick: has("startTick") ? next.startTick : given.startTick,
+    };
+    if (!sameSnap(nextConfig, config)) config = nextConfig;
+    let repaint = false;
+    if (!sameWords(nextWords, words)) {
+      words = nextWords;
+      repaint = true;
+    }
+    if (nextWaveforms !== waveforms) {
+      offWaveforms();
+      waveforms = nextWaveforms;
+      offWaveforms = watchWaveforms(waveforms);
+      waveTracks.clear();
+      repaint = true;
+    }
+    if (moved.pixelsPerSecond !== undefined || moved.startTick !== undefined) setViewport(moved);
+    else if (repaint) paint();
+  }
   const resize = new win.ResizeObserver(refresh);
   resize.observe(surface);
   resize.observe(scroll);
@@ -830,6 +874,7 @@ export function mountTimeline(
   updateMarkers();
   onResolution();
   const mounted: TimelineView = {
+    update,
     setViewport,
     getViewport: () => ({ ...view }),
     reveal,

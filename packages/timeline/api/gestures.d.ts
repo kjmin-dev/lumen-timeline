@@ -39,7 +39,8 @@ export interface EditingOptions {
     readonly getView: () => Viewport;
     readonly setGhost: (clips: readonly Clip[]) => void;
     readonly message: HTMLElement;
-    readonly config: SnapConfig;
+    /** The snap settings now, which the host can change while the view is mounted. */
+    readonly config: () => SnapConfig;
 }
 export declare function handleAt(box: {
     readonly left: number;

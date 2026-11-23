@@ -105,6 +105,15 @@ export interface TimelineOptions {
   readonly renderer?: "auto" | "webgl2" | "webgpu" | "canvas2d" | undefined;
 }
 
+/**
+ * The options a mounted view can change. `editor`, `transport` and `renderer`
+ * are fixed for a view's life; mount another view to change them.
+ */
+export type TimelineUpdate = Pick<
+  TimelineOptions,
+  "pixelsPerSecond" | "startTick" | "snap" | "labels" | "waveforms"
+>;
+
 export interface TimelineDiagnostics {
   readonly layoutBuilds: number;
   readonly staticPaints: number;
@@ -144,6 +153,17 @@ export interface TimelineHit {
 }
 
 export interface TimelineView {
+  /**
+   * Applies the options given, as a framework wrapper does on every render. A
+   * key left out keeps its value, and a key given as `undefined` returns to its
+   * default. Snap settings and caption words are compared by value, so equal
+   * ones change nothing. A new waveform provider replaces the old one and the
+   * clips repaint. `pixelsPerSecond` and `startTick` move the viewport only
+   * when they differ from the values last given, at mount or here, so the
+   * user's pan and zoom survive a host that passes the same values again.
+   * Throws a `RangeError` for invalid snap settings, before changing anything.
+   */
+  update(options: TimelineUpdate): void;
   setViewport(viewport: Partial<Viewport>): void;
   getViewport(): Viewport;
   /**

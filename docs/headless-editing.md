@@ -170,6 +170,29 @@ editor.setGate(({ history, commands, targets, revision }) =>
 - **Hold.** `"hold"` returns `{ ok: false, held: true, code: "held", commands, targets }` and changes nothing: no revision, history entry or notification. A held split's commands already name its new clip, so dispatching them later makes the same clip. A view can mark the targets pending.
 - **Rules.** The gate must answer synchronously with one of these decisions. It cannot dispatch, undo, redo or replace from inside itself. An error it throws reaches the caller and nothing changes.
 
+## Watching state
+
+Framework panels and other hosts read the editor through one value that changes only when it should. The [framework wrappers](plans/framework-wrappers.md) build on these.
+
+```js
+import { shallowEqual, watchEditor, watchSelect } from "@lumen-timeline/core";
+
+const inspector = watchSelect(
+  watchEditor(editor),
+  ({ snapshot, selection }) => {
+    const clip = snapshot.clips.find((c) => c.id === selection.at(-1));
+    return { clipId: clip?.id ?? null, takeId: clip?.activeTakeId ?? null };
+  },
+  shallowEqual,
+);
+const stop = inspector.subscribe(() => render(inspector.get()));
+```
+
+- **`watchEditor(editor)`** is `{ snapshot, selection, history }`. Its identity changes only when one of the three does. A commit that also prunes the selection and records history notifies once, with all three current. It subscribes to the editor only while it has listeners, and `get()` without listeners returns the current state. Stop listening before disposing the editor.
+- **`watchSnapshots(source)`** does the same for any source with `snapshot()` and `subscribe(listener)`, such as a transport. A source that returns the same object until it notifies, as the media transports do, keeps the value's identity stable.
+- **`watchSelect(source, select, isEqual)`** derives a field. `select` runs when the source's value changes, and listeners run only when `isEqual`, `Object.is` by default, finds the field changed. An equal field keeps its previous identity. `shallowEqual` compares arrays and plain objects one level deep.
+- **Delivery.** `subscribe(listener)` returns a function that removes that listener; one function subscribed twice is two listeners. Edits made by a listener notify again, with the final state. A listener's error is reported, and the other listeners still run.
+
 ## Canonical order
 
 Snapshots order markers by start and then ID, takes by ID, and each track's clips by start and then ID. IDs compare by UTF-16 code unit, as JavaScript's `<` does. An implementation in another language must use the same comparison to produce the same snapshot; UTF-8 byte order differs for characters outside the Basic Multilingual Plane.
