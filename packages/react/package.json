@@ -1,0 +1,21 @@
+{
+  "name": "@lumen-timeline/react",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@lumen-timeline/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@lumen-timeline/core": "0.0.0",
+    "@lumen-timeline/timeline": "0.0.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.1"
+  }
+}

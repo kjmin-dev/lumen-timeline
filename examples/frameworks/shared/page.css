@@ -1,0 +1,64 @@
+/* The same page in every consumer, so pointer positions land on the same clips. */
+body {
+  margin: 0;
+  background: #101417;
+  color: #e8e4d8;
+  font:
+    14px system-ui,
+    sans-serif;
+}
+.bar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  height: 44px;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+.clock {
+  font:
+    13px ui-monospace,
+    monospace;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: 960px 260px;
+  gap: 16px;
+  padding: 0 16px;
+  align-items: start;
+}
+.timeline {
+  grid-column: 1;
+  min-height: 1px;
+}
+.timeline .lt-scroll {
+  height: 240px;
+}
+.inspector {
+  grid-column: 2;
+  padding: 12px;
+  border: 1px solid #2b3438;
+  border-radius: 6px;
+}
+.inspector h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.inspector p {
+  margin: 0 0 10px;
+  color: #9da9ad;
+}
+.inspector button {
+  display: block;
+  width: 100%;
+  margin: 4px 0;
+  padding: 6px 8px;
+  background: #1b2226;
+  color: inherit;
+  border: 1px solid #39454a;
+  border-radius: 4px;
+  text-align: left;
+}
+.inspector button[aria-pressed="true"] {
+  border-color: #ffd7a4;
+}
