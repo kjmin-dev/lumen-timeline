@@ -15,5 +15,6 @@ Each plan states a user outcome, the commit it starts from, the pull requests th
 | [Edits that replay elsewhere](replayable-edits.md)         | Session-scoped IDs, commits that replay in another editor, and clip records by ID            | #25, #26           |
 | [Share one project between editors](shared-sessions.md)    | Optional sharing with no server required: any participant orders commands                    | #29, #35–#38       |
 | [Render a large timeline](scale-rendering.md)              | Waveform tiles from a worker, WebGL2, opt-in WebGPU and Canvas 2D on one layout, device loss | #39–#44            |
+| [Four framework wrappers](framework-wrappers.md)           | React, Svelte, SolidJS and Vue mount the shared view and select fields for their own panels  | W1–W4 planned      |
 
 Milestones and their exit criteria are in the [roadmap](../../ROADMAP.md#milestones).
