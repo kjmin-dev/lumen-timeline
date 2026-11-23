@@ -17,6 +17,7 @@ import { layoutRow, QuadList } from "./layout.ts";
 import type { RowQuads } from "./renderer.ts";
 import { createRendererHost } from "./renderers.ts";
 import { registerReader } from "./probe.ts";
+import { createTrackHeaders } from "./track-headers.ts";
 import { TICKS_PER_SECOND as hz, sequenceDuration } from "@lumen-timeline/core";
 import { commands } from "@lumen-timeline/core";
 import type {
@@ -562,94 +563,11 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     frame();
   }
   let relaying = false;
-  // One header per visible row, kept by row index at its place in the scrolled
-  // content. A vertical scroll moves the list and changes a header only where
-  // a row comes into view or leaves it.
-  const headers = new Map<
-    number,
-    {
-      readonly element: HTMLElement;
-      key: string;
-      track?: Track;
-      renderer?: TrackHeaderRenderer | undefined;
-      color?: string;
-    }
-  >();
   function place(): void {
     visible = rows.filter(
       (row) => row.top < scrollTop + height && row.top + row.height > scrollTop,
     );
-    if (!chrome.trackHeaders) {
-      for (const header of headers.values()) header.element.remove();
-      headers.clear();
-      return;
-    }
-    const shown = new Set(visible.map((row) => row.index));
-    for (const [index, header] of headers)
-      if (!shown.has(index)) {
-        header.element.remove();
-        headers.delete(index);
-      }
-    for (const row of visible) {
-      const accent =
-        row.track.color ?? theme.palette[row.index % theme.palette.length]?.stripeHex ?? "#87d6cb";
-      let header = headers.get(row.index);
-      if (!header) {
-        const el = doc.createElement("div");
-        el.className = "lt-label";
-        el.style.setProperty("--track-color", accent);
-        // In row order, before the header of the next row down.
-        let next: HTMLElement | null = null;
-        let nearest = Infinity;
-        for (const [index, other] of headers)
-          if (index > row.index && index < nearest) {
-            nearest = index;
-            next = other.element;
-          }
-        headerList.insertBefore(el, next);
-        header = { element: el, key: "", color: accent };
-        headers.set(row.index, header);
-      }
-      if (header.color !== accent) {
-        header.color = accent;
-        header.element.style.setProperty("--track-color", accent);
-      }
-      if (renderTrackHeader) {
-        const key = [row.top, row.height].join();
-        if (
-          header.key === key &&
-          header.track === row.track &&
-          header.renderer === renderTrackHeader
-        )
-          continue;
-        header.key = key;
-        header.track = row.track;
-        header.renderer = renderTrackHeader;
-        header.element.classList.add("lt-label-custom");
-        header.element.style.top = row.top + "px";
-        header.element.style.height = row.height + "px";
-        const content = renderTrackHeader(row.track, {
-          element: header.element,
-          track: row.track,
-          index: row.index,
-          height: row.height,
-          editor,
-        });
-        if (content) header.element.replaceChildren(content);
-      } else {
-        const name = row.track.name ?? row.track.id;
-        const key = [row.top, row.height, name].join();
-        if (header.key === key && header.renderer === undefined) continue;
-        header.key = key;
-        header.track = row.track;
-        header.renderer = undefined;
-        header.element.classList.remove("lt-label-custom");
-        header.element.style.top = row.top + "px";
-        header.element.style.height = row.height + "px";
-        header.element.textContent = name;
-      }
-    }
-    headerList.style.transform = "translateY(" + -scrollTop + "px)";
+    trackHeaders.place(visible);
   }
   // Measures the mount, places the visible rows' headers, and draws.
   function refresh(): void {
@@ -894,6 +812,28 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
       seek(target);
     }
   });
+  const trackHeaders = createTrackHeaders({
+    root,
+    list: headerList,
+    pin,
+    scroll,
+    editor,
+    signal: events.signal,
+    rows: () => rows,
+    viewportHeight: () => height,
+    scrollTop: () => scrollTop,
+    accent: (row) =>
+      row.track.color ?? theme.palette[row.index % theme.palette.length]?.stripeHex ?? "#87d6cb",
+    chrome: () => chrome,
+    readOnly: () => readOnly,
+    shortcuts: () => shortcuts,
+    uiLabels: () => uiLabels,
+    renderer: () => renderTrackHeader,
+    scrollToTrack: (trackId) => {
+      scrollToTrack(trackId);
+    },
+    report: reportEdit,
+  });
   const editing = bindEditing({
     root,
     surface,
@@ -1134,6 +1074,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     };
 
     if (!sameSnap(nextConfig, config)) config = nextConfig;
+    const shortcutsChanged = nextShortcuts !== shortcuts;
     shortcuts = nextShortcuts;
     hostEvents = nextEvents;
 
@@ -1217,6 +1158,10 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     }
 
     if (needEditingSync) editing.sync();
+    if (needEditingSync || shortcutsChanged) {
+      trackHeaders.sync();
+      needPlace = true;
+    }
     if (moved.pixelsPerSecond !== undefined || moved.startTick !== undefined) {
       view = viewport(
         moved.startTick ?? view.startTick,
@@ -1247,6 +1192,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   }
   applyChrome();
   applyUiLabels();
+  trackHeaders.sync();
   rebuildRows();
   updateNavigator();
   updateMarkers();
@@ -1258,6 +1204,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     getViewport: () => ({ ...view }),
     reveal,
     scrollToTrack,
+    renameTrack: (trackId) => !disposed && trackHeaders.rename(trackId),
     repaint,
     hitTest,
     getDiagnostics: () => ({
@@ -1287,7 +1234,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
       atlas?.dispose();
       atlas = null;
       scenes.clear();
-      headers.clear();
+      trackHeaders.dispose();
       root.remove();
     },
   };

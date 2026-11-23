@@ -19,6 +19,8 @@ export interface ResolvedChrome {
   readonly status: boolean;
   readonly clipNavigator: boolean;
   readonly markerNavigator: boolean;
+  readonly trackRename: boolean;
+  readonly trackReorder: boolean;
 }
 
 export function resolveChrome(option?: TimelineChromeOption): ResolvedChrome {
@@ -33,6 +35,8 @@ export function resolveChrome(option?: TimelineChromeOption): ResolvedChrome {
       status: false,
       clipNavigator: false,
       markerNavigator: false,
+      trackRename: false,
+      trackReorder: false,
     };
   }
   if (option === "minimal") {
@@ -46,6 +50,8 @@ export function resolveChrome(option?: TimelineChromeOption): ResolvedChrome {
       status: false,
       clipNavigator: false,
       markerNavigator: false,
+      trackRename: false,
+      trackReorder: false,
     };
   }
   return {
@@ -58,6 +64,8 @@ export function resolveChrome(option?: TimelineChromeOption): ResolvedChrome {
     status: option?.status ?? true,
     clipNavigator: option?.clipNavigator ?? true,
     markerNavigator: option?.markerNavigator ?? true,
+    trackRename: option?.trackRename ?? true,
+    trackReorder: option?.trackReorder ?? true,
   };
 }
 
@@ -71,7 +79,9 @@ export function sameChrome(a: ResolvedChrome, b: ResolvedChrome): boolean {
     a.editToolbar === b.editToolbar &&
     a.status === b.status &&
     a.clipNavigator === b.clipNavigator &&
-    a.markerNavigator === b.markerNavigator
+    a.markerNavigator === b.markerNavigator &&
+    a.trackRename === b.trackRename &&
+    a.trackReorder === b.trackReorder
   );
 }
 
@@ -99,6 +109,9 @@ export interface ResolvedUiLabels {
   readonly splitAtPlayhead: string;
   readonly undo: string;
   readonly redo: string;
+  readonly trackName: string;
+  readonly reorderTrack: string;
+  readonly trackMoved: string;
 }
 
 export function resolveUiLabels(labels: TimelineLabels = {}): ResolvedUiLabels {
@@ -126,6 +139,9 @@ export function resolveUiLabels(labels: TimelineLabels = {}): ResolvedUiLabels {
     splitAtPlayhead: labels.splitAtPlayhead ?? "Split at playhead",
     undo: labels.undo ?? "Undo",
     redo: labels.redo ?? "Redo",
+    trackName: labels.trackName ?? "Track name",
+    reorderTrack: labels.reorderTrack ?? "Drag to reorder",
+    trackMoved: labels.trackMoved ?? "{name} moved to position {position} of {count}",
   };
 }
 
@@ -153,7 +169,10 @@ export function sameUiLabels(a: ResolvedUiLabels, b: ResolvedUiLabels): boolean 
     a.apply === b.apply &&
     a.splitAtPlayhead === b.splitAtPlayhead &&
     a.undo === b.undo &&
-    a.redo === b.redo
+    a.redo === b.redo &&
+    a.trackName === b.trackName &&
+    a.reorderTrack === b.reorderTrack &&
+    a.trackMoved === b.trackMoved
   );
 }
 

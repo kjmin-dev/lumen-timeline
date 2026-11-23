@@ -10,6 +10,8 @@ export interface ResolvedChrome {
     readonly status: boolean;
     readonly clipNavigator: boolean;
     readonly markerNavigator: boolean;
+    readonly trackRename: boolean;
+    readonly trackReorder: boolean;
 }
 export declare function resolveChrome(option?: TimelineChromeOption): ResolvedChrome;
 export declare function sameChrome(a: ResolvedChrome, b: ResolvedChrome): boolean;
@@ -37,6 +39,9 @@ export interface ResolvedUiLabels {
     readonly splitAtPlayhead: string;
     readonly undo: string;
     readonly redo: string;
+    readonly trackName: string;
+    readonly reorderTrack: string;
+    readonly trackMoved: string;
 }
 export declare function resolveUiLabels(labels?: TimelineLabels): ResolvedUiLabels;
 export declare function sameUiLabels(a: ResolvedUiLabels, b: ResolvedUiLabels): boolean;
