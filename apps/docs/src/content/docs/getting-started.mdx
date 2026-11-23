@@ -3,6 +3,8 @@ title: Getting started
 description: Clone the Lumen Timeline workspace, build the TypeScript packages, run the browser examples and mount your first timeline.
 ---
 
+import { TabItem, Tabs } from "@astrojs/starlight/components";
+
 Lumen Timeline is currently developed in a workspace repository while milestone 6 validates the first npm release. All eight packages are written in strict TypeScript, compiled by [tsrs](https://github.com/oxc-project/tsrs) into ES modules with declarations, and tested directly against both source and build outputs.
 
 ## Clone and build
@@ -31,16 +33,14 @@ Open the printed local address to explore three runnable workspaces with zero re
 
 ## Minimal integration
 
-Mount the timeline in vanilla JavaScript, or wrap the same `editor` and `transport` in [React](/frameworks/react/), [Svelte](/frameworks/svelte/), [SolidJS](/frameworks/solid/) or [Vue](/frameworks/vue/):
+The host creates the `editor` and the `transport` once, in a module of its own:
 
-```js
-import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
+```js title="session.js"
+import { createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
-import { mountTimeline } from "@lumen-timeline/timeline";
-import "@lumen-timeline/timeline/style.css";
 
 const sec = (n) => unitsToTicks(n, 1);
-const editor = createEditor({
+export const editor = createEditor({
   project: {
     schemaVersion: 1,
     duration: sec(30),
@@ -71,11 +71,89 @@ const editor = createEditor({
 });
 
 const context = new AudioContext({ sampleRate: 48000 });
-const transport = createAudioTransport({ editor, context, catalog, resolveBuffer });
-const view = mountTimeline(document.querySelector("#timeline"), { editor, transport });
+export const transport = createAudioTransport({ editor, context, catalog, resolveBuffer });
+```
 
-// Dispatch transactional edits from pointer gestures, keyboard or host panels.
-editor.dispatch(commands.splitClip({ clipId: "line-1", at: sec(4) }));
+Then mount the view on them in vanilla JavaScript, or through the [React](/frameworks/react/), [Svelte](/frameworks/svelte/), [SolidJS](/frameworks/solid/) or [Vue](/frameworks/vue/) wrapper. A wrapper never creates or disposes either. The tab you pick is kept on every page of this site:
+
+<Tabs syncKey="framework">
+<TabItem label="Vanilla">
+
+```js title="main.js"
+import { mountTimeline } from "@lumen-timeline/timeline";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./session.js";
+
+const view = mountTimeline(document.querySelector("#timeline"), { editor, transport });
+```
+
+</TabItem>
+<TabItem label="React">
+
+```jsx title="App.jsx"
+import { Timeline } from "@lumen-timeline/react";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./session.js";
+
+export function App() {
+  return <Timeline editor={editor} transport={transport} />;
+}
+```
+
+</TabItem>
+<TabItem label="Svelte">
+
+```svelte title="App.svelte"
+<script>
+  import { timeline } from "@lumen-timeline/svelte";
+  import "@lumen-timeline/timeline/style.css";
+  import { editor, transport } from "./session.js";
+</script>
+
+<div {@attach timeline(() => ({ editor, transport }))}></div>
+```
+
+</TabItem>
+<TabItem label="SolidJS">
+
+```jsx title="App.jsx"
+import { createSignal } from "solid-js";
+import { createTimeline } from "@lumen-timeline/solid";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./session.js";
+
+export function App() {
+  const [element, setElement] = createSignal();
+  createTimeline(element, () => ({ editor, transport }));
+  return <div ref={setElement} />;
+}
+```
+
+</TabItem>
+<TabItem label="Vue">
+
+```vue title="App.vue"
+<script setup>
+import { Timeline } from "@lumen-timeline/vue";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./session.js";
+</script>
+
+<template>
+  <Timeline :editor="editor" :transport="transport" />
+</template>
+```
+
+</TabItem>
+</Tabs>
+
+Every view edits the same editor. Dispatch transactional edits from pointer gestures, the keyboard or host panels:
+
+```js
+import { commands, unitsToTicks } from "@lumen-timeline/core";
+import { editor } from "./session.js";
+
+editor.dispatch(commands.splitClip({ clipId: "line-1", at: unitsToTicks(4, 1) }));
 editor.history.undo();
 ```
 

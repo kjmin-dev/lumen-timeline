@@ -12,8 +12,66 @@ const close = sequencer.connect(transportToEditor);
 // In each editor.
 const session = connectSession({ id: "tidal-study", transport, policy: "queue" });
 const editor = await session.ready;
+```
+
+The session's editor is an ordinary editor, so the view mounts on it as on any other, with the host's media transport (`player` here, not the sync transport):
+
+<!-- framework-tabs -->
+
+**Vanilla**
+
+```js
+import { mountTimeline } from "@lumen-timeline/timeline";
+
 mountTimeline(element, { editor, transport: player });
 ```
+
+**React**
+
+```jsx
+import { Timeline } from "@lumen-timeline/react";
+
+<Timeline editor={editor} transport={player} />;
+```
+
+**Svelte**
+
+```svelte
+<script>
+  import { timeline } from "@lumen-timeline/svelte";
+</script>
+
+<div {@attach timeline(() => ({ editor, transport: player }))}></div>
+```
+
+**SolidJS**
+
+```jsx
+import { createSignal } from "solid-js";
+import { createTimeline } from "@lumen-timeline/solid";
+
+function Workspace() {
+  const [element, setElement] = createSignal();
+  createTimeline(element, () => ({ editor, transport: player }));
+  return <div ref={setElement} />;
+}
+```
+
+**Vue**
+
+```vue
+<script setup>
+import { Timeline } from "@lumen-timeline/vue";
+</script>
+
+<template>
+  <Timeline :editor="editor" :transport="player" />
+</template>
+```
+
+<!-- /framework-tabs -->
+
+Render the component once `session.ready` has resolved, for example by awaiting it before the application mounts.
 
 A transport is `{ send(message), onMessage(listener) }`, one per connection, and the host carries the JSON messages: over `BroadcastChannel`, a WebSocket, a WebRTC data channel or anything else. `createLink()` makes an in-memory pair for tests, with optional loss, duplication and reordering.
 

@@ -12,8 +12,64 @@ const transport = createVideoTransport({
   resolveBuffer,
   onError,
 });
+```
+
+The view takes the transport beside the editor it plays:
+
+<!-- framework-tabs -->
+
+**Vanilla**
+
+```js
+import { mountTimeline } from "@lumen-timeline/timeline";
+
 const view = mountTimeline(container, { editor, transport });
 ```
+
+**React**
+
+```jsx
+import { Timeline } from "@lumen-timeline/react";
+
+<Timeline editor={editor} transport={transport} />;
+```
+
+**Svelte**
+
+```svelte
+<script>
+  import { timeline } from "@lumen-timeline/svelte";
+</script>
+
+<div {@attach timeline(() => ({ editor, transport }))}></div>
+```
+
+**SolidJS**
+
+```jsx
+import { createSignal } from "solid-js";
+import { createTimeline } from "@lumen-timeline/solid";
+
+function Workspace() {
+  const [element, setElement] = createSignal();
+  createTimeline(element, () => ({ editor, transport }));
+  return <div ref={setElement} />;
+}
+```
+
+**Vue**
+
+```vue
+<script setup>
+import { Timeline } from "@lumen-timeline/vue";
+</script>
+
+<template>
+  <Timeline :editor="editor" :transport="transport" />
+</template>
+```
+
+<!-- /framework-tabs -->
 
 The `catalog` is a [stream catalog](playback-read-api.md): `{ version, streams }`, where `streams[assetId][streamId]` gives the decoded sample rate, asset version and available samples behind each take.
 
@@ -37,8 +93,9 @@ const transport = createAudioTransport({
   catalog,
   resolveBuffer,
 });
-const view = mountTimeline(element, { editor, transport });
 ```
+
+The view and the framework wrappers take it as they take the video transport above.
 
 The audio driver supports arbitrary positive playback rates via `setPlaybackRate(rate)` (defaulting to `1`) and optional half-open loop ranges via `setLoop({ start, end } | null)`. On play or an active seek, it anchors the project tick to an absolute output sample one nominal 128-frame quantum ahead of the rendering clock. The shared scheduler fills from the target tick, including sources already in progress. It also advances the transport through silence, loops back to `loop.start` when playback reaches `loop.end`, and stops at the exclusive sequence end. A fixed project duration sets the end. With an implicit duration, the ruler and transport both use the last clip end, including after undo and redo.
 

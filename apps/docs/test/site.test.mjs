@@ -137,7 +137,35 @@ describe("built documentation site", () => {
 
     const timelineMd = await readFile(join(dist, "guides/timeline-view.md"), "utf8");
     assert.doesNotMatch(timelineMd, /<Demo /);
-    assert.doesNotMatch(timelineMd, /^import /m);
+    // MDX imports go; the examples' own imports stay.
+    assert.doesNotMatch(
+      timelineMd,
+      /^import .* from "(?:@astrojs\/starlight\/components|.*\.astro)";$/m,
+    );
+    assert.match(timelineMd, /^import \{ Timeline \} from "@lumen-timeline\/react";$/m);
+
+    // Framework tabs: synced Starlight tabs on the page, labelled code blocks in plain Markdown.
+    const tabLabels = ["Vanilla", "React", "Svelte", "SolidJS", "Vue"];
+    for (const page of [
+      "getting-started",
+      "ko/getting-started",
+      "guides/timeline-view",
+      "guides/waveforms",
+      "guides/transports",
+      "guides/sync",
+    ]) {
+      const html = await readFile(join(dist, page, "index.html"), "utf8");
+      const group = /<starlight-tabs data-sync-key="framework"[\s\S]*?<\/ul>/.exec(html)?.[0];
+      assert.ok(group, `${page}: no framework tabs`);
+      const labels = [
+        ...group.matchAll(/role="tab"[^>]*>\s*(?:<[^>]+>\s*)*([^<\s][^<]*?)\s*</g),
+      ].map((match) => match[1]);
+      assert.deepEqual(labels, tabLabels, `${page}: framework tab labels`);
+      if (page.startsWith("ko/")) continue;
+      const md = await readFile(join(dist, `${page}.md`), "utf8");
+      assert.doesNotMatch(md, /<\/?(?:Tabs|TabItem)\b/, `${page}.md: tab markup left`);
+      for (const label of tabLabels) assert.match(md, new RegExp(`^\\*\\*${label}\\*\\*$`, "m"));
+    }
   });
 
   it("inlines demo frames with srcdoc and preloads island modules", async () => {

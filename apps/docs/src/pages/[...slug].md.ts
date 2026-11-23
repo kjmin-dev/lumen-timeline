@@ -52,17 +52,22 @@ export const getStaticPaths: GetStaticPaths = async () => {
 
 /** Strips MDX imports, comments and browser-only widgets for plain-Markdown output. */
 function toPlainMarkdown(body: string): string {
-  return body
-    .replace(/^import .* from "(?:@astrojs\/starlight\/components|.*\.astro)";$/gm, "")
-    .replace(/^\{\/\*[\s\S]*?\*\/\}$/gm, "")
-    .replace(/^<!--[\s\S]*?-->$/gm, "")
-    .replace(/^<Demo .*\/>$/gm, "")
-    .replace(/^The live (?:timeline|example) above .*$/gm, "")
-    .replace(/^<PackageMatrix \/>$/gm, () => packagesMarkdown(PACKAGE_LIST))
-    .replace(/<figure class="arch-diagram[\s\S]*?<\/figure>/g, ARCH_MERMAID)
-    .replace(/<\/?(?:CardGrid|Card)[^>]*>/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return (
+    body
+      .replace(/^import .* from "(?:@astrojs\/starlight\/components|.*\.astro)";$/gm, "")
+      .replace(/^\{\/\*[\s\S]*?\*\/\}$/gm, "")
+      .replace(/^<!--[\s\S]*?-->$/gm, "")
+      .replace(/^<Demo .*\/>$/gm, "")
+      .replace(/^The live (?:timeline|example) above .*$/gm, "")
+      .replace(/^<PackageMatrix \/>$/gm, () => packagesMarkdown(PACKAGE_LIST))
+      .replace(/<figure class="arch-diagram[\s\S]*?<\/figure>/g, ARCH_MERMAID)
+      .replace(/<\/?(?:CardGrid|Card)[^>]*>/g, "")
+      // Framework tabs read as labelled code blocks, as in the repository's Markdown.
+      .replace(/^<TabItem label="([^"]+)">$/gm, "**$1**")
+      .replace(/^<\/?Tabs[^>]*>$|^<\/TabItem>$/gm, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  );
 }
 
 interface RouteProps {

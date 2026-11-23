@@ -150,6 +150,91 @@ export function rewriteDocLinks(
   return lines.join("\n");
 }
 
+/** The tabs of every framework example group, in order. */
+export const FRAMEWORK_TABS: readonly string[] = ["Vanilla", "React", "Svelte", "SolidJS", "Vue"];
+
+const TABS_OPEN = "<!-- framework-tabs -->";
+const TABS_CLOSE = "<!-- /framework-tabs -->";
+
+/** The MDX import that `frameworkTabs` output needs. */
+export const TABS_IMPORT = 'import { TabItem, Tabs } from "@astrojs/starlight/components";';
+
+/**
+ * Turns each framework example group into Starlight tabs that share one choice across the site.
+ * In the repository's Markdown a group reads as labelled code blocks:
+ *
+ *     <!-- framework-tabs -->
+ *     **Vanilla**
+ *     ```js
+ *     …
+ *     ```
+ *     **React**
+ *     …
+ *     <!-- /framework-tabs -->
+ *
+ * Each label in `FRAMEWORK_TABS` must appear once, in order, followed by one fenced block.
+ * Throws on anything else, so a group cannot lose a framework without failing the build.
+ */
+export function frameworkTabs(markdown: string, sourceFile: string): string {
+  const lines = markdown.split("\n");
+  const out: string[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index] ?? "";
+    if (line.trim() === TABS_CLOSE) {
+      throw new Error(`${sourceFile}: ${TABS_CLOSE} without ${TABS_OPEN}`);
+    }
+    if (line.trim() !== TABS_OPEN) {
+      out.push(line);
+      index++;
+      continue;
+    }
+    index++;
+    const tabs: { label: string; code: string[] }[] = [];
+    let closed = false;
+    while (index < lines.length) {
+      const current = (lines[index] ?? "").trim();
+      index++;
+      if (current === "") continue;
+      if (current === TABS_CLOSE) {
+        closed = true;
+        break;
+      }
+      const label = /^\*\*(.+)\*\*$/.exec(current)?.[1];
+      if (!label) {
+        throw new Error(
+          `${sourceFile}: expected a **Label** line in a framework group: ${current}`,
+        );
+      }
+      while ((lines[index] ?? "").trim() === "") index++;
+      const fence = /^(`{3,}|~{3,})/.exec(lines[index] ?? "")?.[1];
+      if (!fence) throw new Error(`${sourceFile}: **${label}** is not followed by a code block`);
+      const code = [lines[index] ?? ""];
+      index++;
+      while (index < lines.length) {
+        const body = lines[index] ?? "";
+        code.push(body);
+        index++;
+        const close = /^\s*(`{3,}|~{3,})\s*$/.exec(body)?.[1];
+        if (close && close[0] === fence[0] && close.length >= fence.length) break;
+      }
+      tabs.push({ label, code });
+    }
+    const labels = tabs.map((tab) => tab.label);
+    if (!closed || labels.join() !== FRAMEWORK_TABS.join()) {
+      throw new Error(
+        `${sourceFile}: a framework group needs the tabs ${FRAMEWORK_TABS.join(", ")} in order and ${TABS_CLOSE}; found ${labels.join(", ") || "none"}`,
+      );
+    }
+    out.push('<Tabs syncKey="framework">');
+    for (const tab of tabs) {
+      out.push(`<TabItem label="${tab.label}">`, "", ...tab.code, "", "</TabItem>");
+    }
+    out.push("</Tabs>");
+  }
+  return out.join("\n");
+}
+
 const ARCH_DIAGRAM_SVG = `<figure class="arch-diagram not-content">
   <svg viewBox="0 0 720 348" role="img" aria-labelledby="arch-diagram-title arch-diagram-desc" xmlns="http://www.w3.org/2000/svg">
     <title id="arch-diagram-title">Lumen Timeline package and runtime dependency graph</title>
@@ -244,8 +329,14 @@ async function copyDoc(
   const raw = await readFile(join(root, sourceFile), "utf8");
   let body = rewriteDocLinks(stripTitle(raw), sourceFile, options.extraRules);
   if (options.transform) body = options.transform(body);
+  const tabbed = frameworkTabs(body, sourceFile);
+  if (tabbed !== body && !options.mdx) {
+    throw new Error(`${sourceFile}: framework tabs need an .mdx page; pass mdx: true`);
+  }
+  body = tabbed;
   const note = options.mdx ? NOTE(sourceFile) : HTML_NOTE(sourceFile);
-  const parts = [note, ...(options.prefix ? [options.prefix] : []), body];
+  const imports = tabbed.includes('<Tabs syncKey="framework">') ? [TABS_IMPORT] : [];
+  const parts = [note, ...imports, ...(options.prefix ? [options.prefix] : []), body];
   await writePage(outPath, meta, parts.join("\n\n"));
 }
 
@@ -823,12 +914,17 @@ export async function generateAll(): Promise<void> {
       "Revision-pinned interval queries, marker lookups, stream catalogs, take overrides, isolation and audible span plans.",
     order: 3,
   });
-  await copyDoc("docs/media-transports.md", "guides/transports.md", {
-    title: "Media transports",
-    description:
-      "Video and audio-only transports, play-to-stop, isolated and mix take auditioning, and marker crossing subscriptions.",
-    order: 4,
-  });
+  await copyDoc(
+    "docs/media-transports.md",
+    "guides/transports.mdx",
+    {
+      title: "Media transports",
+      description:
+        "Video and audio-only transports, play-to-stop, isolated and mix take auditioning, and marker crossing subscriptions.",
+      order: 4,
+    },
+    { mdx: true },
+  );
   await copyDoc("docs/incremental-playback.md", "guides/incremental-playback.md", {
     title: "Incremental playback",
     description:
@@ -853,12 +949,17 @@ export async function generateAll(): Promise<void> {
       ].join("\n\n"),
     },
   );
-  await copyDoc("docs/waveforms.md", "guides/waveforms.md", {
-    title: "Waveform tiles",
-    description:
-      "Six-level waveform tile pyramid built in a module worker with an optional Rust 1.100.0 SIMD kernel and LRU byte budget.",
-    order: 7,
-  });
+  await copyDoc(
+    "docs/waveforms.md",
+    "guides/waveforms.mdx",
+    {
+      title: "Waveform tiles",
+      description:
+        "Six-level waveform tile pyramid built in a module worker with an optional Rust 1.100.0 SIMD kernel and LRU byte budget.",
+      order: 7,
+    },
+    { mdx: true },
+  );
   await copyDoc(
     "docs/sync.md",
     "guides/sync.mdx",
