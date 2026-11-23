@@ -10,8 +10,66 @@ const waveforms = createWaveformTiles({
   source: (assetId, streamId) => sources.get(assetId) ?? null,
 });
 sources.set("stem", bufferPeakSource(decodedStem)); // channel 0, version 0
+```
+
+Pass the tiles to the view as its `waveforms`:
+
+<!-- framework-tabs -->
+
+**Vanilla**
+
+```js
+import { mountTimeline } from "@lumen-timeline/timeline";
+
 mountTimeline(element, { editor, transport, waveforms });
 ```
+
+**React**
+
+```jsx
+import { Timeline } from "@lumen-timeline/react";
+
+<Timeline editor={editor} transport={transport} waveforms={waveforms} />;
+```
+
+**Svelte**
+
+```svelte
+<script>
+  import { timeline } from "@lumen-timeline/svelte";
+</script>
+
+<div {@attach timeline(() => ({ editor, transport, waveforms }))}></div>
+```
+
+**SolidJS**
+
+```jsx
+import { createSignal } from "solid-js";
+import { createTimeline } from "@lumen-timeline/solid";
+
+function Workspace() {
+  const [element, setElement] = createSignal();
+  createTimeline(element, () => ({ editor, transport, waveforms }));
+  return <div ref={setElement} />;
+}
+```
+
+**Vue**
+
+```vue
+<script setup>
+import { Timeline } from "@lumen-timeline/vue";
+</script>
+
+<template>
+  <Timeline :editor="editor" :transport="transport" :waveforms="waveforms" />
+</template>
+```
+
+<!-- /framework-tabs -->
+
+The tiles belong to the host, like the editor and the transport: create them once, and call `dispose()` when no view needs them.
 
 ## Sources
 

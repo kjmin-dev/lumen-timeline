@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  FRAMEWORK_TABS,
+  frameworkTabs,
   packagesMarkdown,
   parseApiExports,
   promoteHeadings,
   rewriteDocLinks,
   splitSections,
 } from "../scripts/generate.ts";
+
+const group5 = (labels: readonly string[], close = true): string =>
+  [
+    "<!-- framework-tabs -->",
+    ...labels.flatMap((label) => [`**${label}**`, "```js", `mount("${label}");`, "```"]),
+    ...(close ? ["<!-- /framework-tabs -->"] : []),
+  ].join("\n");
 
 describe("generate helpers", () => {
   it("splits markdown into intro and level-2 sections", () => {
@@ -54,6 +63,64 @@ describe("generate helpers", () => {
       () => rewriteDocLinks("See [Missing](unknown-file.md).", "docs/design.md"),
       /unmapped relative link/,
     );
+  });
+
+  it("turns a framework example group into synced Starlight tabs", () => {
+    const group = (labels: readonly string[], close = true): string =>
+      [
+        "Before.",
+        "",
+        "<!-- framework-tabs -->",
+        "",
+        ...labels.flatMap((label) => [
+          `**${label}**`,
+          "",
+          "````js",
+          "```",
+          `mount("${label}");`,
+          "````",
+          "",
+        ]),
+        ...(close ? ["<!-- /framework-tabs -->"] : []),
+        "",
+        "After.",
+      ].join("\n");
+    const out = frameworkTabs(group(FRAMEWORK_TABS), "docs/x.md");
+    assert.equal(out.match(/<Tabs syncKey="framework">/g)?.length, 1);
+    assert.deepEqual(
+      [...out.matchAll(/<TabItem label="([^"]+)">/g)].map((match) => match[1]),
+      [...FRAMEWORK_TABS],
+    );
+    // A shorter fence inside a block does not end it.
+    assert.match(
+      out,
+      /<TabItem label="React">\n\n````js\n```\nmount\("React"\);\n````\n\n<\/TabItem>/,
+    );
+    assert.match(out, /^Before\.$/m);
+    assert.match(out, /<\/Tabs>\n\nAfter\.$/);
+    assert.doesNotMatch(out, /framework-tabs|\*\*Vue\*\*/);
+    assert.equal(frameworkTabs("No tabs here.\n", "docs/x.md"), "No tabs here.\n");
+  });
+
+  it("rejects a framework group that is missing, reorders or never closes a tab", () => {
+    assert.throws(
+      () => frameworkTabs(group5(["Vanilla", "React", "Svelte", "Vue"]), "docs/x.md"),
+      /docs\/x\.md: a framework group needs the tabs Vanilla, React, Svelte, SolidJS, Vue/,
+    );
+    assert.throws(
+      () => frameworkTabs(group5(["React", "Vanilla", "Svelte", "SolidJS", "Vue"]), "docs/x.md"),
+      /in order/,
+    );
+    assert.throws(() => frameworkTabs(group5(FRAMEWORK_TABS, false), "docs/x.md"), /in order/);
+    assert.throws(
+      () => frameworkTabs("<!-- framework-tabs -->\n\nSome prose.\n", "docs/x.md"),
+      /expected a \*\*Label\*\* line/,
+    );
+    assert.throws(
+      () => frameworkTabs("<!-- framework-tabs -->\n\n**Vanilla**\n\nprose\n", "docs/x.md"),
+      /not followed by a code block/,
+    );
+    assert.throws(() => frameworkTabs("<!-- /framework-tabs -->\n", "docs/x.md"), /without/);
   });
 
   it("extracts value and type exports from api/index.d.ts", () => {

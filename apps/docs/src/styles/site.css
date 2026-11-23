@@ -158,3 +158,10 @@ html[lang="ko"] {
   color: var(--lt-text-muted);
   text-align: center;
 }
+
+/* The framework tabs carry five labels; on a phone they fit without scrolling the tab list. */
+@media (max-width: 30rem) {
+  starlight-tabs [role="tab"] {
+    padding-inline: 0.6rem;
+  }
+}

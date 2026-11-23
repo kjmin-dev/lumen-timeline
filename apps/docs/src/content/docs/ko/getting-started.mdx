@@ -3,6 +3,8 @@ title: 시작하기
 description: Lumen Timeline 워크스페이스를 받아 빌드하고 브라우저 예제를 실행하며 첫 타임라인을 마운트하는 방법을 안내합니다.
 ---
 
+import { TabItem, Tabs } from "@astrojs/starlight/components";
+
 Lumen Timeline은 첫 npm 릴리스를 검증하는 마일스톤 6을 준비 중이며, 현재 워크스페이스 저장소에서 개발되고 있습니다. 여덟 개 패키지는 모두 엄격한 TypeScript로 작성되어 [tsrs](https://github.com/oxc-project/tsrs)로 ES 모듈과 타입 선언을 생성합니다.
 
 ## 저장소 받아 빌드하기
@@ -31,16 +33,14 @@ npm run example:vanilla
 
 ## 최소 연동 예시
 
-바닐라 JavaScript로 마운트하거나, 같은 `editor`와 `transport`를 [React](/ko/frameworks/react/), [Svelte](/ko/frameworks/svelte/), [SolidJS](/ko/frameworks/solid/), [Vue](/ko/frameworks/vue/) 래퍼에 그대로 전달할 수 있습니다.
+호스트는 `editor`와 `transport`를 자체 모듈에서 한 번 만듭니다.
 
-```js
-import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
+```js title="session.js"
+import { createEditor, unitsToTicks } from "@lumen-timeline/core";
 import { createAudioTransport } from "@lumen-timeline/media";
-import { mountTimeline } from "@lumen-timeline/timeline";
-import "@lumen-timeline/timeline/style.css";
 
 const sec = (n) => unitsToTicks(n, 1);
-const editor = createEditor({
+export const editor = createEditor({
   project: {
     schemaVersion: 1,
     duration: sec(30),
@@ -71,11 +71,89 @@ const editor = createEditor({
 });
 
 const context = new AudioContext({ sampleRate: 48000 });
-const transport = createAudioTransport({ editor, context, catalog, resolveBuffer });
-const view = mountTimeline(document.querySelector("#timeline"), { editor, transport });
+export const transport = createAudioTransport({ editor, context, catalog, resolveBuffer });
+```
 
-// 포인터 제스처, 키보드, 호스트 패널 모두 동일한 트랜잭션 커맨드를 사용합니다.
-editor.dispatch(commands.splitClip({ clipId: "line-1", at: sec(4) }));
+그다음 바닐라 JavaScript나 [React](/ko/frameworks/react/), [Svelte](/ko/frameworks/svelte/), [SolidJS](/ko/frameworks/solid/), [Vue](/ko/frameworks/vue/) 래퍼로 그 위에 뷰를 마운트합니다. 래퍼는 둘 중 어느 것도 만들거나 정리하지 않습니다. 고른 탭은 이 사이트의 모든 페이지에서 유지됩니다.
+
+<Tabs syncKey="framework">
+<TabItem label="Vanilla">
+
+```js title="main.js"
+import { mountTimeline } from "@lumen-timeline/timeline";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./session.js";
+
+const view = mountTimeline(document.querySelector("#timeline"), { editor, transport });
+```
+
+</TabItem>
+<TabItem label="React">
+
+```jsx title="App.jsx"
+import { Timeline } from "@lumen-timeline/react";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./session.js";
+
+export function App() {
+  return <Timeline editor={editor} transport={transport} />;
+}
+```
+
+</TabItem>
+<TabItem label="Svelte">
+
+```svelte title="App.svelte"
+<script>
+  import { timeline } from "@lumen-timeline/svelte";
+  import "@lumen-timeline/timeline/style.css";
+  import { editor, transport } from "./session.js";
+</script>
+
+<div {@attach timeline(() => ({ editor, transport }))}></div>
+```
+
+</TabItem>
+<TabItem label="SolidJS">
+
+```jsx title="App.jsx"
+import { createSignal } from "solid-js";
+import { createTimeline } from "@lumen-timeline/solid";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./session.js";
+
+export function App() {
+  const [element, setElement] = createSignal();
+  createTimeline(element, () => ({ editor, transport }));
+  return <div ref={setElement} />;
+}
+```
+
+</TabItem>
+<TabItem label="Vue">
+
+```vue title="App.vue"
+<script setup>
+import { Timeline } from "@lumen-timeline/vue";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./session.js";
+</script>
+
+<template>
+  <Timeline :editor="editor" :transport="transport" />
+</template>
+```
+
+</TabItem>
+</Tabs>
+
+어떤 뷰든 같은 `editor`를 편집합니다. 포인터 제스처, 키보드, 호스트 패널 모두 동일한 트랜잭션 커맨드를 사용합니다.
+
+```js
+import { commands, unitsToTicks } from "@lumen-timeline/core";
+import { editor } from "./session.js";
+
+editor.dispatch(commands.splitClip({ clipId: "line-1", at: unitsToTicks(4, 1) }));
 editor.history.undo();
 ```
 

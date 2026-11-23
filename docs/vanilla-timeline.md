@@ -35,19 +35,72 @@ The example's **Takes** panel lists the selected clip's candidates in order. Eac
 
 ## Waveforms
 
-Pass `waveforms` to `mountTimeline` to draw a waveform in each clip whose active take or direct `clip.source` has peaks. The view asks the provider for the visible part of the source, one bucket per CSS pixel column, whenever it paints that clip:
+Pass `waveforms` to `mountTimeline`, or to a [framework wrapper](frameworks.md), to draw a waveform in each clip whose active take or direct `clip.source` has peaks. The view asks the provider for the visible part of the source, one bucket per CSS pixel column, whenever it paints that clip:
 
 ```js
-const view = mountTimeline(element, {
-  editor,
-  transport,
-  waveforms: {
-    // Source time is content time plus the take's sourceAtContentZero, in ticks.
-    peaks: ({ assetId, streamId, start, end, buckets }) => minMaxPairs ?? null,
-    subscribe: (listener) => cache.onReady(listener),
-  },
-});
+const waveforms = {
+  // Source time is content time plus the take's sourceAtContentZero, in ticks.
+  peaks: ({ assetId, streamId, start, end, buckets }) => minMaxPairs ?? null,
+  subscribe: (listener) => cache.onReady(listener),
+};
 ```
+
+<!-- framework-tabs -->
+
+**Vanilla**
+
+```js
+import { mountTimeline } from "@lumen-timeline/timeline";
+
+const view = mountTimeline(element, { editor, transport, waveforms });
+```
+
+**React**
+
+```jsx
+import { Timeline } from "@lumen-timeline/react";
+
+<Timeline editor={editor} transport={transport} waveforms={waveforms} />;
+```
+
+**Svelte**
+
+```svelte
+<script>
+  import { timeline } from "@lumen-timeline/svelte";
+</script>
+
+<div {@attach timeline(() => ({ editor, transport, waveforms }))}></div>
+```
+
+**SolidJS**
+
+```jsx
+import { createSignal } from "solid-js";
+import { createTimeline } from "@lumen-timeline/solid";
+
+function Waveforms() {
+  const [element, setElement] = createSignal();
+  createTimeline(element, () => ({ editor, transport, waveforms }));
+  return <div ref={setElement} />;
+}
+```
+
+**Vue**
+
+```vue
+<script setup>
+import { Timeline } from "@lumen-timeline/vue";
+</script>
+
+<template>
+  <Timeline :editor="editor" :transport="transport" :waveforms="waveforms" />
+</template>
+```
+
+<!-- /framework-tabs -->
+
+Create the provider once, outside a component's render. A wrapper passes its options to the mounted view on every render, and the view compares providers by identity: a new one is subscribed to again and repaints every clip.
 
 - **Peaks.** `peaks` returns `buckets` minimum and maximum pairs between -1 and 1, or `null` to draw nothing for that source yet. A column whose pair is not finite is not drawn. A move keeps the requested range, and a trim or a take's new `sourceAtContentZero` changes it.
 - **Late peaks.** When peaks arrive or change, call the `subscribe` listener with the asset ID. The view repaints only the visible tracks whose drawn clips play that asset. The first notification repaints at once; any more before the next frame repaint together in it. A take that starts playing other media repaints the tracks of the clips that list it. Disposing the view unsubscribes.
