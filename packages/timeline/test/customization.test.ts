@@ -7,7 +7,7 @@ import {
   layoutRow,
   pack,
   QuadList,
-  quadFloats,
+  radiusOf,
   rectangle,
   rgba,
 } from "@lumen-timeline/timeline/internal";
@@ -69,9 +69,14 @@ test("layoutRow applies theme, track.color, clip.color, clipStyle and direct cli
     index: 0,
     top: 0,
     lanes: new Map(clips.map((c) => [c.id, 0])),
-    height: 46,
+    height: 67,
   };
-  const labelsSeen: { name: string; caption: string | undefined; color: string }[] = [];
+  const labelsSeen: {
+    name: string;
+    caption: string | undefined;
+    color: string;
+    nameColor: string;
+  }[] = [];
   const assets = new Set<string>();
   const quads = new QuadList();
   const boxes: Box<Clip>[] = [];
@@ -84,8 +89,8 @@ test("layoutRow applies theme, track.color, clip.color, clipStyle and direct cli
     words: captionWords(),
     takesOf: () => [],
     peaks: ({ buckets }) => new Float32Array(buckets * 2).fill(0.4),
-    label: (name, caption, color) => {
-      labelsSeen.push({ name, caption, color });
+    label: (name, caption, color, nameColor) => {
+      labelsSeen.push({ name, caption, color, nameColor });
       return slot;
     },
     assets,
@@ -96,6 +101,7 @@ test("layoutRow applies theme, track.color, clip.color, clipStyle and direct cli
       palette: [
         {
           stripeHex: "#112233",
+          textHex: "#ffffff",
           fill: rgba("#112233"),
           stripe: rgba("#445566"),
           waveform: rgba("#445566", 0x66),
@@ -119,16 +125,16 @@ test("layoutRow applies theme, track.color, clip.color, clipStyle and direct cli
   assert.equal(quads.colors[0], rgba("#ffffff"));
   // Direct clip.source drew waveform without needing takes.
   assert.deepEqual([...assets], ["stem"]);
-  // Labels received custom overrides & clip/track accent colors.
+  // Labels received custom overrides, and inks that read on each clip's fill.
   assert.deepEqual(labelsSeen, [
-    { name: "direct", caption: undefined, color: "#33aa88" },
-    { name: "colored", caption: undefined, color: "#dd5577" },
-    { name: "Custom Label", caption: "Approved", color: "#ffffff" },
+    { name: "direct", caption: undefined, color: "#0c0e11b8", nameColor: "#0c0e11" },
+    { name: "colored", caption: undefined, color: "#0c0e11b8", nameColor: "#0c0e11" },
+    { name: "Custom Label", caption: "Approved", color: "#ffffff", nameColor: "#f4f6f7" },
   ]);
-  // Styled clip used custom fill & stripe colors.
-  const styledColors: number[] = [];
-  for (let i = 0; i < quads.count; i++) {
-    if (quads.data[i * quadFloats] === 600) styledColors.push(quads.colors[i] ?? 0);
-  }
-  assert.deepEqual(styledColors, [rgba("#123456"), rgba("#abcdef")]);
+  // The track's color fills its clips, a clip's own color wins over it, and a
+  // styled clip uses its custom fill.
+  const fills: number[] = [];
+  for (let i = 0; i < quads.count; i++)
+    if (radiusOf(quads, i) === 7) fills.push(quads.colors[i] ?? 0);
+  assert.deepEqual(fills, [rgba("#33aa88"), rgba("#dd5577"), rgba("#123456")]);
 });

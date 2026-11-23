@@ -155,7 +155,12 @@ export function createCanvas2DRenderer(canvas: HTMLCanvasElement): Renderer {
             ctx.fillStyle = css(color);
             style = color;
           }
-          ctx.fillRect(x, y, w, h);
+          const radius = d[at + 5] ?? 0;
+          if (radius > 0) {
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, radius);
+            ctx.fill();
+          } else ctx.fillRect(x, y, w, h);
         }
       }
     },

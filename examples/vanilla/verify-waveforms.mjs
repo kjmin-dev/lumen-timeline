@@ -38,7 +38,7 @@ async function studio() {
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
-  await page.waitForSelector(".lt-edit");
+  await page.waitForSelector(".lt-edit", { state: "attached" });
   await page.evaluate(inkSource);
   // Peaks come from a worker; wait until every tile the view asked for is drawn.
   const drawn = () =>
@@ -58,7 +58,7 @@ async function studio() {
       view.setViewport({});
       const { startTick, pixelsPerSecond } = view.getViewport();
       const x = ((s * 282240000 - startTick) / 282240000) * pixelsPerSecond;
-      return window.ink(document.querySelector(".lt-clips"), x, 3 * 46 + 9, 28, [43, 85, 85]);
+      return window.ink(document.querySelector(".lt-clips"), x, 3 * 67 + 30, 20, [153, 159, 166]);
     }, seconds);
   // The whole sequence: silence between phrases, a waveform inside each.
   const whole = {
@@ -96,7 +96,7 @@ async function provider() {
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(server.url);
-  await page.waitForSelector(".lt-edit");
+  await page.waitForSelector(".lt-edit", { state: "attached" });
   await page.evaluate(inkSource);
   const steps = await page.evaluate(async () => {
     const { createEditor, commands, TICKS_PER_SECOND: hz } = await import("@lumen-timeline/core");
@@ -157,8 +157,8 @@ async function provider() {
     const look = (seconds) => {
       view.setViewport({});
       return {
-        a: window.ink(host.querySelector(".lt-clips"), seconds * 50, 9, 28, [43, 85, 85]),
-        b: window.ink(host.querySelector(".lt-clips"), seconds * 50, 46 + 9, 28, [96, 67, 50]),
+        a: window.ink(host.querySelector(".lt-clips"), seconds * 50, 30, 20, [76, 215, 200]),
+        b: window.ink(host.querySelector(".lt-clips"), seconds * 50, 67 + 30, 20, [249, 168, 112]),
       };
     };
     const lastX = () => {

@@ -7,7 +7,7 @@ export async function verifyEdits(browser, url) {
   page.on("pageerror", (e) => errors.push(e.message));
   try {
     await page.goto(url);
-    await page.waitForSelector(".lt-edit");
+    await page.waitForSelector(".lt-edit", { state: "attached" });
     const surface = page.getByRole("group", { name: "Timeline clips" });
     const button = (name) => page.getByRole("button", { name, exact: true });
     async function state() {
@@ -32,7 +32,7 @@ export async function verifyEdits(browser, url) {
         (await import("./app.mjs")).studio.view.getViewport(),
       );
       const r = await surface.boundingBox();
-      return { x: r.x + (second - startTick / hz) * pixelsPerSecond, y: r.y + 20 + 46 * row };
+      return { x: r.x + (second - startTick / hz) * pixelsPerSecond, y: r.y + 30 + 67 * row };
     }
     async function drag(from, to, row = 0, end = row, release = true) {
       await surface.scrollIntoViewIfNeeded();
@@ -326,7 +326,7 @@ export async function verifyEdits(browser, url) {
     const r = await surface2.boundingBox();
     await page.mouse.move(r.x + 120, r.y + 20);
     await page.mouse.down();
-    await page.mouse.move(r.x + 120, r.y + 66, { steps: 4 });
+    await page.mouse.move(r.x + 120, r.y + 97, { steps: 4 });
     await page.mouse.up();
     const cross = await secondary.evaluate(({ editor }) => ({
       tracks: editor.getSnapshot().clips.map((c) => c.trackId),

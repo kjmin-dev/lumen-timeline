@@ -91,6 +91,8 @@ try {
       transport,
       waveforms,
       pixelsPerSecond: 20,
+      // Compact rows, 46 px each, so twelve fit the scroll area.
+      layout: { laneHeight: 34, rowInset: 6 },
       ...(backend ? { renderer: backend } : {}),
     });
     window.scale = { editor, view, notify: (id) => listeners.forEach((l) => l(id)) };
@@ -133,7 +135,7 @@ try {
   const zooms = [];
   for (const [start, pps] of [
     [3600, 20],
-    [0, 1280 / 7200],
+    [0, 1180 / 7200],
     [1800, 600],
   ]) {
     await run(
@@ -432,7 +434,7 @@ try {
     return view.getDiagnostics().labelsRasterized;
   });
   assert.ok(cycled > 600, "only " + cycled + " labels were rasterized");
-  // The clip at the left edge of the first row shows its name in light text.
+  // The clip at the left edge of the first row shows its name in dark ink.
   const box = await run(() => {
     const { view, editor } = window.scale;
     const { startTick, pixelsPerSecond } = view.getViewport();
@@ -446,14 +448,14 @@ try {
           c.trackId === "t" + row && c.start >= startTick && c.start - startTick < 400 * 282240000,
       );
     const x = ((clip.start - startTick) / 282240000) * pixelsPerSecond;
-    return { x: surface.left + x + 9, y: surface.top + row * 46 - scroll + 6 + 8, id: clip.id };
+    return { x: surface.left + x + 9, y: surface.top + row * 46 - scroll + 6 + 2, id: clip.id };
   });
   const text = await pixels(page, { x: box.x, y: box.y, width: 60, height: 14 });
-  const light = text.data.reduce(
-    (n, v, i) => (i % 4 === 0 && v > 200 && text.data[i + 1] > 200 ? n + 1 : n),
+  const dark = text.data.reduce(
+    (n, v, i) => (i % 4 === 0 && v < 40 && text.data[i + 1] < 40 ? n + 1 : n),
     0,
   );
-  assert.ok(light > 20, `the label of ${box.id} drew ${light} light pixels`);
+  assert.ok(dark > 20, `the label of ${box.id} drew ${dark} dark pixels`);
   console.log(engine + `: ${cycled} labels rasterized across the project, and labels still draw`);
 
   // Hit tests read the layout.

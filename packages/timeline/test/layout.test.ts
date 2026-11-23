@@ -8,10 +8,12 @@ import {
   layoutRow,
   QuadList,
   quadFloats,
+  radiusOf,
   rectangle,
   rgba,
+  takeLanesHeight,
 } from "@lumen-timeline/timeline/internal";
-import type { Box, LabelSlot, RowLayout } from "@lumen-timeline/timeline/internal";
+import type { Box, LabelSlot, RowLayout, TakeBox } from "@lumen-timeline/timeline/internal";
 
 const sec = (n: number): number => Math.round(n * hz);
 const clip = (id: string, start: number, duration: number, extra: Partial<Clip> = {}): Clip => ({
@@ -29,13 +31,13 @@ const takes: Record<string, readonly Take[]> = {
 const row = {
   track: { id: "t" },
   index: 1,
-  top: 46,
+  top: 67,
   lanes: new Map([
     ["a", 0],
     ["b", 0],
     ["c", 0],
   ]),
-  height: 46,
+  height: 67,
 };
 const slot: LabelSlot = { u0: 0.1, v0: 0.2, u1: 0.3, v1: 0.25, width: 80, height: 20 };
 
@@ -57,11 +59,20 @@ function layout(extra: Partial<RowLayout> = {}): RowLayout {
 function quads(list: QuadList) {
   return Array.from({ length: list.count }, (_, i) => {
     const [x, y, w, h, u0, v0, u1, v1] = list.data.slice(i * quadFloats, (i + 1) * quadFloats);
-    return { x, y, w, h, uv: [u0, v0, u1, v1], color: list.colors[i], image: isImage(list, i) };
+    return {
+      x,
+      y,
+      w,
+      h,
+      uv: [u0, v0, u1, v1],
+      color: list.colors[i],
+      image: isImage(list, i),
+      radius: radiusOf(list, i),
+    };
   });
 }
 
-test("a row lays out background, grid, then each clip's fill, stripe, waveform and label", () => {
+test("a row lays out its lane strip, grid, then each clip's body, waveform bars and label", () => {
   const list = new QuadList();
   const boxes: Box<Clip>[] = [];
   const clips = [
@@ -70,10 +81,25 @@ test("a row lays out background, grid, then each clip's fill, stripe, waveform a
     clip("c", 9.9, 0.05),
   ];
   let asked = 0;
+  const grid = rgba("#223344");
   layoutRow(
     row,
     clips,
     layout({
+      theme: {
+        rowEven: rgba("#101010"),
+        rowOdd: rgba("#202020"),
+        grid,
+        palette: [
+          {
+            stripeHex: "#f9a870",
+            textHex: "#0c0e11",
+            fill: rgba("#f9a870"),
+            stripe: rgba("#f9a870"),
+            waveform: rgba("#593215"),
+          },
+        ],
+      },
       peaks: ({ buckets }) => {
         asked++;
         // Every third column has nothing to draw; values past ±1 are clamped.
@@ -86,56 +112,151 @@ test("a row lays out background, grid, then each clip's fill, stripe, waveform a
     boxes,
   );
   const all = quads(list);
+  // The strip leaves a 2 px gap above and below, inside the row's 3 px margin.
   assert.deepEqual(all[0], {
     x: 0,
-    y: 10,
+    y: 12,
     w: 1000,
-    h: 45,
-    uv: [0, 0, 0, 0],
-    color: rgba("#1b2025"),
+    h: 60,
+    uv: [0, 10, 0, 0],
+    color: rgba("#202020"),
     image: false,
+    radius: 10,
   });
   assert.deepEqual(
-    all.slice(1, 3).map((q) => [q.x, q.w, q.h]),
+    all.slice(1, 3).map((q) => [q.x, q.y, q.w, q.h, q.color]),
     [
-      [0, 1, 46],
-      [73, 1, 46],
+      [0, 12, 1, 60, grid],
+      [73, 12, 1, 60, grid],
     ],
   );
-  // Clip a starts offscreen: its box is clamped, and its label starts on a device pixel.
-  const a = rectangle(clips[0], 0, 10, layout().view, 1000);
   assert.deepEqual(
     boxes.map((b) => b.clip.id),
     ["a", "b", "c"],
   );
-  assert.deepEqual([all[3].x, all[3].w, all[3].color], [0, a.endX, rgba("#604332")]);
-  assert.deepEqual([all[4].h, all[4].color], [3, rgba("#ffb184")]);
-  assert.equal(all[5].image, true);
-  assert.deepEqual([all[5].x, all[5].y, all[5].w, all[5].h], [9, a.y + 6, 80, 20]);
-  // Clip b: one column per pixel except the empty ones, then its label over them.
+  // Clip a starts offscreen: its body runs past the edge, so no corner shows
+  // there, and its label starts on a device pixel in the name row.
+  const a = rectangle(clips[0], 0, 10, layout().view, 1000);
+  assert.deepEqual([a.y, a.height], [20, 44]);
+  assert.deepEqual(
+    [all[3].x, all[3].w, all[3].h, all[3].color, all[3].radius],
+    [-14, a.right + 14, 44, rgba("#f9a870"), 7],
+  );
+  assert.equal(all[4].image, true);
+  assert.deepEqual([all[4].x, all[4].y, all[4].w, all[4].h], [8, a.y - 1, 80, 20]);
+  // Clip b: a 2 px bar every 3 px under the name row, clear of the corners,
+  // each spanning the loudest of its columns.
   const b = rectangle(clips[1], 0, 10, layout().view, 1000);
-  const columns = all.slice(8, -2).filter((q) => !q.image);
+  assert.deepEqual([all[5].x, all[5].w, all[5].radius], [b.x, 200, 7]);
+  const bars = all.slice(6, -2).filter((q) => !q.image);
   assert.equal(asked, 1);
-  assert.equal(columns.length, 200 - Math.floor(200 / 3));
-  assert.ok(columns.every((q) => q.w === 1 && q.color === rgba("#ffb184", 0x66)));
-  const mid = b.y + 3 + (b.height - 3) / 2;
-  const half = (b.height - 7) / 2;
-  assert.deepEqual([columns[0].x, columns[0].y, columns[0].h], [b.x, mid - half, 1.5 * half]);
+  assert.equal(bars.length, Math.ceil(194 / 3));
+  assert.ok(bars.every((q) => q.w === 2 && q.radius === 0 && q.color === rgba("#593215")));
+  assert.deepEqual(
+    bars.slice(0, 2).map((q) => [q.x, q.y, q.h]),
+    [
+      [b.x + 3, b.y + 20, 15],
+      [b.x + 6, b.y + 20, 15],
+    ],
+  );
   const label = all.findLast((q) => q.image && q.x > b.x);
-  assert.equal(label?.x, Math.round((b.x + 9) * 2) / 2);
-  // Clip c is too narrow for a label: fill and stripe only.
-  assert.equal(all.at(-1)?.h, 3);
+  assert.equal(label?.x, Math.round((b.x + 8) * 2) / 2);
+  // Clip c is too narrow for a label: its body only.
+  assert.deepEqual([all.at(-1)?.w, all.at(-1)?.h], [5, 44]);
   assert.equal(all.filter((q) => q.image).length, 2);
+});
+
+test("a clip too short for a name row draws its waveform over its full height", () => {
+  const list = new QuadList();
+  layoutRow(
+    { ...row, height: 46 },
+    [clip("b", 5, 2, { takeIds: ["k"], activeTakeId: "k" })],
+    layout({
+      laneHeight: 34,
+      rowInset: 6,
+      peaks: ({ buckets }) => new Float32Array(2 * buckets).map((_, i) => (i % 2 ? 1 : -1)),
+    }),
+    list,
+    [],
+  );
+  const all = quads(list);
+  // A 31 px clip keeps a 16 px name row; a 25 px one has none.
+  assert.deepEqual([all[1].y, all[1].h], [16, 31]);
+  assert.deepEqual([all[2].y, all[2].h], [16 + 17, 31 - 17 - 4]);
+  const short = new QuadList();
+  layoutRow(
+    { ...row, height: 40 },
+    [clip("b", 5, 2, { takeIds: ["k"], activeTakeId: "k" })],
+    layout({
+      laneHeight: 28,
+      rowInset: 6,
+      peaks: ({ buckets }) => new Float32Array(2 * buckets).map((_, i) => (i % 2 ? 1 : -1)),
+    }),
+    short,
+    [],
+  );
+  const drawn = quads(short);
+  assert.deepEqual([drawn[2].y, drawn[2].h], [16 + 3, 25 - 6]);
+  assert.equal(drawn.at(-1)?.y, 16 + 5);
+});
+
+test("take lanes draw each candidate under the clip, the active one filled", () => {
+  const candidates: readonly Take[] = [
+    { id: "k", assetId: "first", streamId: "mono", sourceAtContentZero: 0 },
+    { id: "j", assetId: "second", streamId: "mono", sourceAtContentZero: 0 },
+  ];
+  const drawer = takeLanesHeight(candidates.length);
+  assert.equal(drawer, 54);
+  assert.equal(takeLanesHeight(0), 0);
+  const list = new QuadList();
+  const takeBoxes: TakeBox[] = [];
+  const asked: string[] = [];
+  const open = clip("b", 5, 2, { takeIds: ["k", "j"], activeTakeId: "j" });
+  layoutRow(
+    { ...row, height: 67 + drawer },
+    [open],
+    layout({
+      takesOf: () => candidates,
+      peaks: ({ assetId, buckets }) => {
+        asked.push(assetId);
+        return new Float32Array(2 * buckets).fill(0.5);
+      },
+      takeLanes: { clipId: "b", takes: candidates },
+      takeBoxes,
+    }),
+    list,
+    [],
+  );
+  // The band sits at the bottom of the strip, which grew by its height.
+  const all = quads(list);
+  assert.deepEqual([all[0].y, all[0].h], [12, 60 + drawer]);
+  const top = 12 + 60;
+  assert.deepEqual([all[3].y, all[3].h, all[3].w], [top, 1, 1000]);
+  const b = rectangle(open, 0, 10, layout().view, 1000);
+  assert.deepEqual(takeBoxes, [
+    { clipId: "b", takeId: "k", x: b.x, endX: b.endX, y: top + 2, height: 22 },
+    { clipId: "b", takeId: "j", x: b.x, endX: b.endX, y: top + 28, height: 22 },
+  ]);
+  // The clip's own waveform is its active take's; each lane asks for its own.
+  assert.deepEqual(asked, ["second", "first", "second"]);
+  const lanes = all.filter((q) => q.radius === 5);
+  assert.deepEqual(
+    lanes.map((q) => [q.y, q.h, q.color === rgba("#f9a870")]),
+    [
+      [top + 2, 22, false],
+      [top + 28, 22, true],
+    ],
+  );
 });
 
 test("a label is cropped inside its clip, and left out when the atlas has no room", () => {
   const list = new QuadList();
   layoutRow(row, [clip("a", 2, 0.5)], layout(), list, []);
   const label = quads(list).find((q) => q.image);
-  // 50 px wide: from 9 px in to 3 px before the end.
+  // 50 px wide: from 8 px in to 3 px before the end.
   assert.ok(label);
-  assert.equal(label.w, 50 - 9 - 3);
-  assert.deepEqual(label.uv, [0.1, 0.2, 0.1 + (0.2 * 38) / 80, 0.25].map(Math.fround));
+  assert.equal(label.w, 50 - 8 - 3);
+  assert.deepEqual(label.uv, [0.1, 0.2, 0.1 + (0.2 * 39) / 80, 0.25].map(Math.fround));
   // A clip with less than 24 px of room, as when zoomed far out, has no label.
   const narrow = new QuadList();
   layoutRow(row, [clip("a", 2, 0.3)], layout(), narrow, []);

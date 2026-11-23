@@ -41,6 +41,8 @@ export interface EditingOptions {
     readonly getView: () => Viewport;
     readonly setGhost: (clips: readonly Clip[]) => void;
     readonly message: HTMLElement;
+    /** Where the undo and redo buttons go: the view's toolbar. */
+    readonly history: HTMLElement;
     /** The snap settings now, which the host can change while the view is mounted. */
     readonly config: () => SnapConfig;
     readonly readOnly: () => boolean;
@@ -51,6 +53,8 @@ export interface EditingOptions {
 }
 export interface EditingBinding {
     sync(): void;
+    /** Splits the single selected clip at the playhead, as the S key does. */
+    split(): void;
     dispose(): void;
 }
 export declare function handleAt(box: {
@@ -62,4 +66,4 @@ export declare function snapDelta(delta: number, clips: readonly DragClip[], edg
     readonly held?: SnapHold;
 };
 export declare function snapConfig(snap?: SnapOptions): SnapConfig;
-export declare function bindEditing({ root, surface, editor, transport, listen, point, getView, setGhost, message, config, readOnly, shortcuts, chrome, uiLabels, events, }: EditingOptions): EditingBinding;
+export declare function bindEditing({ root, surface, editor, transport, listen, point, getView, setGhost, message, history, config, readOnly, shortcuts, chrome, uiLabels, events, }: EditingOptions): EditingBinding;

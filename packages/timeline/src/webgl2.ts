@@ -10,23 +10,44 @@ in vec4 color;
 uniform vec2 viewport;
 out vec2 vUv;
 out vec4 vColor;
+out vec2 vLocal;
+flat out vec2 vHalf;
+flat out float vRadius;
 flat out int vImage;
 void main() {
   vec2 p = rect.xy + corner * rect.zw;
   gl_Position = vec4(p.x / viewport.x * 2.0 - 1.0, 1.0 - p.y / viewport.y * 2.0, 0.0, 1.0);
   vUv = mix(uv.xy, uv.zw, corner);
   vColor = color;
+  vLocal = (corner - 0.5) * rect.zw;
+  vHalf = rect.zw * 0.5;
+  vRadius = uv.y;
   vImage = uv.z > uv.x ? 1 : 0;
 }`;
 const fragment = `#version 300 es
 precision highp float;
 uniform sampler2D atlas;
+uniform float dpr;
 in vec2 vUv;
 in vec4 vColor;
+in vec2 vLocal;
+flat in vec2 vHalf;
+flat in float vRadius;
 flat in int vImage;
 out vec4 outColor;
 void main() {
-  outColor = vImage == 1 ? texture(atlas, vUv) : vec4(vColor.rgb * vColor.a, vColor.a);
+  if (vImage == 1) {
+    outColor = texture(atlas, vUv);
+    return;
+  }
+  float a = vColor.a;
+  // A rounded quad fades over one device pixel at its corners.
+  if (vRadius > 0.0) {
+    vec2 q = abs(vLocal) - (vHalf - vRadius);
+    float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - vRadius;
+    a *= clamp(0.5 - d * dpr, 0.0, 1.0);
+  }
+  outColor = vec4(vColor.rgb * a, a);
 }`;
 
 interface Resources {
@@ -36,6 +57,7 @@ interface Resources {
   readonly colors: WebGLBuffer;
   readonly texture: WebGLTexture;
   readonly viewport: WebGLUniformLocation | null;
+  readonly dpr: WebGLUniformLocation | null;
   capacity: number;
   /** The atlas version the texture holds, or -1 for none. */
   atlas: number;
@@ -101,6 +123,7 @@ function setup(gl: WebGL2RenderingContext): Resources {
     colors,
     texture,
     viewport: gl.getUniformLocation(program, "viewport"),
+    dpr: gl.getUniformLocation(program, "dpr"),
     capacity: 0,
     atlas: -1,
     atlasSize: 0,
@@ -198,6 +221,7 @@ export function createWebGL2Renderer(
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.useProgram(r.program);
       gl.uniform2f(r.viewport, Math.max(1, frame.width), Math.max(1, frame.height));
+      gl.uniform1f(r.dpr, frame.dpr);
       // The label atlas, premultiplied, in the rows that changed since the last upload.
       const { atlas } = frame;
       gl.activeTexture(gl.TEXTURE0);

@@ -59,6 +59,8 @@ export interface EditingOptions {
   readonly getView: () => Viewport;
   readonly setGhost: (clips: readonly Clip[]) => void;
   readonly message: HTMLElement;
+  /** Where the undo and redo buttons go: the view's toolbar. */
+  readonly history: HTMLElement;
   /** The snap settings now, which the host can change while the view is mounted. */
   readonly config: () => SnapConfig;
   readonly readOnly: () => boolean;
@@ -70,6 +72,8 @@ export interface EditingOptions {
 
 export interface EditingBinding {
   sync(): void;
+  /** Splits the single selected clip at the playhead, as the S key does. */
+  split(): void;
   dispose(): void;
 }
 
@@ -208,6 +212,7 @@ export function bindEditing({
   getView,
   setGhost,
   message,
+  history,
   config,
   readOnly,
   shortcuts,
@@ -220,9 +225,9 @@ export function bindEditing({
   toolbar.innerHTML = `<label><span data-op-label>Operation</span> <select aria-label="Edit operation"><option value="move">Move</option>
     <option value="left">Trim start</option><option value="right">Trim end</option></select></label>
     <label><span data-delta-label>Delta (s)</span> <input type="number" value="1" step="any" aria-label="Edit delta in seconds"></label>
-    <button type="submit" data-apply>Apply</button><button type="button" data-split>Split at playhead</button>
-    <span class="lt-spacer"></span><button type="button" data-undo>Undo</button><button type="button" data-redo>Redo</button>`;
+    <button type="submit" data-apply>Apply</button><button type="button" data-split>Split at playhead</button>`;
   message.before(toolbar);
+  history.innerHTML = `<button type="button" class="lt-icon" data-undo>Undo</button><button type="button" class="lt-icon" data-redo>Redo</button>`;
   const opLabel = element(toolbar, "[data-op-label]", "span");
   const deltaLabel = element(toolbar, "[data-delta-label]", "span");
   const operation = element(toolbar, "select", "select");
@@ -232,8 +237,8 @@ export function bindEditing({
   const deltaInput = element(toolbar, "input", "input");
   const applyButton = element(toolbar, "[data-apply]", "button");
   const splitButton = element(toolbar, "[data-split]", "button");
-  const undoButton = element(toolbar, "[data-undo]", "button");
-  const redoButton = element(toolbar, "[data-redo]", "button");
+  const undoButton = element(history, "[data-undo]", "button");
+  const redoButton = element(history, "[data-redo]", "button");
   let drag: Drag | null = null,
     composing = false;
   const playhead = (): Tick =>
@@ -260,10 +265,12 @@ export function bindEditing({
     splitButton.disabled = locked || count !== 1;
     undoButton.disabled = locked || !editor.history.canUndo;
     redoButton.disabled = locked || !editor.history.canRedo;
+    // The form edits the selection, so it shows only while there is one.
+    toolbar.hidden = !chrome().editToolbar || !count;
   }
   function sync(): void {
     if (readOnly()) cancel();
-    toolbar.hidden = !chrome().editToolbar;
+    history.hidden = !chrome().history;
     const text = uiLabels();
     opLabel.textContent = text.operation;
     moveOption.textContent = text.move;
@@ -272,8 +279,8 @@ export function bindEditing({
     deltaLabel.textContent = text.delta;
     applyButton.textContent = text.apply;
     splitButton.textContent = text.splitAtPlayhead;
-    undoButton.textContent = text.undo;
-    redoButton.textContent = text.redo;
+    undoButton.textContent = undoButton.title = text.undo;
+    redoButton.textContent = redoButton.title = text.redo;
     buttons();
   }
   function apply(edge: Edge, delta: number): void {
@@ -533,8 +540,10 @@ export function bindEditing({
   sync();
   return {
     sync,
+    split,
     dispose() {
       finish();
+      history.replaceChildren();
       offSelection();
       offDoc();
       offHistory();

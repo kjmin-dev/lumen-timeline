@@ -75,7 +75,7 @@ async function audition(name) {
 
 try {
   await page.goto(server.url);
-  await page.waitForSelector(".lt-edit");
+  await page.waitForSelector(".lt-edit", { state: "attached" });
   await app(async () => {
     window.lumenApp = await import("./app.mjs");
   });

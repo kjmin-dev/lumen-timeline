@@ -112,6 +112,8 @@ const view = mountTimeline(document.querySelector("#timeline"), {
   waveforms: tiles,
   renderer,
   pixelsPerSecond: 20,
+  // Compact rows, 46 px each, as the measurements were taken with.
+  layout: { laneHeight: 34, rowInset: 6 },
   snap: { gridTicks: hz / 10 },
 });
 

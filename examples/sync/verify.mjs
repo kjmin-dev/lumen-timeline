@@ -23,7 +23,7 @@ async function open(policy, extra = "") {
   await page.waitForFunction(() => window.syncApp?.session.status === "connected", null, {
     timeout: 15000,
   });
-  await page.waitForSelector(".lt-edit");
+  await page.waitForSelector(".lt-edit", { state: "attached" });
   return page;
 }
 const run = (page, fn, arg) => page.evaluate(fn, arg);

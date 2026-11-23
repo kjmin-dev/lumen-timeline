@@ -238,14 +238,24 @@ describe("built documentation site", () => {
       const canvasBox = await studioFrame.locator("canvas.lt-clips").boundingBox();
       assert.ok(canvasBox && canvasBox.width > 200 && canvasBox.height > 60);
 
-      // Switch take in the Take Inspector
-      const altTake = studioFrame.locator('[data-apply-take="nar-1-b"]');
-      await altTake.click();
-      assert.equal(await altTake.getAttribute("aria-pressed"), "true");
+      // The view follows the site's color scheme
+      const siteTheme = await page.evaluate(() => document.documentElement.dataset.theme);
+      assert.equal(
+        await studioFrame.locator(".lt").getAttribute("data-lt-scheme"),
+        siteTheme === "light" ? "light" : "dark",
+      );
 
-      // Split clip and verify Undo becomes enabled, then undo
-      const undoBtn = studioFrame.locator("[data-demo-undo]");
-      await studioFrame.locator("[data-demo-split]").click();
+      // Switch take in the take lanes under the selected line
+      const altTake = studioFrame.locator('.lt-take-pick[data-take-id="nar-1-b"]');
+      await altTake.click();
+      assert.equal(await altTake.getAttribute("aria-checked"), "true");
+
+      // Split the clip from its toolbar and verify Undo becomes enabled, then undo
+      const undoBtn = studioFrame.locator(".lt [data-undo]");
+      const undoDisabledBefore = await undoBtn.isDisabled();
+      assert.equal(undoDisabledBefore, false, "the take switch is an edit");
+      await undoBtn.click();
+      await studioFrame.locator(".lt [data-clip-split]").click();
       assert.equal(await undoBtn.isDisabled(), false);
       await undoBtn.click();
 
@@ -255,7 +265,10 @@ describe("built documentation site", () => {
       });
       await page.waitForFunction(() => {
         const iframe = document.querySelector('iframe[data-demo="studio"]');
-        return iframe?.contentDocument?.documentElement.dataset.theme === "light";
+        return (
+          iframe?.contentDocument?.documentElement.dataset.theme === "light" &&
+          iframe.contentDocument.querySelector(".lt")?.getAttribute("data-lt-scheme") === "light"
+        );
       });
 
       // 2. Korean landing page

@@ -147,7 +147,7 @@ async function trace(name) {
     const row = n % 2;
     const target = await page.evaluate(
       ({ row, k }) => {
-        const y = row * 46 + 23;
+        const y = row * 67 + 30;
         for (let x = 40 + ((k * 97) % 600); x < 920; x += 10) {
           const hit = window.consumer.view.hitTest({ x, y });
           if (hit?.clipId && hit.edge === "move") return { x, y };
