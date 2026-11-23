@@ -1,0 +1,42 @@
+---
+title: Lumen Timeline
+description: A JavaScript framework for building browser-based audio and video editors, with a headless editing core, sample-accurate Web Audio transports, GPU rendering, waveform workers, optional sync and four framework wrappers.
+template: splash
+hero:
+  tagline: Headless editing core, sample-accurate Web Audio scheduling, GPU timeline rendering, waveform workers and thin wrappers for React, Svelte, SolidJS and Vue.
+  actions:
+    - text: Get started
+      link: /getting-started/
+      icon: right-arrow
+    - text: Architecture
+      link: /architecture/core/
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+import Demo from "../../components/Demo.astro";
+
+<Demo name="studio" title="Interactive Lumen Timeline studio demo" height="29rem" />
+
+<CardGrid>
+  <Card title="Headless 282.24 MHz core" icon="setting">
+    One integer tick clock covers 44.1 kHz, 48 kHz and 30000/1001 fps without floating-point drift.
+    Move, trim, split, markers, candidate takes, selective history and pure audio planning all run
+    in Node with zero browser dependencies.
+  </Card>
+  <Card title="Sample-accurate playback & audition" icon="rocket">
+    Reference-video and audio-only transports share one Web Audio voice scheduler. Local edits
+    reconcile only affected clips while unaffected stems keep playing, and candidate takes audition
+    isolated or in the mix without editing the document.
+  </Card>
+  <Card title="One layout across WebGL2, WebGPU and Canvas 2D" icon="laptop">
+    A single CPU layout drives hit testing and GPU instanced rendering, recovering seamlessly from
+    device loss. Waveform tiles build in a module worker with an optional Rust 1.100.0 SIMD kernel
+    under a strict cache budget.
+  </Card>
+  <Card title="React, Svelte, SolidJS and Vue wrappers" icon="puzzle">
+    Every wrapper mounts the same imperative view after client mount and lets panels subscribe to
+    individual editor or transport fields. During steady playback, a take inspector receives zero
+    updates and static clip geometry uploads nothing.
+  </Card>
+</CardGrid>

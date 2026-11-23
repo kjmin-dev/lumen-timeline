@@ -1,0 +1,13 @@
+# Astro
+.astro/
+dist/
+.wrangler/
+.dev.vars
+
+# Written by scripts/generate.ts from docs/*.md, ROADMAP.md, packages/* and docs/measurements/*.json.
+src/content/docs/architecture/
+src/content/docs/guides/
+src/content/docs/frameworks/
+src/content/docs/packages/
+src/content/docs/benchmarks/
+src/generated/

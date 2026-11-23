@@ -1,0 +1,211 @@
+/* Isolated stylesheet for embedded live Lumen Timeline demos. */
+@import "@lumen-timeline/timeline/style.css";
+
+:root {
+  --demo-bg: #101619;
+  --demo-surface: #171d20;
+  --demo-surface-2: #1e262a;
+  --demo-border: #323c40;
+  --demo-text: #e7ebe8;
+  --demo-muted: #a8b6b7;
+  --demo-accent: #dca27b;
+  --demo-accent-text: #23160e;
+  --demo-mint: #87d6cb;
+  --demo-mint-bg: #172b2a;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --demo-bg: #f4f6f5;
+  --demo-surface: #ffffff;
+  --demo-surface-2: #eef2f0;
+  --demo-border: #cdd6d2;
+  --demo-text: #14191c;
+  --demo-muted: #4b595c;
+  --demo-accent: #9c4b1e;
+  --demo-accent-text: #ffffff;
+  --demo-mint: #0d6b61;
+  --demo-mint-bg: #e1f3f0;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 14px;
+  background: var(--demo-bg);
+  color: var(--demo-text);
+  font:
+    13px/1.45 "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+.demo-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.demo-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--demo-border);
+  border-radius: 10px;
+  background: var(--demo-surface);
+}
+
+.demo-bar strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.demo-meta {
+  font:
+    12px ui-monospace,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--demo-muted);
+}
+
+.demo-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--demo-mint-bg);
+  color: var(--demo-mint);
+  font:
+    600 11px ui-monospace,
+    monospace;
+}
+
+.demo-spacer {
+  flex: 1;
+}
+
+.demo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.demo-btn,
+.demo-select {
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  background: var(--demo-surface-2);
+  color: var(--demo-text);
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.demo-btn:hover:not(:disabled) {
+  border-color: var(--demo-accent);
+}
+
+.demo-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.demo-btn[aria-pressed="true"] {
+  background: var(--demo-accent);
+  border-color: var(--demo-accent);
+  color: var(--demo-accent-text);
+  font-weight: 600;
+}
+
+.demo-timeline .lt-scroll {
+  height: 176px;
+}
+
+.demo-inspector {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--demo-border);
+  border-radius: 10px;
+  background: var(--demo-surface);
+}
+
+.demo-inspector__info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.demo-takes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.demo-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+/* Shared session two-editor layout */
+.sync-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 820px) {
+  .sync-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sync-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sync-pane .lt-scroll {
+  height: 112px;
+}
+
+.sync-pane .lt-tools {
+  min-height: 40px;
+  padding: 6px 10px;
+  gap: 6px;
+}
+
+.sync-pane .lt-marker-edit,
+.sync-pane .lt-edit {
+  display: none;
+}
+
+.sync-log {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--demo-border);
+  border-radius: 8px;
+  background: var(--demo-surface);
+  font:
+    12px ui-monospace,
+    monospace;
+  color: var(--demo-muted);
+}

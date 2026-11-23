@@ -1,0 +1,142 @@
+---
+// Filterable overview of every workspace package in Lumen Timeline. Generated from
+// packages/*/package.json and packages/*/api/index.d.ts; llms.txt drops the filter controls and
+// keeps the table, and `[...slug].md.ts` expands this into plain Markdown.
+import packages from "../generated/packages.json";
+
+const categories = [
+  { id: "", label: "All" },
+  { id: "engine", label: "Engine" },
+  { id: "optional", label: "Optional" },
+  { id: "wrapper", label: "Framework wrappers" },
+];
+---
+
+<div class="pkg-matrix not-content" data-pkg-matrix>
+  <div class="pkg-matrix__filter" role="group" aria-label="Filter packages">
+    {categories.map((cat, index) => (
+      <button type="button" aria-pressed={index === 0 ? "true" : "false"} data-show={cat.id}>
+        {cat.label}
+      </button>
+    ))}
+  </div>
+  <p class="pkg-matrix__count" aria-live="polite">
+    {packages.length} packages
+  </p>
+  <div class="pkg-matrix__scroll" tabindex="0" role="region" aria-label="Lumen Timeline packages">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Package</th>
+          <th scope="col">Runtime</th>
+          <th scope="col">Peer</th>
+          <th scope="col">Exports</th>
+        </tr>
+      </thead>
+      <tbody>
+        {packages.map((pkg) => (
+          <tr data-category={pkg.category}>
+            <th scope="row">
+              <a href={pkg.guide}><code>{pkg.name}</code></a>
+            </th>
+            <td>{pkg.runtime}</td>
+            <td>{pkg.peer.replaceAll("`", "")}</td>
+            <td>{pkg.exports.length}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-pkg-matrix]")) {
+    const buttons = [...root.querySelectorAll<HTMLButtonElement>("button[data-show]")];
+    const rows = [...root.querySelectorAll<HTMLTableRowElement>("tbody tr")];
+    const count = root.querySelector(".pkg-matrix__count");
+    const show = (filter: string) => {
+      let shown = 0;
+      for (const row of rows) {
+        const visible = filter === "" || row.dataset.category === filter;
+        row.hidden = !visible;
+        if (visible) shown++;
+      }
+      for (const button of buttons) {
+        button.setAttribute("aria-pressed", String(button.dataset.show === filter));
+      }
+      if (count) {
+        count.textContent =
+          shown === rows.length
+            ? `${rows.length} packages`
+            : `${shown} of ${rows.length} packages`;
+      }
+    };
+    for (const button of buttons) {
+      button.addEventListener("click", () => {
+        show(button.dataset.show ?? "");
+      });
+    }
+  }
+</script>
+
+<style>
+  .pkg-matrix {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-block: 1.25rem;
+  }
+  .pkg-matrix__filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .pkg-matrix__filter button {
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--sl-color-white);
+    font: inherit;
+    font-size: var(--sl-text-sm);
+    cursor: pointer;
+  }
+  .pkg-matrix__filter button[aria-pressed="true"] {
+    border-color: var(--lt-accent);
+    background: var(--lt-accent-low);
+    color: var(--lt-accent-high);
+    font-weight: 600;
+  }
+  .pkg-matrix__count {
+    margin: 0;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-2);
+  }
+  .pkg-matrix__scroll {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--sl-text-sm);
+  }
+  th,
+  td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--sl-color-hairline);
+    text-align: start;
+    white-space: nowrap;
+  }
+  thead th {
+    color: var(--sl-color-white);
+    font-weight: 600;
+  }
+  th[scope="row"] a {
+    color: var(--sl-color-text-accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  th[scope="row"] a:hover {
+    text-decoration: underline;
+  }
+</style>

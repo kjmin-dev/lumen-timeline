@@ -1,0 +1,95 @@
+name: Docs
+
+# Deploys the documentation site in apps/docs to Cloudflare Workers, as static assets.
+#
+# It does nothing until it is set up (see the "Hosting this site" page):
+#   - environment "cloudflare" with the secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID,
+#     limited to the main branch
+#   - variable DOCS_DEPLOY=true to deploy on every push to main; without it, only a manual run
+#     deploys
+#   - variable DOCS_SITE with the site's public address, https://lumen-timeline.studiocyf.app
+#
+# The repository is public and the token can replace any Worker in the account, so:
+#   - Nothing here runs for a pull request, and a fork's pull request never sees a secret.
+#   - Building and deploying are separate jobs. The build runs the code of every dependency and
+#     has no secret. The deploy job has the token and runs only Wrangler, at the version and
+#     checksums in tools/deploy/package-lock.json, on the files the build uploaded.
+#   - Actions are pinned to a commit, because a tag can be moved to other code.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - apps/docs/**
+      - docs/**
+      - packages/**
+      - ROADMAP.md
+      - package.json
+      - package-lock.json
+      - tools/deploy/**
+      - .github/workflows/docs.yml
+
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    if: github.event_name == 'workflow_dispatch' || vars.DOCS_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: npm run build
+      - run: npm run docs:build
+        env:
+          DOCS_SITE: ${{ vars.DOCS_SITE }}
+      - run: npm run docs:typecheck
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-site
+          path: apps/docs/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    # The secrets are the environment's, not the repository's: only a run on main gets them.
+    environment: cloudflare
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          # A cache is written by whichever job saved it first, and the build job runs code
+          # this job must not trust.
+          cache: ""
+      - name: Install Wrangler from the lockfile
+        run: npm ci --prefix tools/deploy --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: docs-site
+          path: apps/docs/dist
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::The cloudflare environment needs the secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID. See the Hosting this site page."
+            exit 1
+          fi
+          npm run deploy:docs
