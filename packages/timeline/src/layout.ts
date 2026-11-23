@@ -1,5 +1,5 @@
 import type { Clip, Take, Track } from "@lumen-timeline/core";
-import { takeCaption } from "./captions.ts";
+import { activeTake, takeCaption } from "./captions.ts";
 import type { CaptionWords } from "./captions.ts";
 import { rectangle } from "./geometry.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
@@ -119,6 +119,8 @@ export interface RowLayout {
   readonly takesOf: (clipId: string) => readonly Take[];
   peaks?: ((request: WaveformRequest) => ArrayLike<number> | null) | undefined;
   readonly label: LabelSource;
+  /** Collects the assets whose waveforms the row asked for. */
+  readonly assets?: Set<string> | undefined;
 }
 
 /** Where a label starts after its clip's left edge, and its top below the clip's. */
@@ -177,14 +179,15 @@ export function layoutRow(
     boxes.push(b);
     quads.rect(b.x, b.y, b.endX - b.x, b.height, fill);
     quads.rect(b.x, b.y, b.endX - b.x, 3, stripe);
-    waveform(clip, b, layout, quads, ink);
-    const name = clip.name ?? clip.id;
-    const caption = takeCaption(clip, layout.takesOf, layout.words);
+    // The clip's takes are read once, for its waveform and its caption.
+    const active = clip.takeIds ? activeTake(clip, layout.takesOf(clip.id)) : undefined;
+    if (active) waveform(clip, active, b, layout, quads, ink);
     // The label starts on a device pixel and is cropped 3 pixels inside the clip.
     const x = Math.round((b.x + labelInset) * dpr) / dpr;
     const room = b.endX - 3 - x;
     if (room < labelRoom) continue;
-    const slot = layout.label(name, caption, stripeText);
+    const caption = takeCaption(clip, active, layout.words);
+    const slot = layout.label(clip.name ?? clip.id, caption, stripeText);
     if (!slot) continue;
     const w = Math.min(slot.width, room);
     const u1 = slot.u0 + ((slot.u1 - slot.u0) * w) / slot.width;
@@ -193,11 +196,18 @@ export function layoutRow(
 }
 
 // The active take's peaks across the clip's visible columns, below its name.
-function waveform(clip: Clip, b: Box<Clip>, layout: RowLayout, quads: QuadList, color: Rgba): void {
-  if (!layout.peaks || typeof clip.activeTakeId !== "string") return;
-  const take = layout.takesOf(clip.id).find((t) => t.id === clip.activeTakeId);
-  const placed = take && placeWaveform(clip, take, b.x, b.endX, layout.view);
+function waveform(
+  clip: Clip,
+  take: Take,
+  b: Box<Clip>,
+  layout: RowLayout,
+  quads: QuadList,
+  color: Rgba,
+): void {
+  if (!layout.peaks) return;
+  const placed = placeWaveform(clip, take, b.x, b.endX, layout.view);
   if (!placed) return;
+  layout.assets?.add(take.assetId);
   const { buckets } = placed.request;
   const peaks = layout.peaks(placed.request);
   if (!peaks || peaks.length < 2 * buckets) return;

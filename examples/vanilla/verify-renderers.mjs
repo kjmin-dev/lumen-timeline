@@ -275,6 +275,25 @@ try {
     await run(page, () => window.fixture.view.setViewport({ startTick: 26 * 282240000 }));
     result.panned = await canvasPixels(page, { x: 0, y: 0, width: 1000, height: 280 });
     result.pannedLayout = (await diagnostics(page)).visibleClips;
+    // A paint made in an animation frame callback reaches a GPU canvas inside
+    // it, with the ruler and overlay it drew. A run of paints in one task draws
+    // twice: the first at once and the last when the task ends.
+    result.timing = await run(
+      page,
+      () =>
+        new Promise((resolve) => {
+          const { view } = window.fixture;
+          const uploads = () => view.getDiagnostics().staticUploads;
+          requestAnimationFrame(() => {
+            const before = uploads();
+            view.setViewport({ startTick: 282240000 });
+            const first = uploads() - before;
+            for (let s = 2; s <= 9; s++) view.setViewport({ startTick: s * 282240000 });
+            const run = uploads() - before;
+            void Promise.resolve().then(() => resolve({ first, run, end: uploads() - before }));
+          });
+        }),
+    );
     await run(page, () => window.fixture.view.setViewport({ startTick: 0 }));
 
     // Steady playback: the playhead moves, and nothing is laid out or uploaded.
@@ -399,6 +418,11 @@ try {
       r.steady,
       { uploads: 0, paints: 0, moved: true },
       backend + " steady playback",
+    );
+    assert.deepEqual(
+      r.timing,
+      backend === "canvas2d" ? { first: 0, run: 0, end: 0 } : { first: 1, run: 1, end: 2 },
+      backend + ": when its paints reached the canvas",
     );
     assert.equal(r.edited, reference.edited, backend + ": the edit trace ended elsewhere");
     assert.deepEqual(r.selection, reference.selection);

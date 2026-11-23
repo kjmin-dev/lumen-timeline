@@ -74,7 +74,7 @@ R1 and R2 change only the media package. R3 keeps today's drawing and adds no op
 ## As delivered
 
 - **`auto` avoids software GPUs.** WebGL2 on a software rasterizer such as SwiftShader made the main thread wait on the GPU process and broke audio continuity in CI's traces. `auto` therefore draws through Canvas 2D there, and `webgl2` still accepts it. Diagnostics report the backend asked for and the reason for any other.
-- **GPU backends submit once per animation frame.** The layout is still built in each paint, so hit tests and diagnostics stay synchronous.
+- **GPU backends draw a task's first paint at once.** They first submitted once per animation frame, which left the clips a frame behind the ruler, overlay and playhead whenever a host moved the viewport from an animation frame callback. Further paints of a task now draw once more when it ends. The layout is built in each paint, so hit tests and diagnostics stay synchronous.
 - **A per-stream summary.** The benchmark showed zooming evicting and rebuilding thousands of tiles. Each stream now keeps the 4,096 and 16,384 sample levels and the overview pair of every tile it built, 168 bytes a tile, and a tile only zoomed-out columns asked for is not kept.
 - **Labels need 24 px of room.** Far zoomed out, labels a letter wide filled the atlas on every frame.
 - **The WASM cutoff is 4,096 samples.** The benchmark measured the worker's round trip faster with WASM at every size it tried, from 4,096 samples.

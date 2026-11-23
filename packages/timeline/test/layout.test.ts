@@ -145,6 +145,66 @@ test("a label is cropped inside its clip, and left out when the atlas has no roo
   assert.equal(quads(full).filter((q) => q.image).length, 0);
 });
 
+test("a clip's takes are read once, a caption is made only for a label, and the row's assets are kept", () => {
+  const withTakes = { takeIds: ["k", "j"], activeTakeId: "j" };
+  const listed: Record<string, readonly Take[]> = {
+    wide: [
+      { id: "k", assetId: "first", streamId: "mono", sourceAtContentZero: 0 },
+      { id: "j", assetId: "second", streamId: "mono", sourceAtContentZero: 0, label: "Keeper" },
+    ],
+    // Zoomed far out: wide enough for two columns, too narrow for a label.
+    narrow: [
+      { id: "k", assetId: "first", streamId: "mono", sourceAtContentZero: 0 },
+      { id: "j", assetId: "third", streamId: "mono", sourceAtContentZero: 0 },
+    ],
+    // Less than a pixel wide: no column to ask for.
+    sliver: [{ id: "j", assetId: "fourth", streamId: "mono", sourceAtContentZero: 0 }],
+    silent: [{ id: "j", assetId: "fifth", streamId: "mono", sourceAtContentZero: 0 }],
+  };
+  const clips = [
+    clip("wide", 2, 3, withTakes),
+    clip("narrow", 6, 0.02, withTakes),
+    clip("sliver", 7, 0.004, { takeIds: ["j"], activeTakeId: "j" }),
+    // Candidates, none active: a caption and no waveform.
+    clip("silent", 8, 1, { takeIds: ["j"], activeTakeId: null }),
+    clip("bare", 9.5, 1),
+  ];
+  const reads: string[] = [];
+  const captions: (string | undefined)[] = [];
+  const asked: string[] = [];
+  const assets = new Set<string>(["stale"]);
+  const list = new QuadList();
+  layoutRow(
+    { ...row, lanes: new Map(clips.map((c) => [c.id, 0])) },
+    clips,
+    layout({
+      takesOf: (id) => {
+        reads.push(id);
+        return listed[id] ?? [];
+      },
+      peaks: ({ assetId, buckets }) => {
+        asked.push(assetId);
+        return new Float32Array(2 * buckets).fill(0.25);
+      },
+      label: (_name, caption) => {
+        captions.push(caption);
+        return slot;
+      },
+      assets,
+    }),
+    list,
+    [],
+  );
+  // One read per clip that lists takes, and none for a clip that lists none.
+  assert.deepEqual(reads, ["wide", "narrow", "sliver", "silent"]);
+  // The active take's asset, for each clip with a column to draw.
+  assert.deepEqual(asked, ["second", "third"]);
+  assert.deepEqual([...assets], ["stale", "second", "third"]);
+  // Captions only where a label is drawn.
+  assert.deepEqual(captions, ["Keeper · 2 takes", "No take · 1 take", undefined]);
+  assert.equal(quads(list).filter((q) => q.image).length, 3);
+});
+
 test("colors pack red into the lowest byte, as GPUs read RGBA8", () => {
   const bytes = new Uint8Array(Uint32Array.of(rgba("#2b5580", 0x66)).buffer);
   assert.deepEqual([...bytes], [0x2b, 0x55, 0x80, 0x66]);

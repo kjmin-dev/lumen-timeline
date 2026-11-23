@@ -102,7 +102,7 @@ export function mountTimeline(
         <canvas class="lt-clips" aria-hidden="true"></canvas><canvas class="lt-selection" aria-hidden="true"></canvas>
         <div class="lt-head" hidden></div>
       </div></div></div></div>
-    <label class="lt-pan">Scroll <input type="range" aria-label="Timeline scroll" min="0" value="0"></label>
+    <label class="lt-pan">Scroll <input type="range" aria-label="Timeline scroll" min="0" step="1" value="0"></label>
     <form class="lt-marker-edit"><label>Marker label <input type="text" aria-label="Marker label"></label>
       <button type="submit" data-marker-rename>Rename marker</button>
       <button type="button" data-marker-remove>Remove marker</button></form>
@@ -141,6 +141,9 @@ export function mountTimeline(
     height = 0,
     dpr = 0,
     totalHeight = 0;
+  // Measured when the mount is, so a paint reads no layout.
+  let scrollTop = 0,
+    rulerHeight = 0;
   let rows: Row[] = [],
     visible: Row[] = [],
     boxes: Box<Clip>[] = [],
@@ -152,8 +155,11 @@ export function mountTimeline(
     overlayPaints: 0,
   };
   let disposed = false;
-  // Each visible row's quads, kept between paints so a backend can draw them all.
-  const scenes = new Map<number, QuadList>();
+  // Each visible row's quads, kept between paints so a backend can draw them
+  // all, and the assets whose waveforms its clips show.
+  const scenes = new Map<number, { readonly quads: QuadList; readonly assets: Set<string> }>();
+  const rulerContext = context2d(ruler),
+    overlayContext = context2d(overlay);
   let atlas: LabelAtlas | null = null;
   // The clip canvas belongs to the backend, which replaces it when it changes.
   const renderers = createRendererHost(body, renderer, () => {
@@ -176,14 +182,14 @@ export function mountTimeline(
     duration = sequenceDuration(snapshot);
   }
 
-  function setup(canvas: HTMLCanvasElement, w: number, h: number): CanvasRenderingContext2D {
+  function setup(ctx: CanvasRenderingContext2D, w: number, h: number): CanvasRenderingContext2D {
+    const { canvas } = ctx;
     const bw = Math.max(1, Math.round(w * dpr)),
       bh = Math.max(1, Math.round(h * dpr));
     if (canvas.width !== bw || canvas.height !== bh) {
       canvas.width = bw;
       canvas.height = bh;
     }
-    const ctx = context2d(canvas);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return ctx;
   }
@@ -204,9 +210,8 @@ export function mountTimeline(
     }
   }
   function paintRuler(): void {
-    ruler.style.width = width + "px";
-    const h = ruler.clientHeight;
-    const ctx = setup(ruler, width, h);
+    const h = rulerHeight;
+    const ctx = setup(rulerContext, width, h);
     ctx.clearRect(0, 0, width, h);
     ctx.fillStyle = "#9da9ad";
     ctx.font = "11px ui-monospace, monospace";
@@ -241,7 +246,7 @@ export function mountTimeline(
     });
   }
   function paintOverlay(): void {
-    const ctx = setup(overlay, width, height);
+    const ctx = setup(overlayContext, width, height);
     ctx.clearRect(0, 0, width, height);
     const selected = new Set(editor.session.getSelection());
     for (const b of boxes)
@@ -260,13 +265,7 @@ export function mountTimeline(
     for (const clip of ghosts) {
       const row = visible.find((r) => r.track.id === clip.trackId);
       if (!row) continue;
-      const b = rectangle(
-        clip,
-        row.lanes.get(clip.id) ?? 0,
-        row.top - scroll.scrollTop,
-        view,
-        width,
-      );
+      const b = rectangle(clip, row.lanes.get(clip.id) ?? 0, row.top - scrollTop, view, width);
       if (b.endX <= b.x) continue;
       ctx.fillStyle = "#ffe6ab33";
       ctx.fillRect(b.x, b.y, b.endX - b.x, b.height);
@@ -293,18 +292,11 @@ export function mountTimeline(
     ruler.setAttribute("aria-valuenow", String(t / hz));
     ruler.setAttribute("aria-valuetext", formatTime(t));
   }
-  // Visible tracks with a drawn clip whose active take plays `assetId`.
+  // Visible tracks whose last layout asked for a waveform of `assetId`.
   function playing(assetId: string): ReadonlySet<string> {
     const tracks = new Set<string>();
-    for (const b of boxes) {
-      const id = b.clip.activeTakeId;
-      if (
-        typeof id === "string" &&
-        !tracks.has(b.clip.trackId) &&
-        read.takesOf(b.clip.id).some((t) => t.id === id && t.assetId === assetId)
-      )
-        tracks.add(b.clip.trackId);
-    }
+    for (const row of visible)
+      if (scenes.get(row.index)?.assets.has(assetId)) tracks.add(row.track.id);
     return tracks;
   }
   let painting = false;
@@ -333,12 +325,14 @@ export function mountTimeline(
     const changed: RowQuads[] = [];
     for (const row of visible) {
       if (dirty && !dirty.has(row.track.id)) continue;
-      let quads = scenes.get(row.index);
-      if (!quads) {
-        quads = new QuadList();
-        scenes.set(row.index, quads);
+      let scene = scenes.get(row.index);
+      if (!scene) {
+        scene = { quads: new QuadList(), assets: new Set() };
+        scenes.set(row.index, scene);
       }
-      const top = row.top - scroll.scrollTop;
+      const { quads, assets } = scene;
+      assets.clear();
+      const top = row.top - scrollTop;
       layoutRow(
         row,
         read.clipsIn(range, { trackIds: [row.track.id] }),
@@ -352,6 +346,7 @@ export function mountTimeline(
           takesOf: (id) => read.takesOf(id),
           peaks: waveforms && ((request) => waveforms.peaks(request)),
           label: (name, caption, color) => atlas.slot(name, caption, color),
+          assets,
         },
         quads,
         boxes,
@@ -373,8 +368,8 @@ export function mountTimeline(
       height,
       dpr,
       rows: visible.flatMap((row) => {
-        const quads = scenes.get(row.index);
-        return quads ? [{ top: row.top - scroll.scrollTop, height: row.height, quads }] : [];
+        const scene = scenes.get(row.index);
+        return scene ? [{ top: row.top - scrollTop, height: row.height, quads: scene.quads }] : [];
       }),
       changed: dirty ? changed : null,
       atlas,
@@ -383,12 +378,56 @@ export function mountTimeline(
       diagnostics.staticPaints++;
       diagnostics.layoutBuilds++;
     }
+    // The rows laid out now show every peak that has arrived.
+    if (dirty) for (const id of dirty) waveTracks.delete(id);
+    else waveTracks.clear();
     paintOverlay();
     frame();
   }
   let relaying = false;
+  // One header per visible row, kept by row index at its place in the scrolled
+  // content. A vertical scroll moves the list and changes a header only where
+  // a row comes into view or leaves it.
+  const headers = new Map<number, { readonly element: HTMLElement; key: string }>();
+  function place(): void {
+    visible = rows.filter(
+      (row) => row.top < scrollTop + height && row.top + row.height > scrollTop,
+    );
+    const shown = new Set(visible.map((row) => row.index));
+    for (const [index, header] of headers)
+      if (!shown.has(index)) {
+        header.element.remove();
+        headers.delete(index);
+      }
+    for (const row of visible) {
+      let header = headers.get(row.index);
+      if (!header) {
+        const element = doc.createElement("div");
+        element.className = "lt-label";
+        element.style.setProperty("--track-color", palette(row.index)[1]);
+        // In row order, before the header of the next row down.
+        let next: HTMLElement | null = null;
+        let nearest = Infinity;
+        for (const [index, other] of headers)
+          if (index > row.index && index < nearest) {
+            nearest = index;
+            next = other.element;
+          }
+        headerList.insertBefore(element, next);
+        header = { element, key: "" };
+        headers.set(row.index, header);
+      }
+      const name = row.track.name ?? row.track.id;
+      const key = [row.top, row.height, name].join();
+      if (header.key === key) continue;
+      header.key = key;
+      header.element.style.top = row.top + "px";
+      header.element.style.height = row.height + "px";
+      header.element.textContent = name;
+    }
+    headerList.style.transform = "translateY(" + -scrollTop + "px)";
+  }
   // Measures the mount, places the visible rows' headers, and draws.
-  let headerKey = "";
   function refresh(): void {
     if (disposed) return;
     width = surface.clientWidth;
@@ -403,33 +442,28 @@ export function mountTimeline(
     }
     space.style.height = Math.max(totalHeight, height) + "px";
     pin.style.height = height + "px";
-    visible = rows.filter(
-      (row) => row.top < scroll.scrollTop + height && row.top + row.height > scroll.scrollTop,
-    );
-    const key = visible
-      .map((row) => [row.index, row.top - scroll.scrollTop, row.height, row.track.name].join())
-      .join("|");
-    if (key !== headerKey) {
-      headerKey = key;
-      const headers = visible.map((row) => {
-        const label = doc.createElement("div");
-        label.className = "lt-label";
-        label.style.top = row.top - scroll.scrollTop + "px";
-        label.style.height = row.height + "px";
-        label.style.setProperty("--track-color", palette(row.index)[1]);
-        label.textContent = row.track.name ?? row.track.id;
-        return label;
-      });
-      headerList.replaceChildren(...headers);
-    }
+    if (ruler.style.width !== width + "px") ruler.style.width = width + "px";
+    // Read after the sizes above are set, which can move the scroll position.
+    scrollTop = scroll.scrollTop;
+    rulerHeight = ruler.clientHeight;
+    place();
     redraw();
   }
-  // Draws the ruler and clips at the current viewport. A pan or zoom needs no more.
+  // A vertical scroll moves the rows. The ruler and the pan slider stay as they are.
+  function scrolled(): void {
+    if (disposed) return;
+    scrollTop = scroll.scrollTop;
+    place();
+    paint();
+  }
+  // Draws the ruler and clips at the current viewport. A pan or zoom needs no
+  // more, and measures no layout.
   function redraw(): void {
     view = viewport(view.startTick, view.pixelsPerSecond, width, duration);
-    pan.max = String(Math.max(0, duration - Math.ceil((width * hz) / view.pixelsPerSecond)));
-    pan.step = "1";
-    pan.value = String(view.startTick);
+    const max = String(Math.max(0, duration - Math.ceil((width * hz) / view.pixelsPerSecond)));
+    const value = String(view.startTick);
+    if (pan.max !== max) pan.max = max;
+    if (pan.value !== value) pan.value = value;
     paintRuler();
     paint();
   }
@@ -464,11 +498,13 @@ export function mountTimeline(
     const patches = change.clipPatches;
     if (patches.length > 64) return updateNavigator();
     const added: string[] = [];
+    let removed = false;
     for (const p of patches) {
       const option = clipOptions.get(p.id);
       if (!p.after) {
         option?.remove();
         clipOptions.delete(p.id);
+        removed = true;
       } else if (!option) {
         clipOptions.set(p.id, new win.Option(p.after.name ?? p.after.id, p.id));
         added.push(p.id);
@@ -490,7 +526,9 @@ export function mountTimeline(
         if (option) navigator.insertBefore(option, next);
       }
     }
-    if (patches.length) navigator.value = editor.session.getSelection().at(-1) ?? "";
+    // Only a list that gained or lost an option can show another clip than the
+    // selected one. The browser finds a value by walking the options.
+    if (added.length || removed) navigator.value = editor.session.getSelection().at(-1) ?? "";
   }
   // Rebuild the marker list, keeping the chosen marker while it exists.
   function updateMarkers(): void {
@@ -552,7 +590,7 @@ export function mountTimeline(
     const rect = surface.getBoundingClientRect();
     const x = event.clientX - rect.left,
       y = event.clientY - rect.top;
-    const top = y + scroll.scrollTop;
+    const top = y + scrollTop;
     const row = visible.find((r) => y >= 0 && y < height && r.top <= top && top < r.top + r.height);
     return { x, width, tick: tickAt(x, view), box: hit(boxes, x, y), trackId: row?.track.id };
   }
@@ -623,7 +661,7 @@ export function mountTimeline(
   // Scrolls a clip's lane into view and, when its start is offscreen, pans to it.
   function hitTest({ x, y }: { readonly x: number; readonly y: number }): TimelineHit | null {
     if (disposed || !(x >= 0 && x < width && y >= 0 && y < height)) return null;
-    const top = y + scroll.scrollTop;
+    const top = y + scrollTop;
     const row = visible.find((r) => r.top <= top && top < r.top + r.height);
     const box = hit(boxes, x, y);
     return {
@@ -638,7 +676,10 @@ export function mountTimeline(
     const row = clip && rows.find((r) => r.track.id === clip.trackId);
     if (!clip || !row || disposed) return false;
     const y = row.top + rowInset + laneHeight * (row.lanes.get(clip.id) ?? 0);
-    if (y < scroll.scrollTop || y + laneHeight > scroll.scrollTop + height) scroll.scrollTop = y;
+    if (y < scrollTop || y + laneHeight > scrollTop + height) {
+      scroll.scrollTop = y;
+      scrolled();
+    }
     if (clip.start < view.startTick || clip.start >= tickAt(width, view))
       setViewport({ startTick: clip.start });
     return true;
@@ -659,7 +700,9 @@ export function mountTimeline(
   listen(zoomIn, "click", () => zoom(width / 2, 1.5));
   listen(zoomOut, "click", () => zoom(width / 2, 1 / 1.5));
   listen(pan, "input", () => setViewport({ startTick: Number(pan.value) }));
-  listen(scroll, "scroll", refresh);
+  listen(scroll, "scroll", () => {
+    if (scroll.scrollTop !== scrollTop) scrolled();
+  });
   listen(
     root,
     "wheel",
@@ -774,6 +817,7 @@ export function mountTimeline(
   const resize = new win.ResizeObserver(refresh);
   resize.observe(surface);
   resize.observe(scroll);
+  resize.observe(ruler);
   let resolution: MediaQueryList | undefined;
   function onResolution(): void {
     resolution?.removeEventListener("change", onResolution);
@@ -817,6 +861,7 @@ export function mountTimeline(
       atlas?.dispose();
       atlas = null;
       scenes.clear();
+      headers.clear();
       root.remove();
     },
   };

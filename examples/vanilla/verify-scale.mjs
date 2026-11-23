@@ -1,9 +1,11 @@
 // The view at the roadmap's scale: two hours, 40 tracks and 20,000 clips at
 // 1440 × 900 CSS pixels and DPR 2, 12 rows visible. The layout holds exactly the
 // clips of visible rows in the visible range, at any zoom. A pan leaves the
-// headers and the clip navigator alone, an edit touches only its own options,
-// a waveform notification repaints once and then once a frame, labels keep
-// drawing after the label atlas fills, and hit tests read the layout. Usage:
+// headers and the clip navigator alone and measures no layout, a vertical
+// scroll moves the headers and leaves the ruler alone, an edit touches only
+// its own options, a waveform notification repaints once and then once a
+// frame, labels keep drawing after the label atlas fills, and hit tests read
+// the layout. Usage:
 // node examples/vanilla/verify-scale.mjs [chromium|firefox|webkit] [renderer]   (build first)
 import assert from "node:assert/strict";
 import { chromium, firefox, webkit } from "playwright";
@@ -186,6 +188,108 @@ try {
     `${engine}: 60 pans left headers and navigator untouched (median ${pans.median.toFixed(2)} ms, p95 ${pans.p95.toFixed(2)} ms)`,
   );
 
+  // A pan measures no layout: before, each one made the browser lay the page
+  // out again in the middle of its script.
+  if (engine === "chromium") {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
+    const layouts = async () =>
+      (await cdp.send("Performance.getMetrics")).metrics.find((m) => m.name === "LayoutCount")
+        .value;
+    const settle = () =>
+      run(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await settle();
+    const before = await layouts();
+    await run(() => {
+      for (let i = 0; i < 60; i++)
+        window.scale.view.setViewport({ startTick: (100 + i * 7) * 282240000 });
+    });
+    await settle();
+    const laidOut = (await layouts()) - before;
+    // The frames around the pans may lay out what they changed, once each.
+    assert.ok(laidOut <= 3, `60 pans laid the page out ${laidOut} times`);
+    console.log(
+      `${engine}: 60 pans in one task measured no layout (${laidOut} in the frames around them)`,
+    );
+  }
+
+  // A vertical scroll moves the header list. A header changes only where a row
+  // comes into view or leaves it, and the ruler is not drawn again.
+  const scrolled = await run(async () => {
+    const scroller = document.querySelector(".lt-scroll");
+    const list = document.querySelector(".lt-headers");
+    const frame = () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const home = scroller.scrollTop;
+    scroller.scrollTop = 0;
+    await frame();
+    const records = [];
+    const watch = new MutationObserver((changes) => records.push(...changes));
+    watch.observe(list, { childList: true });
+    // The ruler's own context, which the view draws its time labels through.
+    const ruler = document.querySelector(".lt-ruler").getContext("2d");
+    let ruled = 0;
+    ruler.fillText = (...args) => {
+      ruled++;
+      CanvasRenderingContext2D.prototype.fillText.apply(ruler, args);
+    };
+    const paints = () => window.scale.view.getDiagnostics().staticPaints;
+    const before = paints();
+    const steps = [];
+    // Row 13 comes into view; nothing changes; row 1 leaves as row 14 comes in.
+    for (const top of [20, 30, 76]) {
+      scroller.scrollTop = top;
+      await frame();
+      await Promise.resolve();
+      steps.push([
+        records.reduce((n, r) => n + r.addedNodes.length, 0),
+        records.reduce((n, r) => n + r.removedNodes.length, 0),
+      ]);
+    }
+    watch.disconnect();
+    const scrolls = { ruled, paints: paints() - before };
+    // A paint at the same viewport does draw the ruler, so the count above is not blind.
+    window.scale.view.setViewport({});
+    const control = ruled;
+    delete ruler.fillText;
+    const pin = document.querySelector(".lt-pin").getBoundingClientRect();
+    const out = {
+      steps,
+      ...scrolls,
+      control,
+      names: [...list.children].map((label) => label.textContent),
+      tops: [...list.children].map((label) => label.getBoundingClientRect().top - pin.top),
+    };
+    scroller.scrollTop = home;
+    await frame();
+    return out;
+  });
+  assert.deepEqual(
+    [scrolled.steps, scrolled.ruled, scrolled.paints],
+    [
+      [
+        [1, 0],
+        [1, 0],
+        [2, 1],
+      ],
+      0,
+      3,
+    ],
+    JSON.stringify(scrolled),
+  );
+  assert.ok(scrolled.control > 0, "the ruler drew no label when the viewport was set");
+  assert.deepEqual(
+    scrolled.names,
+    Array.from({ length: 13 }, (_, i) => "Track " + (i + 2)),
+  );
+  assert.deepEqual(
+    scrolled.tops,
+    Array.from({ length: 13 }, (_, i) => (i + 1) * 46 - 76),
+  );
+  console.log(
+    engine + ": three scrolls changed two headers, in row order, and left the ruler alone",
+  );
+
   // A split adds one option, in project order, and its undo removes it.
   const edit = await run(async () => {
     const { editor, view } = window.scale;
@@ -239,6 +343,42 @@ try {
     `${engine}: a split and its undo touched one navigator option (split ${edit.splitMs.toFixed(2)} ms)`,
   );
 
+  // A move changes no option, so the navigator's value is left alone: the
+  // browser finds a value by walking all 20,001 options.
+  const chosen = await run(async () => {
+    const { editor } = window.scale;
+    const { commands } = await import("@lumen-timeline/core");
+    const select = document.querySelector("select[aria-label='Clip navigator']");
+    const value = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+    let sets = 0;
+    Object.defineProperty(select, "value", {
+      configurable: true,
+      get: () => value.get.call(select),
+      set(next) {
+        sets++;
+        value.set.call(select, next);
+      },
+    });
+    const counts = [];
+    editor.session.select(["c3-21"]);
+    counts.push(sets);
+    editor.dispatch(commands.moveClips({ clipIds: ["c3-21"], delta: 282240000 }));
+    editor.history.undo();
+    counts.push(sets);
+    const clip = editor.getSnapshot().clips.find((c) => c.id === "c3-21");
+    editor.dispatch(commands.splitClip({ clipId: clip.id, at: clip.start + 282240000 }));
+    counts.push(sets);
+    editor.history.undo();
+    counts.push(sets);
+    const shown = select.value;
+    delete select.value;
+    editor.session.select([]);
+    return { counts, shown };
+  });
+  // Once for the selection, never for the move or its undo, once each for the split and its undo.
+  assert.deepEqual(chosen, { counts: [1, 1, 2, 3], shown: "c3-21" });
+  console.log(engine + ": a move left the navigator's value alone, and a split set it once");
+
   // One notification repaints at once; a burst repaints once more, a frame later.
   const notes = await run(async () => {
     const { view, notify } = window.scale;
@@ -263,6 +403,26 @@ try {
   });
   assert.deepEqual(notes, { first: 1, burstNow: 1, burst: 2, unused: 0 });
   console.log(engine + ": a notification repainted at once, and a burst of ten painted twice");
+
+  // A paint of every row shows the peaks that arrived, so no repaint follows it.
+  const settled = await run(async () => {
+    const { view, notify } = window.scale;
+    const paints = () => view.getDiagnostics().staticPaints;
+    const frame = () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await frame();
+    const before = paints();
+    // The first paints at once, the second waits for the next frame.
+    notify("a3");
+    notify("a4");
+    view.setViewport({});
+    const now = paints() - before;
+    await frame();
+    await frame();
+    return { now, later: paints() - before };
+  });
+  assert.deepEqual(settled, { now: 2, later: 2 });
+  console.log(engine + ": a paint of every row left no waveform repaint behind");
 
   // Labels keep drawing after the atlas fills: pan across many distinct names.
   const cycled = await run(async () => {
