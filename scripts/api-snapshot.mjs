@@ -10,6 +10,9 @@ const packages = [
   { dir: "packages/timeline", entries: ["index.d.ts", "internal.d.ts"] },
   { dir: "packages/sync", entries: ["index.d.ts", "internal.d.ts"] },
   { dir: "packages/react", entries: ["index.d.ts"] },
+  { dir: "packages/svelte", entries: ["index.d.ts"] },
+  { dir: "packages/solid", entries: ["index.d.ts"] },
+  { dir: "packages/vue", entries: ["index.d.ts"] },
 ];
 const update = process.argv.includes("--update");
 const failures = [];
@@ -29,7 +32,7 @@ for (const { dir, entries } of packages) {
     }
     const text = readFileSync(path, "utf8").replace(/^\/\/# sourceMappingURL=.*\n?/m, "");
     reachable.set(file, text);
-    for (const [, name] of text.matchAll(/(?:from |import\()"\.\/([\w-]+)\.(?:ts|js)"/g))
+    for (const [, name] of text.matchAll(/(?:from |import\()"\.\/([\w.-]+)\.(?:ts|js)"/g))
       pending.push(name + ".d.ts");
   }
   const expected = existsSync(snapshot)

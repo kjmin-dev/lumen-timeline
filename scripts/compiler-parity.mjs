@@ -17,6 +17,12 @@ const projects = [
   { path: "packages/sync/test", emit: false },
   { path: "packages/react", emit: true },
   { path: "packages/react/test", emit: false },
+  { path: "packages/svelte", emit: true },
+  { path: "packages/svelte/test", emit: false },
+  { path: "packages/solid", emit: true },
+  { path: "packages/solid/test", emit: false },
+  { path: "packages/vue", emit: true },
+  { path: "packages/vue/test", emit: false },
 ];
 const compilers = ["tsrs", "tsc"];
 const windows = process.platform === "win32";

@@ -30,6 +30,24 @@
     },
     {
       "path": "packages/react/test"
+    },
+    {
+      "path": "packages/svelte"
+    },
+    {
+      "path": "packages/svelte/test"
+    },
+    {
+      "path": "packages/solid"
+    },
+    {
+      "path": "packages/solid/test"
+    },
+    {
+      "path": "packages/vue"
+    },
+    {
+      "path": "packages/vue/test"
     }
   ]
 }

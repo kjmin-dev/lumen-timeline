@@ -2,9 +2,14 @@
 
 Each wrapper mounts the same view as `mountTimeline` and lets a framework's own components read the editor and the transport. The host creates the editor and the transport, as in the [vanilla example](vanilla-timeline.md), and passes them down. A wrapper never creates or disposes either. The [plan](plans/framework-wrappers.md) records the design and its checks.
 
-| Package                 | Framework peer  | Tested with  |
-| ----------------------- | --------------- | ------------ |
-| `@lumen-timeline/react` | `react` ^19.3.1 | React 19.3.1 |
+| Package                  | Framework peer    | Tested with                                                                                      |
+| ------------------------ | ----------------- | ------------------------------------------------------------------------------------------------ |
+| `@lumen-timeline/react`  | `react` ^19.3.1   | React 19.3.1                                                                                     |
+| `@lumen-timeline/svelte` | `svelte` ^5.59.1  | Svelte 5.59.1 with vite-plugin-svelte 7.3.1                                                      |
+| `@lumen-timeline/solid`  | `solid-js` ^2.0.3 | SolidJS 2.0.3 with vite-plugin-solid 3.0.0-next.27 and babel-preset-solid 2.0.0-rc.2 for its JSX |
+| `@lumen-timeline/vue`    | `vue` ^3.5.46     | Vue 3.5.46 with @vitejs/plugin-vue 6.0.11                                                        |
+
+Each package is TypeScript built to plain JavaScript, with no JSX and no template compiler, so a consumer needs only the build its framework needs anyway.
 
 Every wrapper follows the same rules:
 
@@ -70,13 +75,117 @@ export function Workspace({ editor, transport, tiles }) {
 - **`<TimelineProvider editor transport>`** and **`useTimelineContext()`** hand the host's editor and transport to panels below it. `useTimelineContext` throws without a provider.
 - Under `StrictMode` in development, React mounts each new component's effects twice. The first view is disposed at once, before anything draws.
 
+## Svelte
+
+```svelte
+<script>
+  import { shallowEqual } from "@lumen-timeline/core";
+  import { editorSelector, setTimelineContext, timeline } from "@lumen-timeline/svelte";
+  import "@lumen-timeline/timeline/style.css";
+
+  const { editor, transport, tiles } = $props();
+  let snap = $state({ gridTicks: 28224000 });
+  let view = null;
+  setTimelineContext({ editor, transport });
+  const clip = editorSelector(
+    editor,
+    ({ snapshot, selection }) => {
+      const found = snapshot.clips.find((c) => c.id === selection.at(-1));
+      return found ? { name: found.name, take: found.activeTakeId } : null;
+    },
+    shallowEqual,
+  );
+</script>
+
+<div {@attach timeline(() => ({ editor, transport, snap, waveforms: tiles, onview: (v) => (view = v) }))}></div>
+<aside>{clip.current ? `${clip.current.name}: ${clip.current.take}` : "No clip selected"}</aside>
+```
+
+- **`{@attach timeline(() => options)}`** mounts the view in its element and disposes it when the element goes. Pass a function that returns the options, so they are read inside the attachment: a changed `editor`, `transport` or `renderer` mounts a new view, and other options reach the mounted view. `onview` receives the view, and `null` once it is disposed.
+- **`editorSelector(editor, select, isEqual)`** returns `{ current }`. Read `current` in markup, a derived value or an effect. An effect that reads it subscribes, and the subscription ends when no effect reads it. `editor` may be a function returning it, which a host that switches editors passes.
+- **`transportSelector(transport, select, isEqual)`** does the same for a transport's snapshot.
+- **`setTimelineContext({ editor, transport })`** and **`getTimelineContext()`** hand the host's editor and transport down during component setup. A host that switches them passes an object whose properties are getters of its state.
+- The attachment uses `$effect`, so the package ships it as `attach.svelte.js` and the application's Svelte compiles its runes, as Svelte libraries do. The package's `svelte` export condition tells Vite so.
+
+## SolidJS
+
+```jsx
+import { createSignal } from "solid-js";
+import { shallowEqual } from "@lumen-timeline/core";
+import { createEditorSelector, createTimeline, TimelineContext } from "@lumen-timeline/solid";
+import "@lumen-timeline/timeline/style.css";
+
+export function Workspace(props) {
+  const [element, setElement] = createSignal();
+  const [snap] = createSignal({ gridTicks: 28224000 });
+  const view = createTimeline(element, () => ({
+    editor: props.editor,
+    transport: props.transport,
+    snap: snap(),
+  }));
+  const clip = createEditorSelector(
+    () => props.editor,
+    ({ snapshot, selection }) => {
+      const found = snapshot.clips.find((c) => c.id === selection.at(-1));
+      return found ? { name: found.name, take: found.activeTakeId } : null;
+    },
+    shallowEqual,
+  );
+  return (
+    <TimelineContext value={{ editor: props.editor, transport: props.transport }}>
+      <div ref={setElement} />
+      <aside>{clip() ? `${clip().name}: ${clip().take}` : "No clip selected"}</aside>
+    </TimelineContext>
+  );
+}
+```
+
+- **`createTimeline(element, options)`** mounts the view in `element` once the render has settled, and disposes it with its owner. Give the element as a signal, with its setter as the `ref`, and the options as an accessor. It returns an accessor of the view, `undefined` until it mounts.
+- **`createEditorSelector(editor, select, isEqual)`** returns an accessor of the field. It subscribes from its first effect run until its owner is disposed. `editor` may be an accessor, which a host that switches editors passes.
+- **`createTransportSelector(transport, select, isEqual)`** does the same for a transport's snapshot.
+- **`<TimelineContext value={{ editor, transport }}>`** and **`useTimelineContext()`** hand the host's editor and transport down. A host that switches them passes an object whose properties are getters of its signals. `useTimelineContext` throws without a provider.
+- SolidJS 2's JSX compiler was published only under `next` tags when this was tested. The package has no JSX and does not depend on it; an application compiles its own.
+
+## Vue
+
+```vue
+<script setup>
+import { computed, useTemplateRef } from "vue";
+import { shallowEqual } from "@lumen-timeline/core";
+import { provideTimeline, Timeline, useEditorSelector } from "@lumen-timeline/vue";
+import "@lumen-timeline/timeline/style.css";
+
+const { editor, transport, tiles } = defineProps(["editor", "transport", "tiles"]);
+provideTimeline({ editor, transport });
+const timeline = useTemplateRef("timeline");
+const clip = useEditorSelector(
+  editor,
+  ({ snapshot, selection }) => {
+    const found = snapshot.clips.find((c) => c.id === selection.at(-1));
+    return found ? { name: found.name, take: found.activeTakeId } : null;
+  },
+  shallowEqual,
+);
+</script>
+
+<template>
+  <Timeline ref="timeline" :editor="editor" :transport="transport" :waveforms="tiles" />
+  <aside>{{ clip ? `${clip.name}: ${clip.take}` : "No clip selected" }}</aside>
+</template>
+```
+
+- **`<Timeline v-bind="options">`** renders a `div` and mounts the view in it on mount. `class` and `style` fall through to the `div`. The template ref exposes `view`, the `TimelineView` or `null`. Props are read raw, so an editor kept in a deep `ref` still reaches the view as the object the host made.
+- **`useEditorSelector(editor, select, isEqual)`** returns a read-only shallow reference. In a component it subscribes from mount until unmount; elsewhere, from the call until its effect scope ends. `editor` may be a ref or a getter, and a new editor is followed.
+- **`useTransportSelector(transport, select, isEqual)`** does the same for a transport's snapshot.
+- **`provideTimeline(value)`** and **`useTimelineContext()`** hand the host's editor and transport down. `value` may be a ref or a getter, and `useTimelineContext` returns a computed reference. It throws without a provider.
+
 ## Consumers and checks
 
 `examples/frameworks` holds a vanilla consumer and one per framework. They share a host, `shared/browser.mjs`, with two editor and transport pairs over a 40-second project with candidate takes, synthesized sources played through Web Audio and waveform tiles. Each consumer has the same page: the timeline, a take inspector whose buttons choose the selected clip's candidate, and a clock. `npm run build:consumers` builds them with Vite in production mode into `examples/frameworks/dist`. The packages resolve through their public `exports` to their builds, as an installed copy would.
 
 `npm run verify:wrappers` builds the consumers and runs the [wrapper acceptance tests](../ROADMAP.md#wrapper-acceptance-tests) on each in Chromium at 1,280 × 800 CSS pixels and DPR 2, through WebGL2. An init script counts pending animation frame callbacks, resize observers, live WebGL2 contexts and audio nodes created, and the host counts every subscription to its editors, transports and waveform tiles.
 
-1. **Lifecycle.** Five times: mount the view, change every option, check that the same view and element remain, then unmount and check that every count is back where it started. Then mount with the other editor and transport and back, and with Canvas 2D and back. With the panels unmounted too, only the transports' own subscriptions to their editors remain, and the host's editor still edits with its history. No audio node was made. The React consumer also runs this check as a development build under `StrictMode`.
+1. **Lifecycle.** Five times: mount the view, change every option, check that the same view and element remain, then unmount and check that every count is back where it started. Then mount with the other editor and transport and back, and with Canvas 2D and back. With the panels unmounted too, only the transports' own subscriptions to their editors remain, and the host's editor still edits with its history. No audio node was made. Each framework consumer also runs this check as a development build, React's under `StrictMode`, where frameworks report misuse they check only in development. No consumer may print a warning.
 2. **Steady playback.** With a clip selected, ten seconds of playback give the take inspector no update and the view no geometry upload or layout, while the clock updates about a hundred times.
 3. **Replay.** Seek on the ruler, trim a clip's end with the pointer, split at the playhead with `S`, undo with Control-Z, select another clip and choose its third take in the inspector. The snapshot, selection, active takes, playhead, history depths, planned audio spans and 476 hit tests must equal vanilla's.
 4. **Isolation.** The vanilla bundle holds no framework and no wrapper, and each wrapper's bundle holds only its own.
