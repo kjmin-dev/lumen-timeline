@@ -1,5 +1,5 @@
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
-import type { Tick } from "@lumen-timeline/core";
+import type { Tick, TickRange } from "@lumen-timeline/core";
 import { auditionState, planAudition, watchAudition } from "./audition.ts";
 import { VideoTransport as VideoDriver } from "./video-driver.ts";
 import type {
@@ -24,6 +24,8 @@ export function createVideoTransport({
   editor,
   context,
   output = context.destination,
+  trackOutput,
+  fadeOutSeconds,
   catalog,
   resolveBuffer,
   onError,
@@ -31,6 +33,12 @@ export function createVideoTransport({
   const listeners = new Set<(state: VideoTransportState) => void>();
   const events = new AbortController();
   const initial = Math.round(video.currentTime * hz);
+  const initialRate =
+    typeof video.playbackRate === "number" &&
+    Number.isFinite(video.playbackRate) &&
+    video.playbackRate > 0
+      ? video.playbackRate
+      : 1;
   let state: VideoTransportState = Object.freeze({
     playing: !video.paused && !video.ended,
     presentedTick: initial,
@@ -39,6 +47,8 @@ export function createVideoTransport({
     segmentStart: initial,
     audition: null,
     until: null,
+    playbackRate: initialRate,
+    loop: null,
   });
   let request = 0;
   let audition: ActiveAudition | null = null;
@@ -63,12 +73,24 @@ export function createVideoTransport({
     editor,
     catalog,
     resolveBuffer,
+    trackOutput,
+    fadeOutSeconds,
     onError,
     onFrame: (seconds) => {
       const tick = Math.round(seconds * hz);
+      const previous = state.presentedTick;
       update({ presentedTick: tick });
       if (audition && tick >= audition.state.range.end) void endAudition(finished, true);
       else if (state.until !== null && tick >= state.until) void stopped(state.until);
+      else if (
+        !audition &&
+        state.until === null &&
+        state.loop !== null &&
+        previous < state.loop.end &&
+        tick >= state.loop.end
+      ) {
+        void move(state.loop.start).catch(() => {});
+      }
     },
   });
   for (const name of ["play", "pause", "ended"]) {
@@ -197,6 +219,33 @@ export function createVideoTransport({
       void endAudition(cancelled, false);
       setStop(null);
       return move(tick);
+    },
+    setPlaybackRate(rate: number) {
+      if (events.signal.aborted) throw new Error("Transport disposed");
+      if (!Number.isFinite(rate) || rate <= 0)
+        throw new RangeError("Playback rate must be a finite positive number");
+      if (rate === state.playbackRate) return;
+      video.playbackRate = rate;
+      driver.setPlaybackRate(rate);
+      driver.invalidate();
+      update({ playbackRate: rate });
+    },
+    setLoop(range: TickRange | null) {
+      if (events.signal.aborted) throw new Error("Transport disposed");
+      let next: TickRange | null = null;
+      if (range !== null) {
+        if (
+          typeof range !== "object" ||
+          !Number.isSafeInteger(range.start) ||
+          !Number.isSafeInteger(range.end) ||
+          range.start < 0 ||
+          range.end <= range.start
+        )
+          throw new RangeError("Loop range requires ordered nonnegative integer ticks");
+        next = Object.freeze({ start: range.start, end: range.end });
+      }
+      if (state.loop?.start === next?.start && state.loop?.end === next?.end) return;
+      update({ loop: next });
     },
     async audition(input): Promise<AuditionResult> {
       if (events.signal.aborted) throw new Error("Transport disposed");

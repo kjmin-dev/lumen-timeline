@@ -1,6 +1,13 @@
 import { defined } from "./invariant.ts";
 import { requireEdit } from "./validation.ts";
-import type { ClipPatch, DataPatch, HistoryLimits, MarkerPatch, TakePatch } from "./types.ts";
+import type {
+  ClipPatch,
+  DataPatch,
+  HistoryLimits,
+  MarkerPatch,
+  TakePatch,
+  TrackPatch,
+} from "./types.ts";
 
 export interface HistoryEntry {
   readonly forward: readonly ClipPatch[];
@@ -11,6 +18,10 @@ export interface HistoryEntry {
   readonly inverseMarkers?: readonly MarkerPatch[];
   readonly takes?: readonly TakePatch[];
   readonly inverseTakes?: readonly TakePatch[];
+  readonly tracks?: readonly TrackPatch[];
+  readonly inverseTracks?: readonly TrackPatch[];
+  readonly trackOrder?: readonly string[];
+  readonly inverseTrackOrder?: readonly string[];
 }
 
 interface StoredEntry extends HistoryEntry {

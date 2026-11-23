@@ -74,6 +74,7 @@ type FrameCallback = (now: number, frame: VideoFrameMetadataLike) => void;
 /** A paused video that counts transport calls and presents frames on request. */
 export class FakeVideo extends EventTarget implements VideoElementLike {
   currentTime = 1;
+  playbackRate = 1;
   readonly duration = 12;
   readonly paused = true;
   readonly ended = false;

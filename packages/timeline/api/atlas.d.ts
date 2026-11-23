@@ -1,4 +1,9 @@
 import type { LabelSlot } from "./layout.ts";
+export interface LabelAtlasStyle {
+    readonly nameFont?: string | undefined;
+    readonly captionFont?: string | undefined;
+    readonly nameColor?: string | undefined;
+}
 /**
  * Clip labels rasterized once at the device pixel ratio, in rows of equal
  * height. When the atlas is full it reports so; the view clears it and lays out
@@ -26,4 +31,4 @@ export interface LabelAtlas {
     clear(): void;
     dispose(): void;
 }
-export declare function createLabelAtlas(doc: Document, dpr: number, size?: number): LabelAtlas;
+export declare function createLabelAtlas(doc: Document, dpr: number, size?: number, style?: LabelAtlasStyle): LabelAtlas;

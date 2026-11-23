@@ -52,6 +52,8 @@ export interface Voice {
 export interface VoiceSchedulerOptions {
   readonly context: AudioContextLike;
   readonly output?: AudioNodeLike | undefined;
+  readonly trackOutput?: ((trackId: string) => AudioNodeLike | undefined) | undefined;
+  readonly fadeOutSeconds?: number | undefined;
   readonly editor: Editor;
   readonly catalog: StreamCatalog;
   readonly resolveBuffer: ResolveBuffer;
@@ -76,19 +78,25 @@ export function scheduleWindow(
   sharedStartSample?: number,
   // A missing sourceStart reads as NaN, exactly as undefined did in arithmetic.
   sourceSeconds: number = (window.sourceStart ?? NaN) / hz,
+  playbackRate: number = 1,
 ): number {
-  const sample = (tick: Tick): number => Math.round((audioAtProjectZero + tick / hz) * outputRate);
+  const sample = (tick: Tick): number =>
+    Math.round((audioAtProjectZero + tick / (hz * playbackRate)) * outputRate);
   const start = sharedStartSample ?? sample(window.start);
   let end = sample(window.end);
   if (sharedStartSample !== undefined) {
     // Keep the shared sample but use the latest clock estimate for the far edge.
     // Spread a small correction over the clip, consuming exactly its source range.
-    const sourceFrames = ((window.end - window.start) / hz) * outputRate;
+    const sourceFrames = ((window.end - window.start) / (hz * playbackRate)) * outputRate;
     const nominal = Math.round(sourceFrames);
     const limit = Math.floor(nominal * 0.001);
     const length = Math.min(nominal + limit, Math.max(nominal - limit, end - start));
     end = start + length;
-    if (length > 0 && length !== nominal) node.playbackRate.value = sourceFrames / length;
+    if (length > 0 && length !== nominal)
+      node.playbackRate.value = playbackRate * (sourceFrames / length);
+    else if (playbackRate !== 1) node.playbackRate.value = playbackRate;
+  } else if (playbackRate !== 1) {
+    node.playbackRate.value = playbackRate;
   }
   node.start(start / outputRate, sourceSeconds);
   node.stop(end / outputRate);
@@ -98,12 +106,16 @@ export function scheduleWindow(
 export class VoiceScheduler {
   readonly context: AudioContextLike;
   readonly output: AudioNodeLike;
+  readonly trackOutput: ((trackId: string) => AudioNodeLike | undefined) | undefined;
+  readonly fadeOutSeconds: number;
   read: ReadHandle;
   catalog: StreamCatalog;
   /** Plan options for every fill, as an audition sets them. */
   options: PlanOptions | undefined;
   /** No voice plays at or after this tick. */
   until: Tick;
+  /** Playback speed multiplier (`1` is real time). */
+  playbackRate: number;
   readonly resolveBuffer: ResolveBuffer;
   readonly onError: MediaErrorHandler;
   generation: number;
@@ -116,19 +128,26 @@ export class VoiceScheduler {
   constructor({
     context,
     output = context.destination,
+    trackOutput,
+    fadeOutSeconds = 0,
     editor,
     catalog,
     resolveBuffer,
     onError = () => {},
     onWake,
   }: VoiceSchedulerOptions) {
+    if (!Number.isFinite(fadeOutSeconds) || fadeOutSeconds < 0)
+      throw new RangeError("fadeOutSeconds must be a finite nonnegative number");
     this.context = context;
     this.output = output;
+    this.trackOutput = trackOutput;
+    this.fadeOutSeconds = fadeOutSeconds;
     this.read = editor.read();
     this.read.planAudio({ start: 0, end: 0 }, catalog);
     this.catalog = catalog;
     this.options = undefined;
     this.until = Infinity;
+    this.playbackRate = 1;
     this.resolveBuffer = resolveBuffer;
     this.onError = onError;
     this.generation = 0;
@@ -139,7 +158,12 @@ export class VoiceScheduler {
       (s: ProjectSnapshot) => s,
       (snapshot: ProjectSnapshot, change: EditCommit) => {
         this.read = editor.read(snapshot);
-        if (!this.anchor || !change.changedIds.length) return;
+        if (!this.anchor) return;
+        if (change.trackPatches.length) {
+          this.fill(true);
+          return;
+        }
+        if (!change.changedIds.length) return;
         const range = this.range();
         const intersects = (edge: TickRange): boolean =>
           edge.start < range.end && edge.end > range.start;
@@ -163,12 +187,19 @@ export class VoiceScheduler {
     this.fill();
   }
 
+  setPlaybackRate(rate: number): void {
+    if (!Number.isFinite(rate) || rate <= 0)
+      throw new RangeError("Playback rate must be a finite positive number");
+    this.playbackRate = rate;
+  }
+
   // Callers check that an anchor is set.
   range(): TickRange {
     const anchor = defined(this.anchor ?? undefined, "playback anchor");
-    const projected = anchor.tick + Math.ceil((this.context.currentTime - anchor.audio) * hz);
+    const projected =
+      anchor.tick + Math.ceil((this.context.currentTime - anchor.audio) * hz * this.playbackRate);
     const start = Math.max(anchor.earliestTick, projected);
-    const end = Math.min(start + hz / 10, this.until);
+    const end = Math.min(start + Math.round((hz / 10) * this.playbackRate), this.until);
     return { start: Math.min(start, end), end };
   }
 
@@ -316,7 +347,8 @@ export class VoiceScheduler {
     const node = this.context.createBufferSource();
     voice.node = node;
     voice.ended = false;
-    const gain = span.gain === 1 ? null : this.context.createGain();
+    const destination = this.trackOutput?.(span.trackId) ?? this.output;
+    const gain = span.gain === 1 && this.fadeOutSeconds === 0 ? null : this.context.createGain();
     voice.gainNode = gain;
     node.onended = () => {
       node.disconnect();
@@ -326,11 +358,12 @@ export class VoiceScheduler {
     node.buffer = defined(voice.buffer, "accepted buffer");
     if (gain) {
       gain.gain.value = span.gain;
-      gain.connect(this.output);
+      gain.connect(destination);
     }
-    node.connect(gain ?? this.output);
+    node.connect(gain ?? destination);
     const anchor = defined(this.anchor ?? undefined, "playback anchor");
-    const origin = anchor.audio - anchor.tick / hz;
+    const speed = this.playbackRate;
+    const origin = anchor.audio - anchor.tick / (hz * speed);
     const rate = this.context.sampleRate;
     const start = span.window.start;
     const end = Math.min(span.audible.end, this.until);
@@ -339,7 +372,7 @@ export class VoiceScheduler {
     voice.bookedEnd = end;
     voice.token = {};
     voice.predecessorToken = predecessor?.token;
-    voice.startSample = shared ?? Math.round((origin + start / hz) * rate);
+    voice.startSample = shared ?? Math.round((origin + start / (hz * speed)) * rate);
     voice.endSample = scheduleWindow(
       node,
       { start, end },
@@ -347,6 +380,7 @@ export class VoiceScheduler {
       rate,
       shared,
       span.window.sourceStart / span.sampleRate,
+      speed,
     );
   }
 
@@ -362,15 +396,31 @@ export class VoiceScheduler {
     if (this.voices.get(voice.span.clipId) !== voice) return;
     this.voices.delete(voice.span.clipId);
     voice.abort.abort();
+    const now = this.context.currentTime;
     if (
       !voice.ended &&
       !voice.failed &&
       voice.node &&
       voice.endSample !== undefined &&
-      voice.endSample > this.context.currentTime * this.context.sampleRate
+      voice.endSample > now * this.context.sampleRate
     ) {
       // A voice has an end sample only after its node is booked.
-      voice.node.stop(this.context.currentTime);
+      const fade = !disconnect && this.fadeOutSeconds > 0 ? this.fadeOutSeconds : 0;
+      const param = voice.gainNode?.gain;
+      if (
+        fade > 0 &&
+        param?.setValueAtTime &&
+        param.linearRampToValueAtTime &&
+        voice.startSample !== undefined &&
+        voice.startSample <= now * this.context.sampleRate
+      ) {
+        const end = Math.min(voice.endSample / this.context.sampleRate, now + fade);
+        param.setValueAtTime(param.value, now);
+        param.linearRampToValueAtTime(0, end);
+        voice.node.stop(end);
+      } else {
+        voice.node.stop(now);
+      }
     }
     if (disconnect) {
       voice.node?.disconnect();
@@ -403,7 +453,8 @@ export class VoiceScheduler {
     this.until = until;
     const anchor = this.anchor;
     if (!anchor) return;
-    const origin = anchor.audio - anchor.tick / hz;
+    const speed = this.playbackRate;
+    const origin = anchor.audio - anchor.tick / (hz * speed);
     const rate = this.context.sampleRate;
     for (const voice of this.voices.values()) {
       const { node, bookedStart, bookedEnd, startSample } = voice;
@@ -418,7 +469,7 @@ export class VoiceScheduler {
       )
         continue;
       // A voice that would start after the stop never sounds.
-      const endSample = Math.max(startSample, Math.round((origin + until / hz) * rate));
+      const endSample = Math.max(startSample, Math.round((origin + until / (hz * speed)) * rate));
       node.stop(endSample / rate);
       voice.bookedEnd = Math.max(bookedStart, until);
       voice.endSample = endSample;

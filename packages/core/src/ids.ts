@@ -52,6 +52,7 @@ export function idAllocator(actor: string | undefined, project: ProjectSnapshot)
     counter = Math.max(counter, lastCounter(prefix, items));
   }
   function advance(next: ProjectSnapshot): void {
+    pass(next.tracks);
     pass(next.clips);
     pass(next.markers);
     pass(next.takes);

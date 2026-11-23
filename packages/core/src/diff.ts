@@ -1,7 +1,8 @@
 import { sameFields } from "./clip-patches.ts";
 import { jsonEqual } from "./entity-data.ts";
-import { stagedPatches } from "./record-patches.ts";
+import { sameRecord, stagedPatches } from "./record-patches.ts";
 import type { Records } from "./replay.ts";
+import { applyTracks } from "./tracks.ts";
 import type {
   Clip,
   ClipPatch,
@@ -11,6 +12,8 @@ import type {
   Marker,
   ProjectSnapshot,
   Take,
+  Track,
+  TrackPatch,
 } from "./types.ts";
 
 type Dictionary<T> = { readonly [key: string]: T };
@@ -107,12 +110,63 @@ function data(from: EntityData | undefined, to: EntityData | undefined): readonl
   return Object.freeze(patches);
 }
 
+function tracks(
+  from: readonly Track[],
+  to: readonly Track[],
+): { readonly patches: readonly TrackPatch[]; readonly order: readonly string[] | undefined } {
+  if (from === to) return { patches: none, order: undefined };
+  const was = new Map(from.map((track) => [track.id, track]));
+  const kept = new Set(to.map((track) => track.id));
+  const patches: TrackPatch[] = [];
+  for (let i = 0; i < from.length; i++) {
+    const track = from[i];
+    if (!track || kept.has(track.id)) continue;
+    const prev = i > 0 ? from[i - 1]?.id : undefined;
+    patches.push(
+      Object.freeze({
+        id: track.id,
+        before: track,
+        after: undefined,
+        ...(prev === undefined ? {} : { follows: prev }),
+      }),
+    );
+  }
+  let previous: string | undefined;
+  for (const track of to) {
+    const before = was.get(track.id);
+    if (!before) {
+      patches.push(
+        Object.freeze({
+          id: track.id,
+          before: undefined,
+          after: track,
+          ...(previous === undefined ? {} : { follows: previous }),
+        }),
+      );
+    } else if (!sameRecord(before, track)) {
+      patches.push(Object.freeze({ id: track.id, before, after: track }));
+    }
+    previous = track.id;
+  }
+  const frozen = Object.freeze(patches);
+  const applied = applyTracks(from, frozen);
+  const sameOrder =
+    applied.length === to.length && applied.every((track, index) => track.id === to[index]?.id);
+  return {
+    patches: frozen,
+    order: sameOrder ? undefined : Object.freeze(to.map((track) => track.id)),
+  };
+}
+
 /** The records that turn one snapshot of a project into another. */
 export function difference(from: ProjectSnapshot, to: ProjectSnapshot): Records {
+  const trackDiff = tracks(from.tracks, to.tracks);
   return {
     clips: clips(from.clips, to.clips),
     data: data(from.entityData, to.entityData),
     markers: records(from.markers, to.markers),
     takes: records(from.takes, to.takes),
+    ...(trackDiff.patches.length ? { tracks: trackDiff.patches } : {}),
+    ...(trackDiff.order ? { trackOrder: trackDiff.order } : {}),
   };
 }

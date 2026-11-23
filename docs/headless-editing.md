@@ -43,8 +43,9 @@ In the example, the right clip initially starts at 14 s and reads the source at 
 
 - Supply schema version 1, a tracks array and a clips array. Track and clip IDs are nonempty strings unique within their collection. Every clip has a track ID, kind, start tick, positive duration and integer content offset. The editor clones the input and preserves additional JSON fields.
 - All positions use 282,240,000 ticks per second. An explicit `timebase` must match that value. Project `duration` sets a fixed exclusive end in ticks. If omitted, edits may extend to the seven-day project limit. Optional `minClipDuration` defaults to one tick. A track accepts all kinds by default. Use `accepts`, `locked` and `overlap: 'exclusive'` to constrain edits. Mixing tracks allow overlapping intervals. Two exclusive-track clips may share an edge.
-- A clip with finite source handles can supply `contentBounds: { start, end }` in content ticks. Both ends of its retained content must stay within these handles. A slot without handles can extend into silence. Take IDs and JSON metadata survive edits. Move and trim preserve opaque clip extension data. Splitting a clip with extension-owned fields returns `split-policy-required` until a domain split policy is available.
+- A clip with finite source handles can supply `contentBounds: { start, end }` in content ticks. Both ends of its retained content must stay within these handles. A slot without handles can extend into silence. A clip that plays a single stream without candidate takes can carry a direct `source: { assetId, streamId, sourceAtContentZero? }` field instead of registering a take; when a clip lists `takeIds`, `activeTakeId` takes precedence. Take IDs, optional `color`, and JSON metadata survive edits. Move and trim preserve opaque clip extension data. Splitting a clip with extension-owned fields uses the registered [plugin](#plugins) `onSplit` policy for each namespace, or returns `split-policy-required` when none is registered.
 - Move accepts distinct clip IDs, a signed delta and an optional destination `trackId`. It checks all selected clips in their final positions together. A left trim shifts start and content offset by the delta and subtracts it from duration. A right trim adds the delta to duration. A split names its cut either as a timeline tick strictly inside the clip, `at`, or as a point strictly between the clip's content edges, `atContent`. A move does not change the content point. Supply an optional unique `rightId` when the host owns IDs. Otherwise read the [generated ID](#generated-ids-and-replay) from `createdIds`.
+- `addClip({ clip, after? })`, `removeClip({ clipId })` and `updateClip({ clipId, name?, color?, kind?, contentBounds?, source?, continuityId?, extensions? })` create, delete and update clips on unlocked tracks. In `updateClip`, `undefined` keeps a field and `null` clears an optional field. Adding a clip validates its placement, overlap policy, accepted kinds and bounds with the same rules as move and trim, and omits `id` to generate one.
 
 ## Results and history
 
@@ -58,24 +59,72 @@ Use a command array for an atomic batch. Pass `{ history: 'ignore' }` to apply s
 
 ## Markers
 
-`project.markers` holds point markers: `{ id, start, label?, color?, extensions? }`, with `start` in project ticks. A marker may sit at an explicit sequence end. Snapshots keep markers sorted by start and then ID, and omit the field when there are none. An implicit sequence ends at the later of its last clip end and its last marker.
+`project.markers` holds point and region markers: `{ id, start, duration?, label?, color?, extensions? }`, with `start` and optional positive `duration` in project ticks. A point marker omits `duration` and may sit at an explicit sequence end. A region marker covers `[start, start + duration)` and stays inside an explicit sequence duration. Snapshots keep markers sorted by start and then ID, and omit the field when there are none. An implicit sequence ends at the latest clip end, point marker, or region marker end. Query overlapping region markers in O(log N + K) with `editor.read().regionsIn(range)`.
 
 ```js
-editor.dispatch(commands.addMarker({ id: "chorus", start: seconds(30), label: "Chorus" }));
+editor.dispatch(
+  commands.addMarker({ id: "chorus", start: seconds(30), duration: seconds(8), label: "Chorus" }),
+);
 editor.dispatch(commands.moveMarker({ markerId: "chorus", delta: seconds(2) }));
-editor.dispatch(commands.updateMarker({ markerId: "chorus", label: "Chorus 1" }));
+editor.dispatch(commands.updateMarker({ markerId: "chorus", label: "Chorus 1", duration: null }));
 editor.dispatch(commands.removeMarker({ markerId: "chorus" }));
 ```
 
-- **Combining.** Marker commands combine with clip and entity-data commands in one transaction.
+- **Combining.** Marker commands combine with clip, track, take and entity-data commands in one transaction.
 - **Adding.** Omitting `id` [generates one](#generated-ids-and-replay).
 - **Rejections.**
-  - `invalid-marker`: a taken or empty ID, or a non-string label or color.
-  - `invalid-range`: a position outside the sequence.
+  - `invalid-marker`: a taken or empty ID, a non-positive or non-integer duration, or a non-string label or color.
+  - `invalid-range`: a position or region end outside the sequence.
   - `invalid-delta`: a non-integer delta.
   - `missing-marker`: an unknown marker.
 - **Commit results.** A commit reports `markerPatches` and `inverseMarkerPatches` as `{ id, before, after }` records, where `undefined` means absent. `changedIds` and `affected` cover clips only.
 - **Undo and redo.** Replay keeps marker fields changed since an edit unless the edit owns them. Removing a marker requires the whole recorded marker to match.
+
+## Tracks
+
+Tracks can be created, updated, reordered and removed at runtime in the same transactional model as clips.
+
+```js
+editor.dispatch(
+  commands.addTrack({ track: { id: "sfx", name: "SFX", overlap: "mix", color: "#4d908e" } }),
+);
+editor.dispatch(commands.updateTrack({ trackId: "sfx", mute: true, gain: 0.75 }));
+editor.dispatch(commands.reorderTracks({ trackIds: ["sfx", "voice"] }));
+editor.dispatch(commands.removeTrack({ trackId: "sfx", removeClips: true }));
+```
+
+- **Commands.**
+  - `addTrack({ track, after? })` inserts a new track (generating an ID when omitted) optionally right after `after`.
+  - `updateTrack({ trackId, name?, overlap?, locked?, accepts?, mute?, solo?, gain?, color?, extensions? })` updates track metadata, constraints or live mix fields (`undefined` keeps the field, `null` clears optional fields). Switching `overlap` to `"exclusive"` or tightening `accepts` validates existing clips on that track.
+  - `removeTrack({ trackId, removeClips? })` removes an unlocked track. If the track still holds clips, pass `removeClips: true` to delete them atomically in the same transaction; otherwise it rejects with `track-not-empty`.
+  - `reorderTracks({ trackIds })` applies a permutation of the project's track IDs.
+- **Commit results.** Track edits report `trackPatches` and `inverseTrackPatches`, plus `trackOrder` when order changes. Live mix changes (`mute`, `solo`, `gain`) trigger active media transports to reconcile voices without dropping unrelated reservations.
+
+## Plugins
+
+Pass `plugins` to `createEditor({ project, plugins })` to register domain extension schemas and clip split policies per extension namespace. Build plugins with `definePlugin`:
+
+```js
+import { createEditor, definePlugin } from "@lumen-timeline/core";
+
+const subtitles = definePlugin({
+  namespace: "app.subtitles",
+  version: 1,
+  validate({ value }) {
+    if (typeof value !== "object" || value === null || typeof value.text !== "string") {
+      return "Subtitle extension must carry a text string";
+    }
+  },
+  onSplit({ clip, left, right, value }) {
+    return { left: value, right: { ...value, continued: true } };
+  },
+});
+
+const editor = createEditor({ project, plugins: [subtitles] });
+```
+
+- **Validation.** `validate({ target, id, value })` runs when loading a project and on every edit that creates or updates `extensions` on a clip, track, marker or take. Returning a nonempty error string rejects the operation with `invalid-extension`.
+- **Splitting.** When splitting a clip with `extensions`, every namespace present must have a registered plugin providing `onSplit`. Unregistered namespaces still reject with `split-policy-required` so missing plugins cannot silently corrupt domain data.
 
 ## Takes
 
@@ -146,8 +195,8 @@ const result = editor.replace(savedSnapshot);
 // result.history is "replace", and its patches describe the difference.
 ```
 
-- **Same project.** The snapshot must have the same tracks, sequence bounds and timebase. Another project fails with `foreign-snapshot`, and an invalid one with the loading codes. Nothing changes on failure.
-- **One notification.** Subscribers keep their subscriptions and see one commit, `history: "replace"`. Its clip, marker, take and data patches describe the difference, so views repaint only what changed. Its `commands` list one `replay` of that difference. An identical document returns `unchanged`.
+- **Same project.** The snapshot must have the same project `id` (if set), sequence bounds and timebase; track additions, removals, updates and reorders are diffed and adopted cleanly. Another project fails with `foreign-snapshot`, and an invalid one with the loading codes. Nothing changes on failure.
+- **One notification.** Subscribers keep their subscriptions and see one commit, `history: "replace"`. Its track, clip, marker, take and data patches describe the difference, so views repaint only what changed. Its `commands` list one `replay` of that difference. An identical document returns `unchanged`.
 - **Selection and history.** The selection drops clips the snapshot lacks. History stays. Its entries replay against the new document and conflict where their fields changed.
 - **Revisions and IDs.** The revision moves forward: to the snapshot's revision when that is later, to the next one otherwise. The ID counter moves past every ID of the editor's actor in the snapshot and never moves back, so the IDs of a transaction that was dropped are not issued again.
 - **An editor's own snapshot.** Pass the object an editor returned from `getSnapshot()`, of this editor earlier or of another one in the same realm, and the editor takes its records as they are. The snapshot was validated when it was made and nothing can change it, so the replacement shares its records and costs the difference, not the project. A JSON copy of the same snapshot is parsed and validated like a loaded project and ends in the same document. `createEditor` opens such a snapshot the same way.

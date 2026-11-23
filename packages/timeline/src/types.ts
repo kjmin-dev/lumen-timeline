@@ -1,4 +1,4 @@
-import type { Editor, Tick } from "@lumen-timeline/core";
+import type { Clip, Editor, ProjectSnapshot, Tick, Track } from "@lumen-timeline/core";
 import type { Viewport } from "./geometry.ts";
 
 /** What the view reads from a transport snapshot. */
@@ -43,8 +43,8 @@ export interface SnapConfig extends SnapOptions {
 }
 
 /**
- * The host's words for a clip's candidates, which the view draws after the
- * name of each clip that lists any: the active candidate's label and the count.
+ * Host-supplied text for clip captions and built-in timeline controls.
+ * Omitted keys use the English defaults.
  */
 export interface TimelineLabels {
   /** One candidate. Defaults to "take". */
@@ -53,6 +53,164 @@ export interface TimelineLabels {
   readonly takes?: string | undefined;
   /** Shown when no candidate is active. Defaults to "No " followed by `take`. */
   readonly none?: string | undefined;
+  readonly play?: string | undefined;
+  readonly pause?: string | undefined;
+  readonly tracks?: string | undefined;
+  readonly clip?: string | undefined;
+  readonly selectClip?: string | undefined;
+  readonly marker?: string | undefined;
+  readonly selectMarker?: string | undefined;
+  readonly addMarker?: string | undefined;
+  readonly markerLabel?: string | undefined;
+  readonly renameMarker?: string | undefined;
+  readonly removeMarker?: string | undefined;
+  readonly scroll?: string | undefined;
+  readonly zoomIn?: string | undefined;
+  readonly zoomOut?: string | undefined;
+  readonly operation?: string | undefined;
+  readonly move?: string | undefined;
+  readonly trimStart?: string | undefined;
+  readonly trimEnd?: string | undefined;
+  readonly delta?: string | undefined;
+  readonly apply?: string | undefined;
+  readonly splitAtPlayhead?: string | undefined;
+  readonly undo?: string | undefined;
+  readonly redo?: string | undefined;
+}
+
+/**
+ * Toggles individual pieces of built-in DOM chrome. Every flag defaults to `true`.
+ * Pass `chrome: false` for a bare clip canvas, or `chrome: "minimal"` for ruler +
+ * track headers + clip surface with no toolbars or forms.
+ */
+export interface TimelineChrome {
+  readonly toolbar?: boolean | undefined;
+  readonly ruler?: boolean | undefined;
+  readonly trackHeaders?: boolean | undefined;
+  readonly scrollBar?: boolean | undefined;
+  readonly markerEditor?: boolean | undefined;
+  readonly editToolbar?: boolean | undefined;
+  readonly status?: boolean | undefined;
+  /** Clip `<select>` inside the toolbar. Set `false` to skip maintaining DOM `<option>` nodes. */
+  readonly clipNavigator?: boolean | undefined;
+  readonly markerNavigator?: boolean | undefined;
+}
+
+export type TimelineChromeOption = false | "minimal" | TimelineChrome;
+
+/** Fill, accent stripe and optional waveform colors for one track or clip (`#rrggbb` hex). */
+export interface TimelineTrackColors {
+  readonly fill: string;
+  readonly stripe: string;
+  readonly waveform?: string | undefined;
+}
+
+/** Canvas and overlay theme overrides. Unspecified fields keep the default dark palette. */
+export interface TimelineTheme {
+  readonly rowEven?: string | undefined;
+  readonly rowOdd?: string | undefined;
+  readonly grid?: string | undefined;
+  readonly selectionStroke?: string | undefined;
+  readonly handleFill?: string | undefined;
+  readonly ghostFill?: string | undefined;
+  readonly ghostStroke?: string | undefined;
+  readonly marker?: string | undefined;
+  readonly rulerText?: string | undefined;
+  readonly rulerMarkerBackground?: string | undefined;
+  readonly labelColor?: string | undefined;
+  readonly nameFont?: string | undefined;
+  readonly captionFont?: string | undefined;
+  /** Track colors cycled by row index when neither clip nor track sets `color`. */
+  readonly palette?: readonly TimelineTrackColors[] | undefined;
+}
+
+/** Row spacing in CSS pixels. */
+export interface TimelineLayoutOptions {
+  /** Height of one clip lane in CSS pixels (`>= 16`). Defaults to `34`. */
+  readonly laneHeight?: number | undefined;
+  /** Top and bottom padding per track row in CSS pixels (`>= 0`). Defaults to `6`. */
+  readonly rowInset?: number | undefined;
+}
+
+/** Per-clip visual overrides returned by `clipStyle`. */
+export interface ClipAppearance {
+  readonly fill?: string | undefined;
+  readonly stripe?: string | undefined;
+  readonly waveform?: string | undefined;
+  /** Override the clip's displayed primary label. */
+  readonly label?: string | undefined;
+  /** Override or hide (`null`) the secondary caption. */
+  readonly caption?: string | null | undefined;
+  readonly captionColor?: string | undefined;
+}
+
+export type ClipStyleFn = (
+  clip: Clip,
+  track: Track,
+  trackIndex: number,
+) => ClipAppearance | undefined;
+
+/** Context handed to `renderTrackHeader` for one virtualized track header row. */
+export interface TrackHeaderContext {
+  readonly element: HTMLElement;
+  readonly track: Track;
+  readonly index: number;
+  readonly height: number;
+  readonly editor: Editor;
+}
+
+/**
+ * Populates a virtualized track header element, or returns a child element to
+ * replace its contents.
+ */
+export type TrackHeaderRenderer = (track: Track, context: TrackHeaderContext) => HTMLElement | void;
+
+/** A visible clip's layout rectangle in surface-local CSS pixels. */
+export interface ClipBox {
+  readonly clip: Clip;
+  readonly left: number;
+  readonly right: number;
+  readonly x: number;
+  readonly endX: number;
+  readonly y: number;
+  readonly height: number;
+}
+
+/** Context handed to `renderOverlay` after built-in selection, ghost and marker drawing. */
+export interface OverlayRenderContext {
+  readonly ctx: CanvasRenderingContext2D;
+  readonly width: number;
+  readonly height: number;
+  readonly scrollTop: number;
+  readonly view: Viewport;
+  readonly snapshot: ProjectSnapshot;
+  readonly selection: readonly string[];
+  readonly pixelAt: (tick: Tick) => number;
+  readonly tickAt: (x: number) => Tick;
+  readonly boxOf: (clipId: string) => ClipBox | undefined;
+}
+
+export type OverlayRenderer = (context: OverlayRenderContext) => void;
+
+/** Pointer interaction payload delivered to host callbacks. */
+export interface TimelinePointerEvent {
+  readonly hit: TimelineHit;
+  readonly x: number;
+  readonly y: number;
+  readonly originalEvent: MouseEvent | PointerEvent;
+}
+
+export interface TimelineClipEvent extends TimelinePointerEvent {
+  readonly clipId: string;
+}
+
+/** Host interaction callbacks fired by the timeline surface and viewport. */
+export interface TimelineEvents {
+  readonly onClipClick?: ((event: TimelineClipEvent) => void) | undefined;
+  readonly onClipDoubleClick?: ((event: TimelineClipEvent) => void) | undefined;
+  readonly onContextMenu?: ((event: TimelinePointerEvent) => void) | undefined;
+  readonly onTrackClick?: ((event: TimelinePointerEvent) => void) | undefined;
+  readonly onViewportChange?: ((viewport: Viewport) => void) | undefined;
 }
 
 /**
@@ -92,8 +250,34 @@ export interface TimelineOptions {
   readonly startTick?: Tick | undefined;
   readonly snap?: SnapOptions | undefined;
   readonly labels?: TimelineLabels | undefined;
-  /** Draws a waveform in each clip whose active take the provider has peaks for. */
+  /** Draws a waveform in each clip whose active take or direct source the provider has peaks for. */
   readonly waveforms?: WaveformProvider | undefined;
+  /**
+   * Controls which built-in DOM panels are shown. Defaults to showing all built-in
+   * controls. Pass `"minimal"` for ruler + track headers + clip surface, or `false`
+   * for a bare clip surface.
+   */
+  readonly chrome?: TimelineChromeOption | undefined;
+  /** Canvas and overlay theme overrides. */
+  readonly theme?: TimelineTheme | undefined;
+  /** Row geometry overrides (`laneHeight`, `rowInset`). */
+  readonly layout?: TimelineLayoutOptions | undefined;
+  /** Disables drag/keyboard/form editing while keeping selection, seek, zoom and pan. */
+  readonly readOnly?: boolean | undefined;
+  /** Enables built-in keyboard editing and marker shortcuts. Defaults to `true`. */
+  readonly shortcuts?: boolean | undefined;
+  /** Formats ticks for the ruler, time readout and accessibility labels. */
+  readonly formatTime?: ((tick: Tick) => string) | undefined;
+  /** Returns the grid interval in ticks for a given zoom (`pixelsPerSecond`). */
+  readonly gridSpacing?: ((pixelsPerSecond: number) => Tick) | undefined;
+  /** Per-clip color, label and caption overrides. */
+  readonly clipStyle?: ClipStyleFn | undefined;
+  /** Custom DOM renderer for virtualized track header rows. */
+  readonly renderTrackHeader?: TrackHeaderRenderer | undefined;
+  /** Custom 2D overlay hook drawn above clips, selection and markers. */
+  readonly renderOverlay?: OverlayRenderer | undefined;
+  /** Interaction and viewport change callbacks. */
+  readonly events?: TimelineEvents | undefined;
   /**
    * The drawing backend. `auto`, the default, draws through WebGL2 on a
    * hardware GPU and through Canvas 2D where WebGL2 is missing or would run on
@@ -111,7 +295,22 @@ export interface TimelineOptions {
  */
 export type TimelineUpdate = Pick<
   TimelineOptions,
-  "pixelsPerSecond" | "startTick" | "snap" | "labels" | "waveforms"
+  | "pixelsPerSecond"
+  | "startTick"
+  | "snap"
+  | "labels"
+  | "waveforms"
+  | "chrome"
+  | "theme"
+  | "layout"
+  | "readOnly"
+  | "shortcuts"
+  | "formatTime"
+  | "gridSpacing"
+  | "clipStyle"
+  | "renderTrackHeader"
+  | "renderOverlay"
+  | "events"
 >;
 
 export interface TimelineDiagnostics {
@@ -172,6 +371,13 @@ export interface TimelineView {
    * does not hold.
    */
   reveal(clipId: string): boolean;
+  /** Scrolls a track row into view. Returns false if the track does not exist. */
+  scrollToTrack(trackId: string): boolean;
+  /**
+   * Forces a redraw of the overlay (`"overlay"`) or the whole timeline (`"all"`,
+   * default), e.g. when host state read by `renderOverlay` or `clipStyle` changes.
+   */
+  repaint(scope?: "all" | "overlay"): void;
   /**
    * What lies under a point given in CSS pixels from the clip surface's top
    * left corner, as the pointer sees it. `null` outside the surface. It reads

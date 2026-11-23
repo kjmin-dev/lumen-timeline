@@ -69,7 +69,11 @@ export function zoomAt(
 
 // clipsIn supplies a stable start/ID order for the whole track. Horizontal pans
 // reuse these assignments even when an overlapping predecessor is offscreen.
-export function pack(clips: readonly Span[]): Packed {
+export function pack(
+  clips: readonly Span[],
+  laneH: number = laneHeight,
+  inset: number = rowInset,
+): Packed {
   const lanes = new Map<string, number>();
   const ends: number[] = [];
   for (const clip of clips) {
@@ -78,7 +82,7 @@ export function pack(clips: readonly Span[]): Packed {
     ends[index] = clip.start + clip.duration;
     lanes.set(clip.id, index);
   }
-  return { lanes, height: Math.max(1, ends.length) * laneHeight + rowInset * 2 };
+  return { lanes, height: Math.max(1, ends.length) * laneH + inset * 2 };
 }
 
 export function rectangle<C extends Span>(
@@ -87,6 +91,8 @@ export function rectangle<C extends Span>(
   rowTop: number,
   view: Viewport,
   width: number,
+  laneH: number = laneHeight,
+  inset: number = rowInset,
 ): Box<C> {
   const left = pixelAt(clip.start, view);
   const right = pixelAt(clip.start + clip.duration, view);
@@ -96,8 +102,8 @@ export function rectangle<C extends Span>(
     right,
     x: Math.max(0, left),
     endX: Math.min(width, right),
-    y: rowTop + rowInset + laneHeight * lane,
-    height: laneHeight - 3,
+    y: rowTop + inset + laneH * lane,
+    height: laneH - 3,
   };
 }
 

@@ -1,9 +1,12 @@
 import { normalizeEntityData } from "./entity-data.ts";
 import { compareMarkers, parseMarker } from "./markers.ts";
+import type { PluginRegistry } from "./plugins.ts";
 import { checkLoadedReferences, compareTakes, parseCandidates, parseTake } from "./takes.ts";
 import { MAX_TICK, TICKS_PER_SECOND } from "./time.ts";
+import { parseTrack } from "./tracks.ts";
 import type {
   Clip,
+  ClipSource,
   ContentBounds,
   JsonValue,
   Marker,
@@ -91,75 +94,41 @@ export interface Placement {
   readonly contentBounds: ContentBounds | undefined;
 }
 
-function parseTrack(value: JsonValue, tracks: ReadonlyMap<string, Track>): Track {
-  const track = isRecord(value) ? value : undefined;
-  const id = track?.["id"];
+/** Parses a direct clip source binding. */
+export function parseClipSource(id: string, value: unknown): ClipSource | undefined {
+  if (value === undefined) return undefined;
   requireEdit(
-    track !== undefined && validId(id) && !tracks.has(id),
-    "invalid-track",
+    typeof value === "object" && value !== null && !isArray(value),
+    "invalid-clip",
     id,
-    "Track IDs must be unique",
+    "Expected a clip source object",
   );
-  const overlap = track["overlap"];
+  const assetId: unknown = Reflect.get(value, "assetId");
+  const streamId: unknown = Reflect.get(value, "streamId");
+  const sourceAtContentZero: unknown = Reflect.get(value, "sourceAtContentZero");
   requireEdit(
-    overlap === undefined || overlap === "mix" || overlap === "exclusive",
-    "invalid-track",
+    validId(assetId) &&
+      validId(streamId) &&
+      (sourceAtContentZero === undefined ||
+        (safeInteger(sourceAtContentZero) && Math.abs(sourceAtContentZero) <= MAX_TICK)),
+    "invalid-clip",
     id,
-    "Unknown overlap policy",
+    "A clip source requires asset and stream IDs and an optional tick offset within seven days",
   );
-  const locked = track["locked"];
-  requireEdit(
-    locked === undefined || typeof locked === "boolean",
-    "invalid-track",
-    id,
-    "Expected a boolean lock",
-  );
-  const accepts = track["accepts"];
-  requireEdit(
-    accepts === undefined || (isArray(accepts) && accepts.every(validId)),
-    "invalid-track",
-    id,
-    "Expected a list of clip kinds",
-  );
-  const name = track["name"];
-  requireEdit(
-    name === undefined || typeof name === "string",
-    "invalid-track",
-    id,
-    "Expected a string name",
-  );
-  const mute = track["mute"];
-  const solo = track["solo"];
-  requireEdit(
-    (mute === undefined || typeof mute === "boolean") &&
-      (solo === undefined || typeof solo === "boolean"),
-    "invalid-track",
-    id,
-    "Expected boolean mute and solo flags",
-  );
-  const gain = track["gain"];
-  requireEdit(
-    gain === undefined || typeof gain === "number",
-    "invalid-track",
-    id,
-    "Expected a numeric gain",
-  );
-  // Every typed field is re-attached from its checked value. Other JSON fields stay.
   return Object.freeze({
-    ...track,
-    id,
-    ...(overlap === undefined ? {} : { overlap }),
-    ...(locked === undefined ? {} : { locked }),
-    ...(accepts === undefined ? {} : { accepts }),
-    ...(name === undefined ? {} : { name }),
-    ...(mute === undefined ? {} : { mute }),
-    ...(solo === undefined ? {} : { solo }),
-    ...(gain === undefined ? {} : { gain }),
+    assetId,
+    streamId,
+    ...(sourceAtContentZero === undefined ? {} : { sourceAtContentZero }),
   });
 }
 
 /** Parses one clip of a loaded project or a replayed record. */
-export function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rules): Clip {
+export function parseClip(
+  value: JsonValue,
+  ids: ReadonlySet<string>,
+  rules: Rules,
+  plugins?: PluginRegistry,
+): Clip {
   const clip = isRecord(value) ? value : undefined;
   const id = clip?.["id"];
   requireEdit(
@@ -190,6 +159,7 @@ export function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rul
     "Expected string take and continuity IDs",
   );
   const candidates = parseCandidates(id, clip["takeIds"], activeTakeId);
+  const source = parseClipSource(id, clip["source"]);
   const extensions = clip["extensions"];
   requireEdit(
     extensions === undefined || isRecord(extensions),
@@ -204,6 +174,14 @@ export function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rul
     id,
     "Expected a string name",
   );
+  const color = clip["color"];
+  requireEdit(
+    color === undefined || typeof color === "string",
+    "invalid-clip",
+    id,
+    "Expected a string color",
+  );
+  plugins?.validate("clip", id, extensions);
   // A clip carries both candidate fields or neither. Kept fields keep their position.
   const { takeIds: _noTakes, activeTakeId: _noActive, ...withoutCandidates } = clip;
   return Object.freeze({
@@ -215,16 +193,29 @@ export function parseClip(value: JsonValue, ids: ReadonlySet<string>, rules: Rul
     duration,
     contentIn,
     ...(contentBounds === undefined ? {} : { contentBounds }),
+    ...(source === undefined ? {} : { source }),
     ...candidates,
     ...(continuityId === undefined ? {} : { continuityId }),
     ...(extensions === undefined ? {} : { extensions }),
     ...(name === undefined ? {} : { name }),
+    ...(color === undefined ? {} : { color }),
   });
 }
 
-export function openProject(input: unknown): OpenedProject {
+export function openProject(input: unknown, plugins?: PluginRegistry): OpenedProject {
   const known = typeof input === "object" && input !== null ? issued.get(input) : undefined;
-  if (known) return adopt(known);
+  if (known) {
+    if (plugins?.hasPlugins) {
+      for (const track of known.snapshot.tracks)
+        plugins.validate("track", track.id, track.extensions);
+      for (const clip of known.snapshot.clips) plugins.validate("clip", clip.id, clip.extensions);
+      for (const marker of known.snapshot.markers ?? [])
+        plugins.validate("marker", marker.id, marker.extensions);
+      for (const take of known.snapshot.takes ?? [])
+        plugins.validate("take", take.id, take.extensions);
+    }
+    return adopt(known);
+  }
   const project = freezeJson(input, new Set());
   requireEdit(
     isRecord(project) && project["schemaVersion"] === 1,
@@ -274,7 +265,7 @@ export function openProject(input: unknown): OpenedProject {
   const tracks = new Map<string, Track>();
   const trackList: Track[] = [];
   for (const value of rawTracks) {
-    const track = parseTrack(value, tracks);
+    const track = parseTrack(value, (id) => tracks.has(id), plugins);
     tracks.set(track.id, track);
     trackList.push(track);
   }
@@ -283,7 +274,7 @@ export function openProject(input: unknown): OpenedProject {
   const clipList: Clip[] = [];
   const byTrack = new Map<string, Clip[]>();
   for (const value of rawClips) {
-    const clip = parseClip(value, ids, rules);
+    const clip = parseClip(value, ids, rules, plugins);
     ids.add(clip.id);
     clipList.push(clip);
     let lane = byTrack.get(clip.trackId);
@@ -304,7 +295,7 @@ export function openProject(input: unknown): OpenedProject {
   const markerIds = new Set<string>();
   const markerList: Marker[] = [];
   for (const value of rawMarkers ?? []) {
-    const marker = parseMarker(value, markerIds, duration);
+    const marker = parseMarker(value, markerIds, duration, plugins);
     markerIds.add(marker.id);
     markerList.push(marker);
   }
@@ -318,7 +309,7 @@ export function openProject(input: unknown): OpenedProject {
   );
   const takes = new Map<string, Take>();
   for (const value of rawTakes ?? []) {
-    const take = parseTake(value, (id) => takes.has(id));
+    const take = parseTake(value, (id) => takes.has(id), plugins);
     takes.set(take.id, take);
   }
   checkLoadedReferences(takes, clipList);

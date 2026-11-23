@@ -16,6 +16,6 @@
     "@lumen-timeline/timeline": "0.0.0"
   },
   "peerDependencies": {
-    "solid-js": "^2.0.3"
+    "solid-js": "^2.0.0"
   }
 }

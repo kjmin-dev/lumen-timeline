@@ -1,11 +1,13 @@
 import type { Editor, PlanIssue, StreamCatalog } from "@lumen-timeline/core";
 import { VoiceScheduler } from "./voice-scheduler.ts";
 import type { Anchor, Voice } from "./voice-scheduler.ts";
-import type { AudioContextLike, AudioNodeLike, MediaErrorHandler, ResolveBuffer, SeekResult, TimedAudioContext, VideoElementLike } from "./types.ts";
+import type { AudioContextLike, AudioNodeLike, MediaErrorHandler, ResolveBuffer, SeekResult, VideoElementLike } from "./types.ts";
 export interface VideoDriverOptions {
     readonly editor: Editor;
     readonly catalog: StreamCatalog;
     readonly resolveBuffer: ResolveBuffer;
+    readonly trackOutput?: ((trackId: string) => AudioNodeLike | undefined) | undefined;
+    readonly fadeOutSeconds?: number | undefined;
     readonly onError?: MediaErrorHandler | undefined;
     readonly onFrame?: ((seconds: number) => void) | undefined;
 }
@@ -17,9 +19,10 @@ interface PendingSeek {
 export declare function presentationTime(now: number, expected: number | undefined): number;
 export declare class VideoTransport {
     readonly video: VideoElementLike;
-    readonly context: TimedAudioContext;
+    readonly context: AudioContextLike;
     readonly scheduler: VoiceScheduler;
     readonly onFrame: (seconds: number) => void;
+    readonly useVideoFrameCallback: boolean;
     phaseResets: number;
     phaseExcursion: {
         readonly sign: number;
@@ -30,14 +33,16 @@ export declare class VideoTransport {
     frame: number;
     seekInFlight?: boolean;
     pending?: PendingSeek | null;
-    constructor(video: VideoElementLike, context: AudioContextLike, output: AudioNodeLike, { editor, catalog, resolveBuffer, onError, onFrame }: VideoDriverOptions);
+    constructor(video: VideoElementLike, context: AudioContextLike, output: AudioNodeLike, { editor, catalog, resolveBuffer, trackOutput, fadeOutSeconds, onError, onFrame, }: VideoDriverOptions);
     get generation(): number;
     get anchor(): Anchor | null;
     get voices(): Map<string, Voice>;
     get issues(): readonly PlanIssue[];
     get catalog(): StreamCatalog;
     setCatalog(catalog: StreamCatalog): void;
+    setPlaybackRate(rate: number): void;
     fill(): void;
+    private sampleFrame;
     observe(): void;
     lostLock(media: number, audio: number): boolean;
     invalidate(): void;

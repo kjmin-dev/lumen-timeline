@@ -1,8 +1,19 @@
 import { createLabelAtlas } from "./atlas.ts";
 import type { LabelAtlas } from "./atlas.ts";
+import {
+  resolveChrome,
+  resolveLayout,
+  resolveTheme,
+  resolveUiLabels,
+  sameAtlasTheme,
+  sameChrome,
+  sameLayout,
+  sameTheme,
+  sameUiLabels,
+} from "./config.ts";
 import { bindEditing, handleAt, snapConfig } from "./gestures.ts";
 import type { PointerInfo } from "./gestures.ts";
-import { layoutRow, palette, QuadList } from "./layout.ts";
+import { layoutRow, QuadList } from "./layout.ts";
 import type { RowQuads } from "./renderer.ts";
 import { createRendererHost } from "./renderers.ts";
 import { registerReader } from "./probe.ts";
@@ -23,22 +34,24 @@ import { element } from "./dom.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
 import type {
+  ClipStyleFn,
+  OverlayRenderer,
   SnapConfig,
   TimelineDiagnostics,
+  TimelineEvents,
   TimelineHit,
   TimelineOptions,
   TimelineUpdate,
   TimelineView,
+  TrackHeaderRenderer,
   TransportState,
   WaveformProvider,
 } from "./types.ts";
 export type * from "./types.ts";
 export type { Viewport } from "./geometry.ts";
 import {
-  formatTime,
+  formatTime as defaultFormatTime,
   hit,
-  laneHeight,
-  rowInset,
   pack,
   pixelAt,
   rectangle,
@@ -49,7 +62,6 @@ import {
 
 const maxTick = 7 * 86400 * hz;
 const clampTick = (tick: Tick, end: Tick): Tick => Math.max(0, Math.min(end, tick));
-const markerColor = "#ffd7a4";
 const defaultPixelsPerSecond = 48;
 
 const sameSnap = (a: SnapConfig, b: SnapConfig): boolean =>
@@ -79,10 +91,22 @@ function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
 }
 
 export function mountTimeline(container: HTMLElement, options: TimelineOptions): TimelineView {
-  const { editor, transport, snap, labels, renderer = "auto" } = options;
+  const { editor, transport, renderer = "auto" } = options;
   const { pixelsPerSecond = defaultPixelsPerSecond, startTick = 0 } = options;
-  let config = snapConfig(snap);
-  let words = captionWords(labels);
+  let config = snapConfig(options.snap);
+  let words = captionWords(options.labels);
+  let uiLabels = resolveUiLabels(options.labels);
+  let chrome = resolveChrome(options.chrome);
+  let theme = resolveTheme(options.theme);
+  let layoutConfig = resolveLayout(options.layout);
+  let readOnly = options.readOnly ?? false;
+  let shortcuts = options.shortcuts ?? true;
+  let customFormatTime: ((tick: Tick) => string) | undefined = options.formatTime;
+  let customGridSpacing: ((pps: number) => Tick) | undefined = options.gridSpacing;
+  let clipStyle: ClipStyleFn | undefined = options.clipStyle;
+  let renderTrackHeader: TrackHeaderRenderer | undefined = options.renderTrackHeader;
+  let renderOverlay: OverlayRenderer | undefined = options.renderOverlay;
+  let hostEvents: TimelineEvents | undefined = options.events;
   let waveforms: WaveformProvider | undefined = options.waveforms;
   // The viewport values the host last gave, which `update` compares against.
   let given = { pixelsPerSecond: options.pixelsPerSecond, startTick: options.startTick };
@@ -96,25 +120,35 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   root.innerHTML = `
     <div class="lt-tools">
       <button type="button" data-play>Play</button><output class="lt-time"></output>
-      <label>Clip <select aria-label="Clip navigator"></select></label>
-      <label>Marker <select aria-label="Marker navigator"></select></label>
+      <label data-clip-nav><span data-clip-label>Clip</span> <select aria-label="Clip navigator"></select></label>
+      <label data-marker-nav><span data-marker-label>Marker</span> <select aria-label="Marker navigator"></select></label>
       <button type="button" data-marker-add>Add marker</button>
       <span class="lt-spacer"></span><button type="button" data-out aria-label="Zoom out">−</button>
       <button type="button" data-in aria-label="Zoom in">+</button>
     </div>
-    <div class="lt-grid"><div class="lt-track-title">Tracks</div>
+    <div class="lt-grid" data-ruler-row><div class="lt-track-title">Tracks</div>
       <canvas class="lt-ruler" tabindex="0" role="slider" aria-label="Seek" aria-valuemin="0"></canvas></div>
     <div class="lt-scroll"><div class="lt-space"><div class="lt-pin lt-grid">
       <div class="lt-headers"></div><div class="lt-surface" tabindex="0" role="group" aria-label="Timeline clips">
         <canvas class="lt-clips" aria-hidden="true"></canvas><canvas class="lt-selection" aria-hidden="true"></canvas>
         <div class="lt-head" hidden></div>
       </div></div></div></div>
-    <label class="lt-pan">Scroll <input type="range" aria-label="Timeline scroll" min="0" step="1" value="0"></label>
-    <form class="lt-marker-edit"><label>Marker label <input type="text" aria-label="Marker label"></label>
+    <label class="lt-pan"><span data-scroll-label>Scroll</span> <input type="range" aria-label="Timeline scroll" min="0" step="1" value="0"></label>
+    <form class="lt-marker-edit"><label><span data-marker-input-label>Marker label</span> <input type="text" aria-label="Marker label"></label>
       <button type="submit" data-marker-rename>Rename marker</button>
       <button type="button" data-marker-remove>Remove marker</button></form>
     <div class="lt-message" role="status"></div>`;
   container.append(root);
+  const tools = element(root, ".lt-tools", "div"),
+    rulerRow = element(root, "[data-ruler-row]", "div"),
+    trackTitle = element(root, ".lt-track-title", "div"),
+    clipNavWrap = element(root, "[data-clip-nav]", "label"),
+    markerNavWrap = element(root, "[data-marker-nav]", "label"),
+    panWrap = element(root, ".lt-pan", "label");
+  const clipLabelEl = element(root, "[data-clip-label]", "span"),
+    markerLabelHead = element(root, "[data-marker-label]", "span"),
+    scrollLabelEl = element(root, "[data-scroll-label]", "span"),
+    markerInputLabelEl = element(root, "[data-marker-input-label]", "span");
   const ruler = element(root, ".lt-ruler", "canvas"),
     surface = element(root, ".lt-surface", "div"),
     scroll = element(root, ".lt-scroll", "div");
@@ -141,8 +175,11 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   const listen: Listen = (target, type, fn, options = {}) =>
     target.addEventListener(type, fn, { ...options, signal: events.signal });
   let snapshot = editor.getSnapshot();
+  let prevTracks = snapshot.tracks;
   let read = editor.read(snapshot);
   let view = viewport(startTick, pixelsPerSecond, 0, maxTick);
+  let lastNotifiedView: Viewport | null = null;
+  let mountedReady = false;
   let duration = 0,
     width = 0,
     height = 0,
@@ -173,13 +210,54 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     if (!disposed) paint();
   });
 
+  const formatTick = (tick: Tick): string =>
+    customFormatTime ? customFormatTime(tick) : defaultFormatTime(tick);
+
+  function applyChrome(): void {
+    tools.hidden = !chrome.toolbar;
+    clipNavWrap.hidden = !chrome.clipNavigator;
+    markerNavWrap.hidden = !chrome.markerNavigator;
+    markerAdd.hidden = !chrome.markerNavigator;
+    rulerRow.hidden = !chrome.ruler;
+    panWrap.hidden = !chrome.scrollBar;
+    markerForm.hidden = !chrome.markerEditor;
+    message.hidden = !chrome.status;
+    root.classList.toggle("lt-no-headers", !chrome.trackHeaders);
+  }
+
+  function applyUiLabels(): void {
+    trackTitle.textContent = uiLabels.tracks;
+    clipLabelEl.textContent = uiLabels.clip;
+    markerLabelHead.textContent = uiLabels.marker;
+    markerAdd.textContent = uiLabels.addMarker;
+    scrollLabelEl.textContent = uiLabels.scroll;
+    markerInputLabelEl.textContent = uiLabels.markerLabel;
+    markerRename.textContent = uiLabels.renameMarker;
+    markerRemove.textContent = uiLabels.removeMarker;
+    zoomIn.setAttribute("aria-label", uiLabels.zoomIn);
+    zoomOut.setAttribute("aria-label", uiLabels.zoomOut);
+    const firstClip = navigator.options[0];
+    if (firstClip && firstClip.value === "") firstClip.textContent = uiLabels.selectClip;
+    const firstMarker = markerNavigator.options[0];
+    if (firstMarker && firstMarker.value === "") firstMarker.textContent = uiLabels.selectMarker;
+  }
+
+  function syncMarkerControls(): void {
+    const marker = snapshot.markers?.find((m) => m.id === markerNavigator.value);
+    markerAdd.disabled = readOnly;
+    markerLabel.disabled = readOnly || !marker;
+    markerRename.disabled = readOnly || !marker;
+    markerRemove.disabled = readOnly || !marker;
+  }
+
   function rebuildRows(dirty?: ReadonlySet<string>): void {
     totalHeight = 0;
+    const { laneHeight, rowInset } = layoutConfig;
     rows = snapshot.tracks.map((track, index) => {
       let p = packed.get(track.id);
       if (!p || dirty?.has(track.id)) {
         const clips = read.clipsIn({ start: 0, end: maxTick }, { trackIds: [track.id] });
-        p = pack(clips);
+        p = pack(clips, laneHeight, rowInset);
         packed.set(track.id, p);
       }
       const row: Row = { track, index, top: totalHeight, ...p };
@@ -207,30 +285,67 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     // unit <= ideal < 10 * unit, so the last multiple always qualifies.
     return ([1, 2, 5, 10].find((m) => m * unit >= ideal) ?? 10) * unit;
   }
-  function gridLines(callback: (x: number, seconds: number) => void): void {
+  function gridLines(callback: (x: number, tick: Tick) => void): void {
+    if (customGridSpacing) {
+      const stepTicks = Math.max(1, Math.round(customGridSpacing(view.pixelsPerSecond)));
+      const first = Math.ceil(view.startTick / stepTicks);
+      for (let n = first; ; n++) {
+        const tick = n * stepTicks;
+        const x = pixelAt(tick, view);
+        if (x > width) break;
+        callback(x, tick);
+      }
+      return;
+    }
     const step = spacing();
     const first = Math.ceil(view.startTick / hz / step);
     for (let n = first; ; n++) {
-      const x = pixelAt(Math.round(n * step * hz), view);
+      const tick = Math.round(n * step * hz);
+      const x = pixelAt(tick, view);
       if (x > width) break;
-      callback(x, n * step);
+      callback(x, tick);
     }
   }
   function paintRuler(): void {
+    if (!chrome.ruler) return;
     const h = rulerHeight;
     const ctx = setup(rulerContext, width, h);
     ctx.clearRect(0, 0, width, h);
-    ctx.fillStyle = "#9da9ad";
+    ctx.fillStyle = theme.rulerText;
     ctx.font = "11px ui-monospace, monospace";
-    gridLines((x, seconds) => {
+    gridLines((x, tick) => {
       ctx.fillRect(Math.round(x), h - 6, 1, 6);
-      ctx.fillText(formatTime(Math.round(seconds * hz)).replace(/\.000$/, ""), x + 4, 17);
+      const label = customFormatTime
+        ? customFormatTime(tick)
+        : defaultFormatTime(tick).replace(/\.000$/, "");
+      ctx.fillText(label, x + 4, 17);
     });
     ctx.font = "600 10px system-ui, sans-serif";
     for (const marker of visibleMarkers()) {
-      const x = Math.round(pixelAt(marker.start, view));
-      const color = marker.color ?? markerColor;
+      const color = marker.color ?? theme.marker;
       const text = marker.label ?? marker.id;
+      const x = Math.round(pixelAt(marker.start, view));
+      if (marker.duration !== undefined && marker.duration > 0) {
+        const x0 = Math.max(0, x);
+        const x1 = Math.min(width, Math.round(pixelAt(marker.start + marker.duration, view)));
+        if (x1 > x0) {
+          ctx.fillStyle = color + "33";
+          ctx.fillRect(x0, 0, x1 - x0, h);
+          ctx.fillStyle = color;
+          ctx.fillRect(x0, 0, 2, h);
+          if (x1 < width) ctx.fillRect(x1 - 1, 0, 1, h);
+          ctx.fillStyle = theme.rulerMarkerBackground;
+          ctx.fillRect(x0 + 3, h - 13, Math.min(x1 - x0 - 4, ctx.measureText(text).width + 6), 12);
+          ctx.fillStyle = color;
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x0 + 2, 0, Math.max(0, x1 - x0 - 4), h);
+          ctx.clip();
+          ctx.fillText(text, x0 + 6, h - 4);
+          ctx.restore();
+        }
+        continue;
+      }
       ctx.fillStyle = color;
       ctx.fillRect(x, 0, 1, h);
       ctx.beginPath();
@@ -239,7 +354,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
       ctx.lineTo(x, 7);
       ctx.fill();
       // A backing keeps the label legible over tick marks below the time labels.
-      ctx.fillStyle = "#14191c";
+      ctx.fillStyle = theme.rulerMarkerBackground;
       ctx.fillRect(x + 2, h - 13, ctx.measureText(text).width + 6, 12);
       ctx.fillStyle = color;
       ctx.fillText(text, x + 5, h - 4);
@@ -247,7 +362,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     ruler.setAttribute("aria-valuemax", String(duration / hz));
   }
   function visibleMarkers(): readonly Marker[] {
-    return read.markersIn({
+    return read.regionsIn({
       start: view.startTick,
       end: Math.min(maxTick, tickAt(width, view) + 1),
     });
@@ -255,35 +370,80 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   function paintOverlay(): void {
     const ctx = setup(overlayContext, width, height);
     ctx.clearRect(0, 0, width, height);
-    const selected = new Set(editor.session.getSelection());
+    const selectionIds = editor.session.getSelection();
+    const selected = new Set(selectionIds);
     for (const b of boxes)
       if (selected.has(b.clip.id)) {
-        ctx.strokeStyle = "#fff3d9";
+        ctx.strokeStyle = theme.selectionStroke;
         ctx.lineWidth = 2;
         ctx.strokeRect(b.x + 1, b.y + 1, Math.max(0, b.endX - b.x - 2), b.height - 2);
-        ctx.fillStyle = "#ffddaa";
-        for (const x of [b.left, b.right - 3]) {
-          if (x >= 0 && x + 3 <= width) ctx.fillRect(x, b.y + 6, 3, b.height - 12);
+        if (!readOnly) {
+          ctx.fillStyle = theme.handleFill;
+          for (const x of [b.left, b.right - 3]) {
+            if (x >= 0 && x + 3 <= width) ctx.fillRect(x, b.y + 6, 3, b.height - 12);
+          }
         }
       }
     ctx.save();
     ctx.setLineDash([5, 3]);
     ctx.lineWidth = 2;
+    const { laneHeight, rowInset } = layoutConfig;
     for (const clip of ghosts) {
       const row = visible.find((r) => r.track.id === clip.trackId);
       if (!row) continue;
-      const b = rectangle(clip, row.lanes.get(clip.id) ?? 0, row.top - scrollTop, view, width);
+      const b = rectangle(
+        clip,
+        row.lanes.get(clip.id) ?? 0,
+        row.top - scrollTop,
+        view,
+        width,
+        laneHeight,
+        rowInset,
+      );
       if (b.endX <= b.x) continue;
-      ctx.fillStyle = "#ffe6ab33";
+      ctx.fillStyle = theme.ghostFill;
       ctx.fillRect(b.x, b.y, b.endX - b.x, b.height);
-      ctx.strokeStyle = "#ffe6ab";
+      ctx.strokeStyle = theme.ghostStroke;
       ctx.strokeRect(b.x + 1, b.y + 1, Math.max(0, b.endX - b.x - 2), b.height - 2);
     }
     ctx.restore();
     // Markers belong to the document and stay put during playback.
     for (const marker of visibleMarkers()) {
-      ctx.fillStyle = (marker.color ?? markerColor) + "88";
-      ctx.fillRect(Math.round(pixelAt(marker.start, view)), 0, 1, height);
+      const color = marker.color ?? theme.marker;
+      if (marker.duration !== undefined && marker.duration > 0) {
+        const x0 = Math.max(0, Math.round(pixelAt(marker.start, view)));
+        const x1 = Math.min(width, Math.round(pixelAt(marker.start + marker.duration, view)));
+        if (x1 > x0) {
+          ctx.fillStyle = color + "22";
+          ctx.fillRect(x0, 0, x1 - x0, height);
+          ctx.fillStyle = color + "88";
+          ctx.fillRect(x0, 0, 1, height);
+          if (x1 < width) ctx.fillRect(x1 - 1, 0, 1, height);
+        }
+      } else {
+        ctx.fillStyle = color + "88";
+        ctx.fillRect(Math.round(pixelAt(marker.start, view)), 0, 1, height);
+      }
+    }
+    if (renderOverlay) {
+      let byClip: Map<string, Box<Clip>> | undefined;
+      ctx.save();
+      renderOverlay({
+        ctx,
+        width,
+        height,
+        scrollTop,
+        view: { ...view },
+        snapshot,
+        selection: selectionIds,
+        pixelAt: (tick) => pixelAt(tick, view),
+        tickAt: (x) => tickAt(x, view),
+        boxOf: (clipId) => {
+          byClip ??= new Map(boxes.map((b) => [b.clip.id, b]));
+          return byClip.get(clipId);
+        },
+      });
+      ctx.restore();
     }
     diagnostics.overlayPaints++;
   }
@@ -292,12 +452,12 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     const x = pixelAt(t, view);
     head.hidden = x < 0 || x >= width;
     head.style.transform = "translateX(" + x + "px)";
-    const stamp = formatTime(t),
-      label = state.playing ? "Pause" : "Play";
+    const stamp = formatTick(t),
+      label = state.playing ? uiLabels.pause : uiLabels.play;
     if (time.textContent !== stamp) time.textContent = stamp;
     if (play.textContent !== label) play.textContent = label;
     ruler.setAttribute("aria-valuenow", String(t / hz));
-    ruler.setAttribute("aria-valuetext", formatTime(t));
+    ruler.setAttribute("aria-valuetext", stamp);
   }
   // Visible tracks whose last layout asked for a waveform of `assetId`.
   function playing(assetId: string): ReadonlySet<string> {
@@ -316,7 +476,12 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     }
   }
   function labelAtlas(): LabelAtlas {
-    if (!atlas) atlas = createLabelAtlas(doc, dpr);
+    if (!atlas)
+      atlas = createLabelAtlas(doc, dpr, 2048, {
+        nameFont: theme.nameFont,
+        captionFont: theme.captionFont,
+        nameColor: theme.labelColor,
+      });
     return atlas;
   }
   function paintClips(dirty?: ReadonlySet<string>): void {
@@ -355,6 +520,10 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
           peaks: provider && ((request) => provider.peaks(request)),
           label: (name, caption, color) => atlas.slot(name, caption, color),
           assets,
+          laneHeight: layoutConfig.laneHeight,
+          rowInset: layoutConfig.rowInset,
+          theme,
+          clipStyle,
         },
         quads,
         boxes,
@@ -396,11 +565,25 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   // One header per visible row, kept by row index at its place in the scrolled
   // content. A vertical scroll moves the list and changes a header only where
   // a row comes into view or leaves it.
-  const headers = new Map<number, { readonly element: HTMLElement; key: string }>();
+  const headers = new Map<
+    number,
+    {
+      readonly element: HTMLElement;
+      key: string;
+      track?: Track;
+      renderer?: TrackHeaderRenderer | undefined;
+      color?: string;
+    }
+  >();
   function place(): void {
     visible = rows.filter(
       (row) => row.top < scrollTop + height && row.top + row.height > scrollTop,
     );
+    if (!chrome.trackHeaders) {
+      for (const header of headers.values()) header.element.remove();
+      headers.clear();
+      return;
+    }
     const shown = new Set(visible.map((row) => row.index));
     for (const [index, header] of headers)
       if (!shown.has(index)) {
@@ -408,11 +591,13 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
         headers.delete(index);
       }
     for (const row of visible) {
+      const accent =
+        row.track.color ?? theme.palette[row.index % theme.palette.length]?.stripeHex ?? "#87d6cb";
       let header = headers.get(row.index);
       if (!header) {
-        const element = doc.createElement("div");
-        element.className = "lt-label";
-        element.style.setProperty("--track-color", palette(row.index)[1]);
+        const el = doc.createElement("div");
+        el.className = "lt-label";
+        el.style.setProperty("--track-color", accent);
         // In row order, before the header of the next row down.
         let next: HTMLElement | null = null;
         let nearest = Infinity;
@@ -421,17 +606,48 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
             nearest = index;
             next = other.element;
           }
-        headerList.insertBefore(element, next);
-        header = { element, key: "" };
+        headerList.insertBefore(el, next);
+        header = { element: el, key: "", color: accent };
         headers.set(row.index, header);
       }
-      const name = row.track.name ?? row.track.id;
-      const key = [row.top, row.height, name].join();
-      if (header.key === key) continue;
-      header.key = key;
-      header.element.style.top = row.top + "px";
-      header.element.style.height = row.height + "px";
-      header.element.textContent = name;
+      if (header.color !== accent) {
+        header.color = accent;
+        header.element.style.setProperty("--track-color", accent);
+      }
+      if (renderTrackHeader) {
+        const key = [row.top, row.height].join();
+        if (
+          header.key === key &&
+          header.track === row.track &&
+          header.renderer === renderTrackHeader
+        )
+          continue;
+        header.key = key;
+        header.track = row.track;
+        header.renderer = renderTrackHeader;
+        header.element.classList.add("lt-label-custom");
+        header.element.style.top = row.top + "px";
+        header.element.style.height = row.height + "px";
+        const content = renderTrackHeader(row.track, {
+          element: header.element,
+          track: row.track,
+          index: row.index,
+          height: row.height,
+          editor,
+        });
+        if (content) header.element.replaceChildren(content);
+      } else {
+        const name = row.track.name ?? row.track.id;
+        const key = [row.top, row.height, name].join();
+        if (header.key === key && header.renderer === undefined) continue;
+        header.key = key;
+        header.track = row.track;
+        header.renderer = undefined;
+        header.element.classList.remove("lt-label-custom");
+        header.element.style.top = row.top + "px";
+        header.element.style.height = row.height + "px";
+        header.element.textContent = name;
+      }
     }
     headerList.style.transform = "translateY(" + -scrollTop + "px)";
   }
@@ -450,10 +666,10 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     }
     space.style.height = Math.max(totalHeight, height) + "px";
     pin.style.height = height + "px";
-    if (ruler.style.width !== width + "px") ruler.style.width = width + "px";
+    if (chrome.ruler && ruler.style.width !== width + "px") ruler.style.width = width + "px";
     // Read after the sizes above are set, which can move the scroll position.
     scrollTop = scroll.scrollTop;
-    rulerHeight = ruler.clientHeight;
+    rulerHeight = chrome.ruler ? ruler.clientHeight : 0;
     place();
     redraw();
   }
@@ -464,16 +680,33 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     place();
     paint();
   }
+  function notifyViewport(): void {
+    if (!mountedReady) {
+      lastNotifiedView = { ...view };
+      return;
+    }
+    if (
+      lastNotifiedView &&
+      lastNotifiedView.startTick === view.startTick &&
+      lastNotifiedView.pixelsPerSecond === view.pixelsPerSecond
+    )
+      return;
+    lastNotifiedView = { ...view };
+    hostEvents?.onViewportChange?.({ ...view });
+  }
   // Draws the ruler and clips at the current viewport. A pan or zoom needs no
   // more, and measures no layout.
   function redraw(): void {
     view = viewport(view.startTick, view.pixelsPerSecond, width, duration);
-    const max = String(Math.max(0, duration - Math.ceil((width * hz) / view.pixelsPerSecond)));
-    const value = String(view.startTick);
-    if (pan.max !== max) pan.max = max;
-    if (pan.value !== value) pan.value = value;
+    if (chrome.scrollBar) {
+      const max = String(Math.max(0, duration - Math.ceil((width * hz) / view.pixelsPerSecond)));
+      const value = String(view.startTick);
+      if (pan.max !== max) pan.max = max;
+      if (pan.value !== value) pan.value = value;
+    }
     paintRuler();
     paint();
+    notifyViewport();
   }
   let rasterized = 0;
   function setViewport({
@@ -488,10 +721,15 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   }
   // One option per clip in project order, kept by clip ID.
   const clipOptions = new Map<string, HTMLOptionElement>();
+  const clipNavActive = (): boolean => chrome.toolbar && chrome.clipNavigator;
   function updateNavigator(): void {
     clipOptions.clear();
+    if (!clipNavActive()) {
+      navigator.replaceChildren();
+      return;
+    }
     const options = doc.createDocumentFragment();
-    options.append(new win.Option("Select clip", ""));
+    options.append(new win.Option(uiLabels.selectClip, ""));
     for (const c of snapshot.clips) {
       const option = new win.Option(c.name ?? c.id, c.id);
       clipOptions.set(c.id, option);
@@ -503,6 +741,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   // Updates only the options of patched clips. A new clip takes its place in
   // the project's clip order, before the next clip that was already listed.
   function patchNavigator(change: EditCommit): void {
+    if (!clipNavActive()) return;
     const patches = change.clipPatches;
     if (patches.length > 64) return updateNavigator();
     const added: string[] = [];
@@ -542,9 +781,9 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   function updateMarkers(): void {
     const chosen = markerNavigator.value;
     const options = doc.createDocumentFragment();
-    options.append(new win.Option("Select marker", ""));
+    options.append(new win.Option(uiLabels.selectMarker, ""));
     for (const m of snapshot.markers ?? [])
-      options.append(new win.Option((m.label ?? m.id) + " · " + formatTime(m.start), m.id));
+      options.append(new win.Option((m.label ?? m.id) + " · " + formatTick(m.start), m.id));
     markerNavigator.replaceChildren(options);
     chooseMarker(chosen);
   }
@@ -552,7 +791,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     const marker = snapshot.markers?.find((m) => m.id === id);
     markerNavigator.value = marker ? marker.id : "";
     markerLabel.value = marker?.label ?? "";
-    markerRename.disabled = markerRemove.disabled = !marker;
+    syncMarkerControls();
   }
   function playhead(): Tick {
     return transport.snapshot().requestedTick ?? transport.snapshot().presentedTick;
@@ -562,6 +801,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     return result;
   }
   function addMarker(): void {
+    if (readOnly) return;
     const count = snapshot.markers?.length ?? 0;
     const result = reportEdit(
       editor.dispatch(
@@ -575,9 +815,10 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   }
   // `[` and `]` step between markers; `M` adds one at the playhead.
   function markerKey(e: KeyboardEvent): void {
-    if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!shortcuts || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
     const key = e.key.toLowerCase();
     if (key === "m") {
+      if (readOnly) return;
       e.preventDefault();
       addMarker();
     } else if (key === "]" || key === "[") {
@@ -591,16 +832,16 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     }
   }
   function selected(ids: readonly string[]): void {
-    navigator.value = ids.at(-1) ?? "";
+    if (clipNavActive()) navigator.value = ids.at(-1) ?? "";
     paintOverlay();
   }
-  function point(event: PointerEvent | WheelEvent): PointerInfo {
+  function point(event: MouseEvent | PointerEvent | WheelEvent): PointerInfo {
     const rect = surface.getBoundingClientRect();
     const x = event.clientX - rect.left,
       y = event.clientY - rect.top;
     const top = y + scrollTop;
     const row = visible.find((r) => y >= 0 && y < height && r.top <= top && top < r.top + r.height);
-    return { x, width, tick: tickAt(x, view), box: hit(boxes, x, y), trackId: row?.track.id };
+    return { x, y, width, tick: tickAt(x, view), box: hit(boxes, x, y), trackId: row?.track.id };
   }
   function seek(tick: Tick): void {
     Promise.resolve(transport.seek(clampTick(tick, duration))).catch((error: unknown) => {
@@ -628,11 +869,13 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   listen(markerAdd, "click", addMarker);
   listen(markerForm, "submit", (event) => {
     event.preventDefault();
+    if (readOnly) return;
     const markerId = markerNavigator.value;
     if (markerId)
       reportEdit(editor.dispatch(commands.updateMarker({ markerId, label: markerLabel.value })));
   });
   listen(markerRemove, "click", () => {
+    if (readOnly) return;
     const markerId = markerNavigator.value;
     if (markerId) reportEdit(editor.dispatch(commands.removeMarker({ markerId })));
   });
@@ -651,7 +894,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
       seek(target);
     }
   });
-  const stopEditing = bindEditing({
+  const editing = bindEditing({
     root,
     surface,
     editor,
@@ -665,6 +908,11 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     },
     message,
     config: () => config,
+    readOnly: () => readOnly,
+    shortcuts: () => shortcuts,
+    chrome: () => chrome,
+    uiLabels: () => uiLabels,
+    events: () => hostEvents,
   });
   // Scrolls a clip's lane into view and, when its start is offscreen, pans to it.
   function hitTest({ x, y }: { readonly x: number; readonly y: number }): TimelineHit | null {
@@ -683,6 +931,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     const clip = snapshot.clips.find((c) => c.id === clipId);
     const row = clip && rows.find((r) => r.track.id === clip.trackId);
     if (!clip || !row || disposed) return false;
+    const { laneHeight, rowInset } = layoutConfig;
     const y = row.top + rowInset + laneHeight * (row.lanes.get(clip.id) ?? 0);
     if (y < scrollTop || y + laneHeight > scrollTop + height) {
       scroll.scrollTop = y;
@@ -691,6 +940,20 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     if (clip.start < view.startTick || clip.start >= tickAt(width, view))
       setViewport({ startTick: clip.start });
     return true;
+  }
+  function scrollToTrack(trackId: string): boolean {
+    const row = rows.find((r) => r.track.id === trackId);
+    if (!row || disposed) return false;
+    if (row.top < scrollTop || row.top + row.height > scrollTop + height) {
+      scroll.scrollTop = row.top;
+      scrolled();
+    }
+    return true;
+  }
+  function repaint(scope: "all" | "overlay" = "all"): void {
+    if (disposed) return;
+    if (scope === "overlay") paintOverlay();
+    else redraw();
   }
   listen(navigator, "change", () => {
     const clip = snapshot.clips.find((c) => c.id === navigator.value);
@@ -730,9 +993,20 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   const offDoc = editor.subscribe(
     (s: ProjectSnapshot) => s,
     (next: ProjectSnapshot, change: EditCommit) => {
+      const tracksChanged = change.trackPatches.length > 0 || next.tracks !== prevTracks;
       snapshot = next;
+      prevTracks = next.tracks;
       read = editor.read(next);
       if (change.markerPatches.length) updateMarkers();
+      if (tracksChanged) {
+        const liveTracks = new Set(next.tracks.map((t) => t.id));
+        for (const id of packed.keys()) if (!liveTracks.has(id)) packed.delete(id);
+        for (const patch of change.trackPatches) packed.delete(patch.id);
+        scenes.clear();
+        rebuildRows();
+        if (change.clipPatches.length) patchNavigator(change);
+        return refresh();
+      }
       // Tracks drawn differently with no clip patch: a relabeled active take, or a
       // take that now plays other media under a waveform.
       const restyled = new Set(relabeled(change));
@@ -768,6 +1042,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
       const intersects = [...change.affected.before, ...change.affected.after].some(
         (r) => r.start < end && r.end > view.startTick,
       );
+      const { laneHeight, rowInset } = layoutConfig;
       // An offscreen overlap can change a visible clip's lane.
       if (
         intersects ||
@@ -815,13 +1090,13 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   function watchWaveforms(provider: WaveformProvider | undefined): () => unknown {
     return (
       provider?.subscribe?.((assetId) => {
-        const repaint = (): void => {
+        const repaintWave = (): void => {
           if (disposed || provider !== waveforms) return;
           for (const track of playing(assetId)) waveTracks.add(track);
           if (waveTracks.size && !waveFrame) waveRepaint();
         };
-        if (painting) queueMicrotask(repaint);
-        else repaint();
+        if (painting) queueMicrotask(repaintWave);
+        else repaintWave();
       }) ?? (() => {})
     );
   }
@@ -831,8 +1106,23 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     const has = (key: keyof TimelineUpdate): boolean => Object.hasOwn(next, key);
     // Validate everything before changing anything.
     const nextConfig = has("snap") ? snapConfig(next.snap) : config;
+    const nextLayout = has("layout") ? resolveLayout(next.layout) : layoutConfig;
     const nextWords = has("labels") ? captionWords(next.labels) : words;
+    const nextUiLabels = has("labels") ? resolveUiLabels(next.labels) : uiLabels;
+    const nextChrome = has("chrome") ? resolveChrome(next.chrome) : chrome;
+    const nextTheme = has("theme") ? resolveTheme(next.theme) : theme;
+    const nextReadOnly = has("readOnly") ? (next.readOnly ?? false) : readOnly;
+    const nextShortcuts = has("shortcuts") ? (next.shortcuts ?? true) : shortcuts;
+    const nextFormatTime = has("formatTime") ? next.formatTime : customFormatTime;
+    const nextGridSpacing = has("gridSpacing") ? next.gridSpacing : customGridSpacing;
+    const nextClipStyle = has("clipStyle") ? next.clipStyle : clipStyle;
+    const nextHeaderRenderer = has("renderTrackHeader")
+      ? next.renderTrackHeader
+      : renderTrackHeader;
+    const nextOverlayRenderer = has("renderOverlay") ? next.renderOverlay : renderOverlay;
+    const nextEvents = has("events") ? next.events : hostEvents;
     const nextWaveforms = has("waveforms") ? next.waveforms : waveforms;
+
     const moved: { pixelsPerSecond?: number; startTick?: Tick } = {};
     if (has("pixelsPerSecond") && next.pixelsPerSecond !== given.pixelsPerSecond)
       moved.pixelsPerSecond = next.pixelsPerSecond ?? defaultPixelsPerSecond;
@@ -842,21 +1132,107 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
       pixelsPerSecond: has("pixelsPerSecond") ? next.pixelsPerSecond : given.pixelsPerSecond,
       startTick: has("startTick") ? next.startTick : given.startTick,
     };
+
     if (!sameSnap(nextConfig, config)) config = nextConfig;
-    let repaint = false;
+    shortcuts = nextShortcuts;
+    hostEvents = nextEvents;
+
+    let needRefresh = false;
+    let needRedraw = false;
+    let needClips = false;
+    let needOverlay = false;
+    let needPlace = false;
+    let needEditingSync = false;
+
+    if (!sameChrome(nextChrome, chrome)) {
+      const wasClipNav = clipNavActive();
+      const hadRuler = chrome.ruler;
+      const hadHeaders = chrome.trackHeaders;
+      chrome = nextChrome;
+      applyChrome();
+      if (clipNavActive() !== wasClipNav) updateNavigator();
+      if (chrome.ruler !== hadRuler || chrome.trackHeaders !== hadHeaders) needRefresh = true;
+      needEditingSync = true;
+    }
+    if (!sameUiLabels(nextUiLabels, uiLabels)) {
+      uiLabels = nextUiLabels;
+      applyUiLabels();
+      frame();
+      needEditingSync = true;
+    }
+    if (nextReadOnly !== readOnly) {
+      readOnly = nextReadOnly;
+      syncMarkerControls();
+      needOverlay = true;
+      needEditingSync = true;
+    }
+    if (!sameLayout(nextLayout, layoutConfig)) {
+      layoutConfig = nextLayout;
+      packed.clear();
+      rebuildRows();
+      needRefresh = true;
+    }
+    if (!sameTheme(nextTheme, theme)) {
+      if (!sameAtlasTheme(nextTheme, theme)) {
+        rasterized += atlas?.rasterized ?? 0;
+        atlas?.dispose();
+        atlas = null;
+      }
+      theme = nextTheme;
+      needPlace = true;
+      needRedraw = true;
+    }
+    if (nextFormatTime !== customFormatTime) {
+      customFormatTime = nextFormatTime;
+      updateMarkers();
+      frame();
+      needRedraw = true;
+    }
+    if (nextGridSpacing !== customGridSpacing) {
+      customGridSpacing = nextGridSpacing;
+      needRedraw = true;
+    }
     if (!sameWords(nextWords, words)) {
       words = nextWords;
-      repaint = true;
+      needClips = true;
+    }
+    if (nextClipStyle !== clipStyle) {
+      clipStyle = nextClipStyle;
+      needClips = true;
+    }
+    if (nextHeaderRenderer !== renderTrackHeader) {
+      renderTrackHeader = nextHeaderRenderer;
+      needPlace = true;
+    }
+    if (nextOverlayRenderer !== renderOverlay) {
+      renderOverlay = nextOverlayRenderer;
+      needOverlay = true;
     }
     if (nextWaveforms !== waveforms) {
       offWaveforms();
       waveforms = nextWaveforms;
       offWaveforms = watchWaveforms(waveforms);
       waveTracks.clear();
-      repaint = true;
+      needClips = true;
     }
-    if (moved.pixelsPerSecond !== undefined || moved.startTick !== undefined) setViewport(moved);
-    else if (repaint) paint();
+
+    if (needEditingSync) editing.sync();
+    if (moved.pixelsPerSecond !== undefined || moved.startTick !== undefined) {
+      view = viewport(
+        moved.startTick ?? view.startTick,
+        moved.pixelsPerSecond ?? view.pixelsPerSecond,
+        width,
+        duration,
+      );
+      needRedraw = true;
+    }
+    if (needRefresh) refresh();
+    else {
+      if (needPlace) place();
+      if (needRedraw) redraw();
+      else if (needClips) paint();
+      else if (needOverlay) paintOverlay();
+    }
   }
   const resize = new win.ResizeObserver(refresh);
   resize.observe(surface);
@@ -869,15 +1245,20 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     resolution.addEventListener("change", onResolution, { once: true, signal: events.signal });
     refresh();
   }
+  applyChrome();
+  applyUiLabels();
   rebuildRows();
   updateNavigator();
   updateMarkers();
   onResolution();
+  mountedReady = true;
   const mounted: TimelineView = {
     update,
     setViewport,
     getViewport: () => ({ ...view }),
     reveal,
+    scrollToTrack,
+    repaint,
     hitTest,
     getDiagnostics: () => ({
       ...diagnostics,
@@ -894,7 +1275,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     dispose() {
       if (disposed) return;
       disposed = true;
-      stopEditing();
+      editing.dispose();
       events.abort();
       resize.disconnect();
       offDoc();

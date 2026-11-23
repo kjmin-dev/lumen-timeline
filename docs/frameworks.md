@@ -4,17 +4,17 @@ Each wrapper mounts the same view as `mountTimeline` and lets a framework's own 
 
 | Package                  | Framework peer    | Tested with                                                                                      |
 | ------------------------ | ----------------- | ------------------------------------------------------------------------------------------------ |
-| `@lumen-timeline/react`  | `react` ^19.3.1   | React 19.3.1                                                                                     |
-| `@lumen-timeline/svelte` | `svelte` ^5.59.1  | Svelte 5.59.1 with vite-plugin-svelte 7.3.1                                                      |
-| `@lumen-timeline/solid`  | `solid-js` ^2.0.3 | SolidJS 2.0.3 with vite-plugin-solid 3.0.0-next.27 and babel-preset-solid 2.0.0-rc.2 for its JSX |
-| `@lumen-timeline/vue`    | `vue` ^3.5.46     | Vue 3.5.46 with @vitejs/plugin-vue 6.0.11                                                        |
+| `@lumen-timeline/react`  | `react` ^19.0.0   | React 19.3.1                                                                                     |
+| `@lumen-timeline/svelte` | `svelte` ^5.40.0  | Svelte 5.59.1 with vite-plugin-svelte 7.3.1                                                      |
+| `@lumen-timeline/solid`  | `solid-js` ^2.0.0 | SolidJS 2.0.3 with vite-plugin-solid 3.0.0-next.27 and babel-preset-solid 2.0.0-rc.2 for its JSX |
+| `@lumen-timeline/vue`    | `vue` ^3.5.0      | Vue 3.5.46 with @vitejs/plugin-vue 6.0.11                                                        |
 
 Each package is TypeScript built to plain JavaScript, with no JSX and no template compiler, so a consumer needs only the build its framework needs anyway.
 
 Every wrapper follows the same rules:
 
 - **After client mount.** The view mounts once the framework has attached its element, and never on the server. Rendering on the server produces the element and the panels, creates no view and subscribes to nothing.
-- **Options.** Every render's options reach the mounted view through [`view.update`](vanilla-timeline.md), which ignores equal ones, so an object literal written in the markup costs nothing. A different `editor`, `transport` or `renderer` disposes the view and mounts another. `pixelsPerSecond` and `startTick` are starting values that move the viewport only when the host changes them, so the user's pan and zoom survive a render.
+- **Options.** Every render's options—including `chrome`, `theme`, `layout`, `labels`, `readOnly`, `shortcuts`, `formatTime`, `gridSpacing`, `clipStyle`, `renderTrackHeader`, `renderOverlay`, `events`, `snap`, `waveforms`, `pixelsPerSecond` and `startTick`—reach the mounted view through [`view.update`](vanilla-timeline.md), which ignores equal ones, so an object literal written in the markup costs nothing. A different `editor`, `transport` or `renderer` disposes the view and mounts another. `pixelsPerSecond` and `startTick` are starting values that move the viewport only when the host changes them, so the user's pan and zoom survive a render.
 - **Fields.** A panel selects the fields it shows from the editor's [watched state](headless-editing.md#watching-state), `{ snapshot, selection, history }`, or from the transport's snapshot. It updates only when its field changes, compared with `Object.is` or the comparison it passes, such as `shallowEqual` from the core. During playback a panel that reads only editor fields does nothing.
 - **Unmount.** The view's DOM, observers, animation frame callbacks, GPU context and every subscription it or a selector held are released. The editor's document, selection and history are untouched.
 

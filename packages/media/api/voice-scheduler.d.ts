@@ -27,6 +27,8 @@ export interface Voice {
 export interface VoiceSchedulerOptions {
     readonly context: AudioContextLike;
     readonly output?: AudioNodeLike | undefined;
+    readonly trackOutput?: ((trackId: string) => AudioNodeLike | undefined) | undefined;
+    readonly fadeOutSeconds?: number | undefined;
     readonly editor: Editor;
     readonly catalog: StreamCatalog;
     readonly resolveBuffer: ResolveBuffer;
@@ -39,16 +41,20 @@ export interface ScheduledWindow {
     readonly end: Tick;
     readonly sourceStart?: Tick;
 }
-export declare function scheduleWindow(node: BufferSourceLike, window: ScheduledWindow, audioAtProjectZero: number, outputRate: number, sharedStartSample?: number, sourceSeconds?: number): number;
+export declare function scheduleWindow(node: BufferSourceLike, window: ScheduledWindow, audioAtProjectZero: number, outputRate: number, sharedStartSample?: number, sourceSeconds?: number, playbackRate?: number): number;
 export declare class VoiceScheduler {
     readonly context: AudioContextLike;
     readonly output: AudioNodeLike;
+    readonly trackOutput: ((trackId: string) => AudioNodeLike | undefined) | undefined;
+    readonly fadeOutSeconds: number;
     read: ReadHandle;
     catalog: StreamCatalog;
     /** Plan options for every fill, as an audition sets them. */
     options: PlanOptions | undefined;
     /** No voice plays at or after this tick. */
     until: Tick;
+    /** Playback speed multiplier (`1` is real time). */
+    playbackRate: number;
     readonly resolveBuffer: ResolveBuffer;
     readonly onError: MediaErrorHandler;
     generation: number;
@@ -57,8 +63,9 @@ export declare class VoiceScheduler {
     anchor: Anchor | null;
     readonly unsubscribe: () => boolean;
     readonly timer: ReturnType<typeof setInterval>;
-    constructor({ context, output, editor, catalog, resolveBuffer, onError, onWake, }: VoiceSchedulerOptions);
+    constructor({ context, output, trackOutput, fadeOutSeconds, editor, catalog, resolveBuffer, onError, onWake, }: VoiceSchedulerOptions);
     setAnchor(tick: Tick, audio: number, earliestTick?: number): void;
+    setPlaybackRate(rate: number): void;
     range(): TickRange;
     fill(changed?: ReadonlySet<string> | true): void;
     stale(read: ReadHandle, catalog: StreamCatalog, options: PlanOptions | undefined, generation: number): boolean;
