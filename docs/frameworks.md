@@ -192,3 +192,19 @@ const clip = useEditorSelector(
 5. **Server rendering.** Node renders each framework consumer's server entry with no DOM globals. The markup has the timeline's element and the inspector, no view, and no subscription.
 
 CI runs the suite with `LUMEN_SOFTWARE_GPU=1`, which draws WebGL2 on SwiftShader.
+
+## Benchmark
+
+`npm run bench:wrappers` compares the production builds with vanilla in Google Chrome at 1,280 × 800 CSS pixels and DPR 2, through WebGL2. Each run opens every consumer once, in an order that rotates from run to run. Each consumer gets the same 20-second trace with playback: eight seconds of panning and zooming the view, then pointer drags that select a clip, preview its move and commit it. It records main-thread work per frame until the frame's tasks end, missed refreshes, and the time from each pointer move to the end of the frame that shows it. `--write` records the medians over the runs and every run in `docs/measurements/wrappers.json`. A wrapper is within variation when its median is no further above vanilla's than vanilla's own runs spread, or than Chrome's 0.1 ms clock can tell apart.
+
+Five runs on an Apple M2 Pro in Chrome 157, medians with the spread across runs:
+
+| Consumer | Frame work p50 | Frame work p95 | Pointer to frame end p95 | Missed refreshes |
+| -------- | -------------- | -------------- | ------------------------ | ---------------- |
+| Vanilla  | 0.6 ms         | 1.3 ± 0.7 ms   | 16.8 ± 0.9 ms            | 0.00 ± 0.08%     |
+| React    | 0.7 ms         | 1.7 ± 1.2 ms   | 17.2 ± 0.4 ms            | 0.00%            |
+| Svelte   | 0.6 ms         | 1.3 ± 0.7 ms   | 17.1 ± 0.7 ms            | 0.00 ± 0.08%     |
+| SolidJS  | 0.6 ms         | 1.3 ± 1.2 ms   | 17.1 ± 0.3 ms            | 0.00%            |
+| Vue      | 0.6 ms         | 1.2 ± 0.9 ms   | 17.0 ± 0.4 ms            | 0.00%            |
+
+Every wrapper is within vanilla's variation. A pointer move reaches the screen in the next frame, about 16.7 ms later at 60 Hz, in all five consumers. React's p95 frame work is the highest, at 0.4 ms above vanilla's median, which is inside vanilla's 0.7 ms spread. CI runs one short pass on Canvas 2D to keep the page working; its figures come from real hardware.

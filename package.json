@@ -49,7 +49,8 @@
     "verify:mounts": "node examples/vanilla/verify-mounts.mjs",
     "verify:shared": "node examples/sync/verify.mjs",
     "build:consumers": "node examples/frameworks/build.mjs",
-    "verify:wrappers": "node examples/frameworks/verify.mjs"
+    "verify:wrappers": "node examples/frameworks/verify.mjs",
+    "bench:wrappers": "node examples/frameworks/bench.mjs"
   },
   "devDependencies": {
     "@solidjs/web": "2.0.3",
