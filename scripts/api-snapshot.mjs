@@ -9,6 +9,7 @@ const packages = [
   { dir: "packages/media", entries: ["index.d.ts", "internal.d.ts"] },
   { dir: "packages/timeline", entries: ["index.d.ts", "internal.d.ts"] },
   { dir: "packages/sync", entries: ["index.d.ts", "internal.d.ts"] },
+  { dir: "packages/react", entries: ["index.d.ts"] },
 ];
 const update = process.argv.includes("--update");
 const failures = [];

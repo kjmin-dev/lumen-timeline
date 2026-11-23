@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": ["react"],
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "references": [{ "path": "../core" }, { "path": "../timeline" }]
+}
