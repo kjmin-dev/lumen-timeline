@@ -75,13 +75,16 @@ export function inverse(patches: readonly ClipPatch[]): readonly ClipPatch[] {
 }
 
 // A split's descendants stay grouped with the clip they were cut from, in order,
-// so each new clip can name the clip it follows.
+// so each new clip can name the clip it follows. Added clips live in their own
+// appended list or inside the group of the clip they follow.
 export class ClipDraft {
   readonly clips: readonly Clip[];
   readonly positions: ReadonlyMap<string, number>;
-  readonly edited: Map<string, Clip>;
+  readonly edited: Map<string, Clip | undefined>;
   readonly owners: Map<string, number>;
   readonly groups: Map<number, Clip[]>;
+  /** Clips added without an `after` anchor (or after another appended clip). */
+  readonly appended: Clip[];
 
   constructor(clips: readonly Clip[], positions: ReadonlyMap<string, number>) {
     this.clips = clips;
@@ -89,53 +92,158 @@ export class ClipDraft {
     this.edited = new Map();
     this.owners = new Map();
     this.groups = new Map();
+    this.appended = [];
   }
 
   get(id: string): Clip | undefined {
+    if (this.edited.has(id)) return this.edited.get(id);
     const index = this.positions.get(id);
-    return this.edited.get(id) ?? (index === undefined ? undefined : this.clips[index]);
+    return index === undefined ? undefined : this.clips[index];
   }
 
   /** Each clip this transaction touched so far, with the clips that now stand in its place. */
-  *changes(): Iterable<readonly [Clip, readonly Clip[]]> {
+  *changes(): Iterable<readonly [Clip | undefined, readonly Clip[]]> {
     for (const [index, group] of this.groups)
       yield [defined(this.clips[index], "original clip"), group];
+    if (this.appended.length) yield [undefined, this.appended];
   }
 
-  // `clip` is the current version of a clip from `get`, so it has an owner slot.
+  /** Every clip currently present on `trackId`, in draft state. */
+  onTrack(trackId: string): Clip[] {
+    const result: Clip[] = [];
+    for (let index = 0; index < this.clips.length; index++) {
+      const group = this.groups.get(index);
+      if (group) {
+        for (const clip of group) if (clip.trackId === trackId) result.push(clip);
+      } else {
+        const clip = defined(this.clips[index], "original clip");
+        if (clip.trackId === trackId) result.push(clip);
+      }
+    }
+    for (const clip of this.appended) if (clip.trackId === trackId) result.push(clip);
+    return result;
+  }
+
+  /** Adds a brand-new clip, optionally right after `afterId`. */
+  add(clip: Clip, afterId?: string): void {
+    const frozen = Object.freeze(clip);
+    if (afterId !== undefined) {
+      const owner = this.owners.get(afterId) ?? this.positions.get(afterId);
+      if (owner !== undefined) {
+        let group = this.groups.get(owner);
+        if (!group) {
+          group = [defined(this.clips[owner], "original clip")];
+          this.groups.set(owner, group);
+        }
+        const at = group.findIndex((item) => item.id === afterId);
+        if (at >= 0) {
+          group.splice(at + 1, 0, frozen);
+          this.edited.set(frozen.id, frozen);
+          this.owners.set(frozen.id, owner);
+          return;
+        }
+      }
+      const appendedAt = this.appended.findIndex((item) => item.id === afterId);
+      if (appendedAt >= 0) {
+        this.appended.splice(appendedAt + 1, 0, frozen);
+        this.edited.set(frozen.id, frozen);
+        return;
+      }
+    }
+    this.appended.push(frozen);
+    this.edited.set(frozen.id, frozen);
+  }
+
+  /** Removes a live clip from the draft. */
+  remove(clip: Clip): void {
+    const owner = this.owners.get(clip.id) ?? this.positions.get(clip.id);
+    if (owner !== undefined) {
+      let group = this.groups.get(owner);
+      if (!group) {
+        group = [defined(this.clips[owner], "original clip")];
+        this.groups.set(owner, group);
+      }
+      const at = group.indexOf(clip);
+      if (at >= 0) group.splice(at, 1);
+    } else {
+      const at = this.appended.indexOf(clip);
+      if (at >= 0) this.appended.splice(at, 1);
+    }
+    this.edited.set(clip.id, undefined);
+    this.owners.delete(clip.id);
+  }
+
+  // `clip` is the current version of a clip from `get`.
   replace(clip: Clip, after: readonly Clip[]): void {
-    const owner = defined(this.owners.get(clip.id) ?? this.positions.get(clip.id), "clip slot");
-    let group = this.groups.get(owner);
-    if (!group) {
-      group = [clip];
-      this.groups.set(owner, group);
+    const frozen = after.map((next) => Object.freeze(next));
+    const owner = this.owners.get(clip.id) ?? this.positions.get(clip.id);
+    if (owner !== undefined) {
+      let group = this.groups.get(owner);
+      if (!group) {
+        group = [clip];
+        this.groups.set(owner, group);
+      }
+      group.splice(group.indexOf(clip), 1, ...frozen);
+      for (const next of frozen) {
+        this.edited.set(next.id, next);
+        this.owners.set(next.id, owner);
+      }
+      return;
     }
-    group.splice(group.indexOf(clip), 1, ...after);
-    for (const next of after) {
-      this.edited.set(next.id, Object.freeze(next));
-      this.owners.set(next.id, owner);
-    }
+    const at = this.appended.indexOf(clip);
+    if (at >= 0) this.appended.splice(at, 1, ...frozen);
+    for (const next of frozen) this.edited.set(next.id, next);
   }
 
-  // In project order. The original clip keeps its ID and leads its group; every
-  // other member is new and follows the member before it.
+  // In project order. Each modified original clip leads its group (or emits a
+  // removal patch with the previous base clip in `follows`); every added clip
+  // names the clip it follows.
   patches(): readonly ClipPatch[] {
     const patches: ClipPatch[] = [];
     const ordered = [...this.groups].sort(([a], [b]) => a - b);
     for (const [index, group] of ordered) {
       const original = defined(this.clips[index], "original clip");
-      let previous = original.id;
+      const prevBase = index > 0 ? this.clips[index - 1]?.id : undefined;
+      const kept = group.some((clip) => clip.id === original.id);
+      if (!kept) {
+        patches.push(
+          Object.freeze({
+            id: original.id,
+            before: original,
+            after: undefined,
+            ...(prevBase === undefined ? {} : { follows: prevBase }),
+          }),
+        );
+      }
+      let previous: string | undefined = kept ? original.id : prevBase;
       for (const clip of group) {
         if (clip.id === original.id) {
           if (!sameFields(original, clip))
             patches.push(Object.freeze({ id: clip.id, before: original, after: clip }));
         } else {
           patches.push(
-            Object.freeze({ id: clip.id, before: undefined, after: clip, follows: previous }),
+            Object.freeze({
+              id: clip.id,
+              before: undefined,
+              after: clip,
+              ...(previous === undefined ? {} : { follows: previous }),
+            }),
           );
         }
         previous = clip.id;
       }
+    }
+    let tail: string | undefined;
+    for (const clip of this.appended) {
+      patches.push(
+        Object.freeze({
+          id: clip.id,
+          before: undefined,
+          after: clip,
+          ...(tail === undefined ? {} : { follows: tail }),
+        }),
+      );
+      tail = clip.id;
     }
     return Object.freeze(patches);
   }

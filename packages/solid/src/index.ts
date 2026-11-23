@@ -56,8 +56,42 @@ export function createTimeline(
   });
   createEffect(
     () => {
-      const { pixelsPerSecond, startTick, snap, labels, waveforms } = options();
-      return { pixelsPerSecond, startTick, snap, labels, waveforms };
+      const {
+        pixelsPerSecond,
+        startTick,
+        snap,
+        labels,
+        waveforms,
+        chrome,
+        theme,
+        layout,
+        readOnly,
+        shortcuts,
+        formatTime,
+        gridSpacing,
+        clipStyle,
+        renderTrackHeader,
+        renderOverlay,
+        events,
+      } = options();
+      return {
+        pixelsPerSecond,
+        startTick,
+        snap,
+        labels,
+        waveforms,
+        chrome,
+        theme,
+        layout,
+        readOnly,
+        shortcuts,
+        formatTime,
+        gridSpacing,
+        clipStyle,
+        renderTrackHeader,
+        renderOverlay,
+        events,
+      };
     },
     (next) => untrack(view)?.update(next),
   );

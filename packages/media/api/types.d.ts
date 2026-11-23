@@ -6,6 +6,8 @@ export interface AudioBufferLike {
 }
 export interface AudioParamLike {
     value: number;
+    setValueAtTime?(value: number, startTime: number): unknown;
+    linearRampToValueAtTime?(value: number, endTime: number): unknown;
 }
 export interface AudioNodeLike {
     connect(destination: AudioNodeLike): unknown;
@@ -50,6 +52,7 @@ export interface VideoFrameMetadataLike {
 /** The video element members the video transport uses. */
 export interface VideoElementLike {
     currentTime: number;
+    playbackRate?: number;
     readonly duration: number;
     readonly paused: boolean;
     readonly ended: boolean;
@@ -60,8 +63,8 @@ export interface VideoElementLike {
     addEventListener(type: string, listener: () => void, options?: {
         readonly signal?: AbortSignal;
     }): void;
-    requestVideoFrameCallback(callback: (now: number, metadata: VideoFrameMetadataLike) => void): number;
-    cancelVideoFrameCallback(handle: number): void;
+    requestVideoFrameCallback?(callback: (now: number, metadata: VideoFrameMetadataLike) => void): number;
+    cancelVideoFrameCallback?(handle: number): void;
 }
 /**
  * Supplies the decoded stream for a planned span. The buffer must use the span's
@@ -77,6 +80,16 @@ export interface MediaOptions {
     readonly context: AudioContextLike;
     /** Defaults to `context.destination`. */
     readonly output?: AudioNodeLike | undefined;
+    /**
+     * Optional per-track output node resolver (for track FX chains, panners or meters).
+     * Falls back to `output` when omitted or returning `undefined`.
+     */
+    readonly trackOutput?: ((trackId: string) => AudioNodeLike | undefined) | undefined;
+    /**
+     * Short gain fade-out duration in seconds when cancelling an active voice mid-playback
+     * to prevent clicks. Defaults to `0` (immediate stop).
+     */
+    readonly fadeOutSeconds?: number | undefined;
     readonly catalog: StreamCatalog;
     readonly resolveBuffer: ResolveBuffer;
     readonly onError?: MediaErrorHandler | undefined;
@@ -142,6 +155,10 @@ export interface AudioTransportState {
     readonly audition: Audition | null;
     /** Where playback pauses, as `play({ until })` set it. `null` plays to the end. */
     readonly until: Tick | null;
+    /** Playback speed multiplier (`1` is real time). */
+    readonly playbackRate: number;
+    /** Half-open loop range in project ticks, or `null` when looping is off. */
+    readonly loop: TickRange | null;
 }
 export interface AudioTransport {
     snapshot(): AudioTransportState;
@@ -156,6 +173,10 @@ export interface AudioTransport {
     play(options?: PlayOptions): Promise<"playing" | "empty" | "superseded">;
     pause(): void;
     seek(tick: Tick): Promise<SeekResult>;
+    /** Sets the playback speed multiplier (finite positive number). Re-anchors live playback. */
+    setPlaybackRate(rate: number): void;
+    /** Sets or clears a half-open loop range `[start, end)`. */
+    setLoop(range: TickRange | null): void;
     /**
      * Pauses project playback and plays one candidate over its clip's placement,
      * without editing the project. When it ends, presentation returns to the
@@ -183,6 +204,10 @@ export interface VideoTransportState {
     readonly audition: Audition | null;
     /** Where playback pauses, as `play({ until })` set it. `null` plays to the end. */
     readonly until: Tick | null;
+    /** Playback speed multiplier (`1` is real time). */
+    readonly playbackRate: number;
+    /** Half-open loop range in project ticks, or `null` when looping is off. */
+    readonly loop: TickRange | null;
 }
 export interface VideoTransport {
     snapshot(): VideoTransportState;
@@ -195,6 +220,10 @@ export interface VideoTransport {
     play(options?: PlayOptions): Promise<void>;
     pause(): void;
     seek(tick: Tick): Promise<SeekResult>;
+    /** Sets the playback speed multiplier (finite positive number) on the video and audio graph. */
+    setPlaybackRate(rate: number): void;
+    /** Sets or clears a half-open loop range `[start, end)`. */
+    setLoop(range: TickRange | null): void;
     /** Behaves as on the audio transport, with the element as the clock. */
     audition(request: AuditionRequest): Promise<AuditionResult>;
     cancelAudition(): boolean;

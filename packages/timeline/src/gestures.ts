@@ -8,10 +8,17 @@ import type {
   Tick,
   TickRange,
 } from "@lumen-timeline/core";
+import type { ResolvedChrome, ResolvedUiLabels } from "./config.ts";
 import { element, tagName } from "./dom.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Span, Viewport } from "./geometry.ts";
-import type { SnapConfig, SnapOptions, TimelineTransport } from "./types.ts";
+import type {
+  SnapConfig,
+  SnapOptions,
+  TimelineEvents,
+  TimelineHit,
+  TimelineTransport,
+} from "./types.ts";
 
 export type Edge = "left" | "right" | "move";
 
@@ -35,6 +42,7 @@ export type DragClip = Span & { readonly trackId: string };
 /** Where a pointer event lands in the view. */
 export interface PointerInfo {
   readonly x: number;
+  readonly y: number;
   readonly width: number;
   readonly tick: Tick;
   readonly box: Box<Clip> | undefined;
@@ -47,12 +55,22 @@ export interface EditingOptions {
   readonly editor: Editor;
   readonly transport: TimelineTransport;
   readonly listen: Listen;
-  readonly point: (event: PointerEvent) => PointerInfo;
+  readonly point: (event: MouseEvent | PointerEvent) => PointerInfo;
   readonly getView: () => Viewport;
   readonly setGhost: (clips: readonly Clip[]) => void;
   readonly message: HTMLElement;
   /** The snap settings now, which the host can change while the view is mounted. */
   readonly config: () => SnapConfig;
+  readonly readOnly: () => boolean;
+  readonly shortcuts: () => boolean;
+  readonly chrome: () => ResolvedChrome;
+  readonly uiLabels: () => ResolvedUiLabels;
+  readonly events: () => TimelineEvents | undefined;
+}
+
+export interface EditingBinding {
+  sync(): void;
+  dispose(): void;
 }
 
 interface Drag {
@@ -191,16 +209,26 @@ export function bindEditing({
   setGhost,
   message,
   config,
-}: EditingOptions): () => void {
+  readOnly,
+  shortcuts,
+  chrome,
+  uiLabels,
+  events,
+}: EditingOptions): EditingBinding {
   const toolbar = root.ownerDocument.createElement("form");
   toolbar.className = "lt-edit";
-  toolbar.innerHTML = `<label>Operation <select aria-label="Edit operation"><option value="move">Move</option>
+  toolbar.innerHTML = `<label><span data-op-label>Operation</span> <select aria-label="Edit operation"><option value="move">Move</option>
     <option value="left">Trim start</option><option value="right">Trim end</option></select></label>
-    <label>Delta (s) <input type="number" value="1" step="any" aria-label="Edit delta in seconds"></label>
+    <label><span data-delta-label>Delta (s)</span> <input type="number" value="1" step="any" aria-label="Edit delta in seconds"></label>
     <button type="submit" data-apply>Apply</button><button type="button" data-split>Split at playhead</button>
     <span class="lt-spacer"></span><button type="button" data-undo>Undo</button><button type="button" data-redo>Redo</button>`;
   message.before(toolbar);
+  const opLabel = element(toolbar, "[data-op-label]", "span");
+  const deltaLabel = element(toolbar, "[data-delta-label]", "span");
   const operation = element(toolbar, "select", "select");
+  const moveOption = element(operation, 'option[value="move"]', "option");
+  const leftOption = element(operation, 'option[value="left"]', "option");
+  const rightOption = element(operation, 'option[value="right"]', "option");
   const deltaInput = element(toolbar, "input", "input");
   const applyButton = element(toolbar, "[data-apply]", "button");
   const splitButton = element(toolbar, "[data-split]", "button");
@@ -211,18 +239,45 @@ export function bindEditing({
   const playhead = (): Tick =>
     transport.snapshot().requestedTick ?? transport.snapshot().presentedTick;
 
+  function hitOf(p: PointerInfo): TimelineHit {
+    return {
+      clipId: p.box?.clip.id ?? null,
+      edge: p.box ? handleAt(p.box, p.x, p.width) : null,
+      trackId: p.trackId ?? null,
+      tick: p.tick,
+    };
+  }
   function report<R extends EditResult | PreviewResult>(result: R): R {
     message.textContent = result.ok ? "" : result.reason;
     return result;
   }
   function buttons(): void {
+    const locked = readOnly();
     const count = editor.session.getSelection().length;
-    applyButton.disabled = !count || (operation.value !== "move" && count !== 1);
-    splitButton.disabled = count !== 1;
-    undoButton.disabled = !editor.history.canUndo;
-    redoButton.disabled = !editor.history.canRedo;
+    operation.disabled = locked;
+    deltaInput.disabled = locked;
+    applyButton.disabled = locked || !count || (operation.value !== "move" && count !== 1);
+    splitButton.disabled = locked || count !== 1;
+    undoButton.disabled = locked || !editor.history.canUndo;
+    redoButton.disabled = locked || !editor.history.canRedo;
+  }
+  function sync(): void {
+    if (readOnly()) cancel();
+    toolbar.hidden = !chrome().editToolbar;
+    const text = uiLabels();
+    opLabel.textContent = text.operation;
+    moveOption.textContent = text.move;
+    leftOption.textContent = text.trimStart;
+    rightOption.textContent = text.trimEnd;
+    deltaLabel.textContent = text.delta;
+    applyButton.textContent = text.apply;
+    splitButton.textContent = text.splitAtPlayhead;
+    undoButton.textContent = text.undo;
+    redoButton.textContent = text.redo;
+    buttons();
   }
   function apply(edge: Edge, delta: number): void {
+    if (readOnly()) return;
     const ids = editor.session.getSelection();
     const first = ids[0];
     if (first === undefined || (edge !== "move" && ids.length !== 1)) return;
@@ -233,6 +288,7 @@ export function bindEditing({
     report(editor.dispatch(cmd));
   }
   function split(): void {
+    if (readOnly()) return;
     const ids = editor.session.getSelection();
     const only = ids[0];
     if (ids.length !== 1 || only === undefined) return;
@@ -259,6 +315,13 @@ export function bindEditing({
         const single = drag.anchorId;
         finish();
         editor.session.select([single]);
+        events()?.onClipClick?.({
+          hit: hitOf(p),
+          x: p.x,
+          y: p.y,
+          clipId: single,
+          originalEvent: e,
+        });
       }
       return;
     }
@@ -323,6 +386,7 @@ export function bindEditing({
       b = p.box;
     if (!b) {
       editor.session.select([]);
+      events()?.onTrackClick?.({ hit: hitOf(p), x: p.x, y: p.y, originalEvent: e });
       return;
     }
     const selected = editor.session.getSelection();
@@ -332,6 +396,24 @@ export function bindEditing({
           ? selected.filter((id) => id !== b.clip.id)
           : [...selected, b.clip.id],
       );
+      events()?.onClipClick?.({
+        hit: hitOf(p),
+        x: p.x,
+        y: p.y,
+        clipId: b.clip.id,
+        originalEvent: e,
+      });
+      return;
+    }
+    if (readOnly()) {
+      editor.session.select([b.clip.id]);
+      events()?.onClipClick?.({
+        hit: hitOf(p),
+        x: p.x,
+        y: p.y,
+        clipId: b.clip.id,
+        originalEvent: e,
+      });
       return;
     }
     const edge = handleAt(b, p.x, p.width);
@@ -359,13 +441,29 @@ export function bindEditing({
       return;
     }
     const p = point(e);
-    surface.style.cursor = !p.box
-      ? ""
+    if (!p.box) {
+      surface.style.cursor = "";
+      return;
+    }
+    surface.style.cursor = readOnly()
+      ? "pointer"
       : handleAt(p.box, p.x, p.width) === "move"
         ? "grab"
         : "ew-resize";
   });
   listen(surface, "pointerup", (e) => intent(e, true));
+  listen(surface, "dblclick", (e) => {
+    const handler = events()?.onClipDoubleClick;
+    if (!handler) return;
+    const p = point(e);
+    if (p.box) handler({ hit: hitOf(p), x: p.x, y: p.y, clipId: p.box.clip.id, originalEvent: e });
+  });
+  listen(surface, "contextmenu", (e) => {
+    const handler = events()?.onContextMenu;
+    if (!handler) return;
+    const p = point(e);
+    handler({ hit: hitOf(p), x: p.x, y: p.y, originalEvent: e });
+  });
   for (const type of ["pointercancel", "lostpointercapture"] as const)
     listen(surface, type, (e) => {
       if (drag?.pointer === e.pointerId) cancel();
@@ -382,7 +480,7 @@ export function bindEditing({
       cancel();
       return;
     }
-    if (drag || tagName(e.target) === "BUTTON") return;
+    if (drag || readOnly() || !shortcuts() || tagName(e.target) === "BUTTON") return;
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && (key === "z" || key === "y")) {
       e.preventDefault();
@@ -401,7 +499,7 @@ export function bindEditing({
   listen(operation, "change", buttons);
   listen(toolbar, "submit", (event) => {
     event.preventDefault();
-    if (composing) return;
+    if (composing || readOnly()) return;
     const seconds = deltaInput.valueAsNumber;
     if (!Number.isFinite(seconds)) {
       message.textContent = "Enter a time delta in seconds.";
@@ -412,8 +510,12 @@ export function bindEditing({
       apply(edge, Math.round(seconds * hz));
   });
   listen(splitButton, "click", split);
-  listen(undoButton, "click", () => report(editor.history.undo()));
-  listen(redoButton, "click", () => report(editor.history.redo()));
+  listen(undoButton, "click", () => {
+    if (!readOnly()) report(editor.history.undo());
+  });
+  listen(redoButton, "click", () => {
+    if (!readOnly()) report(editor.history.redo());
+  });
   const offSelection = editor.session.subscribeSelection(() => {
     cancel();
     buttons();
@@ -428,11 +530,14 @@ export function bindEditing({
     },
   );
   const offHistory = editor.history.subscribe(buttons);
-  buttons();
-  return () => {
-    finish();
-    offSelection();
-    offDoc();
-    offHistory();
+  sync();
+  return {
+    sync,
+    dispose() {
+      finish();
+      offSelection();
+      offDoc();
+      offHistory();
+    },
   };
 }

@@ -20,6 +20,8 @@ export interface VideoDriverOptions {
   readonly editor: Editor;
   readonly catalog: StreamCatalog;
   readonly resolveBuffer: ResolveBuffer;
+  readonly trackOutput?: ((trackId: string) => AudioNodeLike | undefined) | undefined;
+  readonly fadeOutSeconds?: number | undefined;
   readonly onError?: MediaErrorHandler | undefined;
   readonly onFrame?: ((seconds: number) => void) | undefined;
 }
@@ -37,12 +39,13 @@ export function presentationTime(now: number, expected: number | undefined): num
     : now;
 }
 
-// Unit-speed experiment. The video is the clock; Web Audio owns sample delivery.
+// The video is the clock; Web Audio owns sample delivery.
 export class VideoTransport {
   readonly video: VideoElementLike;
-  readonly context: TimedAudioContext;
+  readonly context: AudioContextLike;
   readonly scheduler: VoiceScheduler;
   readonly onFrame: (seconds: number) => void;
+  readonly useVideoFrameCallback: boolean;
   phaseResets: number;
   phaseExcursion: { readonly sign: number; readonly since: number } | null;
   running: boolean;
@@ -57,23 +60,36 @@ export class VideoTransport {
     video: VideoElementLike,
     context: AudioContextLike,
     output: AudioNodeLike,
-    { editor, catalog, resolveBuffer, onError = () => {}, onFrame = () => {} }: VideoDriverOptions,
+    {
+      editor,
+      catalog,
+      resolveBuffer,
+      trackOutput,
+      fadeOutSeconds,
+      onError = () => {},
+      onFrame = () => {},
+    }: VideoDriverOptions,
   ) {
-    if (typeof video.requestVideoFrameCallback !== "function" || !reportsOutputTime(context)) {
-      throw new Error(
-        "This clock probe requires video frame callbacks and audio output timestamps",
-      );
-    }
     this.video = video;
     this.context = context;
+    this.useVideoFrameCallback = typeof video.requestVideoFrameCallback === "function";
     this.scheduler = new VoiceScheduler({
       editor,
       context,
       output,
+      trackOutput,
+      fadeOutSeconds,
       catalog,
       resolveBuffer,
       onError,
     });
+    if (
+      typeof video.playbackRate === "number" &&
+      Number.isFinite(video.playbackRate) &&
+      video.playbackRate > 0
+    ) {
+      this.scheduler.setPlaybackRate(video.playbackRate);
+    }
     this.onFrame = onFrame;
     this.phaseResets = 0;
     this.phaseExcursion = null;
@@ -111,35 +127,54 @@ export class VideoTransport {
   setCatalog(catalog: StreamCatalog): void {
     this.scheduler.setCatalog(catalog);
   }
+  setPlaybackRate(rate: number): void {
+    this.scheduler.setPlaybackRate(rate);
+  }
   fill(): void {
     this.scheduler.fill();
   }
 
-  observe(): void {
-    const generation = this.generation;
-    this.frame = this.video.requestVideoFrameCallback((now, frame) => {
-      this.observe();
-      if (generation !== this.generation || this.video.seeking || this.seekInFlight) return;
-      if (this.video.paused || this.running) this.onFrame(frame.mediaTime);
-      if (this.video.paused || !this.running) return;
+  private sampleFrame(generation: number, now: number, mediaTime: number, expected?: number): void {
+    if (generation !== this.generation || this.video.seeking || this.seekInFlight) return;
+    if (this.video.paused || this.running) this.onFrame(mediaTime);
+    if (this.video.paused || !this.running) return;
+    let audio: number;
+    if (reportsOutputTime(this.context)) {
       // Missing timestamp fields read as NaN, exactly as undefined did in arithmetic.
       const stamp = this.context.getOutputTimestamp();
       const performanceTime = stamp.performanceTime ?? NaN;
       if (!(performanceTime > 0)) return;
-      const audio =
-        (stamp.contextTime ?? NaN) +
-        (presentationTime(now, frame.expectedDisplayTime) - performanceTime) / 1000;
-      if (
-        this.anchor &&
-        Math.abs(this.anchor.tick / hz + audio - this.anchor.audio - frame.mediaTime) > 0.075
-      ) {
-        this.invalidate();
-      } else if (this.lostLock(frame.mediaTime, audio)) {
-        this.phaseResets++;
-        this.invalidate();
-      }
-      this.scheduler.setAnchor(Math.round(frame.mediaTime * hz), audio);
-    });
+      audio =
+        (stamp.contextTime ?? NaN) + (presentationTime(now, expected) - performanceTime) / 1000;
+    } else {
+      audio = this.context.currentTime;
+    }
+    const speed = this.scheduler.playbackRate;
+    if (
+      this.anchor &&
+      Math.abs(this.anchor.tick / hz + (audio - this.anchor.audio) * speed - mediaTime) > 0.075
+    ) {
+      this.invalidate();
+    } else if (this.lostLock(mediaTime, audio)) {
+      this.phaseResets++;
+      this.invalidate();
+    }
+    this.scheduler.setAnchor(Math.round(mediaTime * hz), audio);
+  }
+
+  observe(): void {
+    const generation = this.generation;
+    if (this.useVideoFrameCallback && this.video.requestVideoFrameCallback) {
+      this.frame = this.video.requestVideoFrameCallback((now, frame) => {
+        this.observe();
+        this.sampleFrame(generation, now, frame.mediaTime, frame.expectedDisplayTime);
+      });
+    } else if (typeof globalThis.requestAnimationFrame === "function") {
+      this.frame = globalThis.requestAnimationFrame((now) => {
+        this.observe();
+        this.sampleFrame(generation, now, this.video.currentTime);
+      });
+    }
   }
 
   lostLock(media: number, audio: number): boolean {
@@ -262,7 +297,11 @@ export class VideoTransport {
     this.pending?.reject(new Error("Transport disposed"));
     this.pending = null;
     this.listeners.abort();
-    this.video.cancelVideoFrameCallback(this.frame);
+    if (this.useVideoFrameCallback && this.video.cancelVideoFrameCallback) {
+      this.video.cancelVideoFrameCallback(this.frame);
+    } else if (this.frame && typeof globalThis.cancelAnimationFrame === "function") {
+      globalThis.cancelAnimationFrame(this.frame);
+    }
     this.running = false;
     this.scheduler.dispose();
   }

@@ -66,19 +66,24 @@ function nativeRange(
 
 function planClip(
   clip: Clip,
-  take: Take,
+  source: {
+    readonly takeId: string | null;
+    readonly assetId: string;
+    readonly streamId: string;
+    readonly sourceAtContentZero: Tick;
+  },
   track: Track,
   range: TickRange,
   stream: StreamBinding,
 ): AudioSpan | null {
   const { sampleRate } = stream;
   const window = {
-    sourceAtContentZero: take.sourceAtContentZero,
+    sourceAtContentZero: source.sourceAtContentZero,
     availableStart: unitsToTicks(stream.availableStart, sampleRate),
     availableEnd: unitsToTicks(stream.availableEnd, sampleRate),
   };
   // Placements, content time and take positions are each within seven days.
-  const origin = take.sourceAtContentZero + clip.contentIn;
+  const origin = source.sourceAtContentZero + clip.contentIn;
   const full = sourceWindow(clip, window, clip.start, clip.start + clip.duration);
   if (!full) return null;
   const start = Math.max(full.start, range.start);
@@ -94,10 +99,10 @@ function planClip(
     clipId: clip.id,
     trackId: track.id,
     chainId: clip.continuityId ?? null,
-    takeId: take.id,
-    assetId: take.assetId,
+    takeId: source.takeId,
+    assetId: source.assetId,
     assetVersion: stream.assetVersion,
-    streamId: take.streamId,
+    streamId: source.streamId,
     sampleRate,
     gain: track.gain ?? 1,
     sourceOriginTick: origin - clip.start,
@@ -152,32 +157,58 @@ export function planAudio(
         issues.push(Object.freeze({ code: "invalid-gain", trackId: track.id }));
         return;
       }
-      const id =
+      const override =
         isMap(overrides) && Object.hasOwn(overrides, clip.id)
-          ? own(overrides, clip.id)
-          : clip.activeTakeId;
-      if (id === undefined || id === null) return;
-      // The editor keeps every listed take in the project.
-      const take = validId(id) && clip.takeIds?.includes(id) ? takes(id) : undefined;
-      if (!take) {
-        issues.push(Object.freeze({ code: "unresolved-take", clipId: clip.id, takeId: id }));
+          ? { present: true, value: own(overrides, clip.id) }
+          : { present: false, value: undefined };
+      let source:
+        | {
+            readonly takeId: string | null;
+            readonly assetId: string;
+            readonly streamId: string;
+            readonly sourceAtContentZero: Tick;
+          }
+        | undefined;
+      if (override.present || clip.takeIds !== undefined) {
+        const id = override.present ? override.value : clip.activeTakeId;
+        if (id === undefined || id === null) return;
+        // The editor keeps every listed take in the project.
+        const take = validId(id) && clip.takeIds?.includes(id) ? takes(id) : undefined;
+        if (!take) {
+          issues.push(Object.freeze({ code: "unresolved-take", clipId: clip.id, takeId: id }));
+          return;
+        }
+        source = {
+          takeId: take.id,
+          assetId: take.assetId,
+          streamId: take.streamId,
+          sourceAtContentZero: take.sourceAtContentZero,
+        };
+      } else if (clip.source !== undefined) {
+        source = {
+          takeId: null,
+          assetId: clip.source.assetId,
+          streamId: clip.source.streamId,
+          sourceAtContentZero: clip.source.sourceAtContentZero ?? 0,
+        };
+      } else {
         return;
       }
-      const stream = own(own(catalog.streams, take.assetId), take.streamId);
+      const stream = own(own(catalog.streams, source.assetId), source.streamId);
       if (stream === undefined) {
         issues.push(
           Object.freeze({
             code: "unresolved-stream",
             clipId: clip.id,
-            takeId: take.id,
-            assetId: take.assetId,
-            streamId: take.streamId,
+            takeId: source.takeId,
+            assetId: source.assetId,
+            streamId: source.streamId,
           }),
         );
         return;
       }
       try {
-        const span = planClip(clip, take, track, range, streamOf(stream));
+        const span = planClip(clip, source, track, range, streamOf(stream));
         if (span) spans.push(span);
       } catch (error) {
         if (!(error instanceof RangeError)) throw error;
@@ -185,7 +216,7 @@ export function planAudio(
           Object.freeze({
             code: "invalid-stream",
             clipId: clip.id,
-            takeId: take.id,
+            takeId: source.takeId,
             reason: error.message,
           }),
         );

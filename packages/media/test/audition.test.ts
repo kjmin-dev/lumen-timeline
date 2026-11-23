@@ -150,6 +150,8 @@ test("an audition plays one candidate in the mix over its clip, then returns pau
       segmentStart: sec(1),
       audition: null,
       until: null,
+      playbackRate: 1,
+      loop: null,
     },
   );
   // Entering and leaving each start a segment, and the project did not change.

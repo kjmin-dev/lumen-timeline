@@ -42,6 +42,17 @@ const optionNames = [
   "snap",
   "labels",
   "waveforms",
+  "chrome",
+  "theme",
+  "layout",
+  "readOnly",
+  "shortcuts",
+  "formatTime",
+  "gridSpacing",
+  "clipStyle",
+  "renderTrackHeader",
+  "renderOverlay",
+  "events",
 ] as const satisfies readonly (keyof TimelineProps)[];
 
 /**
@@ -62,6 +73,17 @@ export const Timeline: DefineSetupFnComponent<TimelineProps> = defineComponent(
       snap: toRaw(props.snap),
       labels: toRaw(props.labels),
       waveforms: toRaw(props.waveforms),
+      chrome: toRaw(props.chrome),
+      theme: toRaw(props.theme),
+      layout: toRaw(props.layout),
+      readOnly: props.readOnly,
+      shortcuts: props.shortcuts,
+      formatTime: props.formatTime,
+      gridSpacing: props.gridSpacing,
+      clipStyle: props.clipStyle,
+      renderTrackHeader: props.renderTrackHeader,
+      renderOverlay: props.renderOverlay,
+      events: toRaw(props.events),
     });
     function mount(): void {
       const container = element.value;
@@ -91,6 +113,17 @@ export const Timeline: DefineSetupFnComponent<TimelineProps> = defineComponent(
         () => props.snap,
         () => props.labels,
         () => props.waveforms,
+        () => props.chrome,
+        () => props.theme,
+        () => props.layout,
+        () => props.readOnly,
+        () => props.shortcuts,
+        () => props.formatTime,
+        () => props.gridSpacing,
+        () => props.clipStyle,
+        () => props.renderTrackHeader,
+        () => props.renderOverlay,
+        () => props.events,
       ],
       () => view.value?.update(update()),
     );

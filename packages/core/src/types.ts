@@ -26,11 +26,24 @@ export interface Track {
   readonly mute?: boolean;
   readonly solo?: boolean;
   readonly gain?: number;
+  /** A CSS color for views. */
+  readonly color?: string;
+  readonly extensions?: JsonObject;
   readonly [field: string]: unknown;
 }
 
 /** The available content range of a clip, in project ticks of content time. */
 export type ContentBounds = { readonly start: Tick; readonly end: Tick };
+
+/**
+ * A direct media stream binding for a clip that does not list candidate takes.
+ * `sourceAtContentZero` defaults to zero.
+ */
+export interface ClipSource {
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly sourceAtContentZero?: Tick;
+}
 
 /**
  * A clip placement in a schema-v1 project. Loading validates the placement
@@ -41,11 +54,18 @@ export interface Clip {
   readonly trackId: string;
   /** Display name. Views fall back to the ID. */
   readonly name?: string;
+  /** A CSS color for views. */
+  readonly color?: string;
   readonly kind: string;
   readonly start: Tick;
   readonly duration: Tick;
   readonly contentIn: Tick;
   readonly contentBounds?: ContentBounds;
+  /**
+   * Direct media source when the clip plays a single stream without candidate takes.
+   * Ignored when the clip lists candidate takes.
+   */
+  readonly source?: ClipSource;
   /**
    * The clip's candidate takes, in display order. Each ID names an entry of
    * `project.takes`. A snapshot omits an empty list.
@@ -57,18 +77,22 @@ export interface Clip {
    */
   readonly activeTakeId?: string | null;
   readonly continuityId?: string | null;
-  /** Plugin data. A clip with extensions cannot be split until a split policy exists. */
+  /** Plugin data. Splitting requires an `onSplit` plugin for each namespace carried. */
   readonly extensions?: JsonObject;
   readonly [field: string]: unknown;
 }
 
 /**
- * A point marker. `start` may equal an explicit sequence duration. The editor
- * preserves additional JSON fields without interpreting them.
+ * A point or region marker. Point markers omit `duration` and may sit at an
+ * explicit sequence duration. Region markers carry a positive `duration` covering
+ * `[start, start + duration)`. The editor preserves additional JSON fields
+ * without interpreting them.
  */
 export interface Marker {
   readonly id: string;
   readonly start: Tick;
+  /** Positive duration in project ticks for a region marker. Omitted for a point marker. */
+  readonly duration?: Tick;
   readonly label?: string;
   /** A CSS color for views. */
   readonly color?: string;
@@ -165,6 +189,109 @@ export interface SplitAtContent extends SplitBase {
   readonly atContent: Tick;
 }
 
+/** The fields of a new clip. Omitting `id` generates one; `contentIn` defaults to 0. */
+export interface ClipInput {
+  readonly id?: string | undefined;
+  readonly trackId: string;
+  readonly kind: string;
+  readonly start: Tick;
+  readonly duration: Tick;
+  readonly contentIn?: Tick | undefined;
+  readonly name?: string | undefined;
+  readonly color?: string | undefined;
+  readonly contentBounds?: ContentBounds | undefined;
+  readonly source?: ClipSource | undefined;
+  readonly takeIds?: readonly string[] | undefined;
+  readonly activeTakeId?: string | null | undefined;
+  readonly continuityId?: string | null | undefined;
+  readonly extensions?: JsonObject | undefined;
+}
+
+/** Adds a clip to an unlocked track, optionally placed right after `after`. */
+export interface AddClipCommand {
+  readonly type: "add-clip";
+  readonly clip: ClipInput;
+  /** Existing clip ID to place the new clip after. Omitted appends to the end. */
+  readonly after?: string | undefined;
+}
+
+/** Removes a clip from an unlocked track. */
+export interface RemoveClipCommand {
+  readonly type: "remove-clip";
+  readonly clipId: string;
+}
+
+/**
+ * Updates metadata and source fields on a clip. `undefined` keeps the existing
+ * value; `null` removes an optional field.
+ */
+export interface UpdateClipCommand {
+  readonly type: "update-clip";
+  readonly clipId: string;
+  readonly name?: string | null | undefined;
+  readonly color?: string | null | undefined;
+  readonly kind?: string | undefined;
+  readonly contentBounds?: ContentBounds | null | undefined;
+  readonly source?: ClipSource | null | undefined;
+  readonly continuityId?: string | null | undefined;
+  readonly extensions?: JsonObject | null | undefined;
+}
+
+/** The fields of a new track. Omitting `id` generates one. */
+export interface TrackInput {
+  readonly id?: string | undefined;
+  readonly name?: string | undefined;
+  readonly overlap?: OverlapPolicy | undefined;
+  readonly locked?: boolean | undefined;
+  readonly accepts?: readonly string[] | undefined;
+  readonly mute?: boolean | undefined;
+  readonly solo?: boolean | undefined;
+  readonly gain?: number | undefined;
+  readonly color?: string | undefined;
+  readonly extensions?: JsonObject | undefined;
+}
+
+/** Adds a track, optionally placed right after `after`. */
+export interface AddTrackCommand {
+  readonly type: "add-track";
+  readonly track: TrackInput;
+  readonly after?: string | undefined;
+}
+
+/**
+ * Updates a track's properties or mix settings. `undefined` keeps the existing
+ * value; `null` removes an optional field.
+ */
+export interface UpdateTrackCommand {
+  readonly type: "update-track";
+  readonly trackId: string;
+  readonly name?: string | null | undefined;
+  readonly overlap?: OverlapPolicy | null | undefined;
+  readonly locked?: boolean | null | undefined;
+  readonly accepts?: readonly string[] | null | undefined;
+  readonly mute?: boolean | null | undefined;
+  readonly solo?: boolean | null | undefined;
+  readonly gain?: number | null | undefined;
+  readonly color?: string | null | undefined;
+  readonly extensions?: JsonObject | null | undefined;
+}
+
+/**
+ * Removes an unlocked track. When the track still holds clips, pass
+ * `removeClips: true` to remove them atomically; otherwise rejects with `track-not-empty`.
+ */
+export interface RemoveTrackCommand {
+  readonly type: "remove-track";
+  readonly trackId: string;
+  readonly removeClips?: boolean | undefined;
+}
+
+/** Replaces the project's track order with a permutation of its track IDs. */
+export interface ReorderTracksCommand {
+  readonly type: "reorder-tracks";
+  readonly trackIds: readonly string[];
+}
+
 export interface SetDataCommand {
   readonly type: "set-data";
   readonly scope: string;
@@ -185,8 +312,11 @@ export interface AddMarkerCommand {
   /** Omitted or `undefined` generates an ID. */
   readonly id?: string | undefined;
   readonly start: Tick;
+  /** Positive duration in project ticks for a region marker. */
+  readonly duration?: Tick | undefined;
   readonly label?: string | undefined;
   readonly color?: string | undefined;
+  readonly extensions?: JsonObject | undefined;
 }
 
 export interface MoveMarkerCommand {
@@ -195,12 +325,14 @@ export interface MoveMarkerCommand {
   readonly delta: Tick;
 }
 
-/** Changes only the fields given. */
+/** Changes only the fields given. `null` removes an optional field. */
 export interface UpdateMarkerCommand {
   readonly type: "update-marker";
   readonly markerId: string;
-  readonly label?: string | undefined;
-  readonly color?: string | undefined;
+  readonly duration?: Tick | null | undefined;
+  readonly label?: string | null | undefined;
+  readonly color?: string | null | undefined;
+  readonly extensions?: JsonObject | null | undefined;
 }
 
 export interface RemoveMarkerCommand {
@@ -323,9 +455,22 @@ export interface ReplayCommand {
   readonly dataPatches?: readonly DataPatch[] | undefined;
   readonly markerPatches?: readonly MarkerPatch[] | undefined;
   readonly takePatches?: readonly TakePatch[] | undefined;
+  readonly trackPatches?: readonly TrackPatch[] | undefined;
+  readonly trackOrder?: readonly string[] | undefined;
 }
 
-export type ClipCommand = MoveCommand | TrimCommand | SplitCommand;
+export type ClipCommand =
+  | MoveCommand
+  | TrimCommand
+  | SplitCommand
+  | AddClipCommand
+  | RemoveClipCommand
+  | UpdateClipCommand;
+export type TrackCommand =
+  | AddTrackCommand
+  | UpdateTrackCommand
+  | RemoveTrackCommand
+  | ReorderTracksCommand;
 export type DataCommand = SetDataCommand | RemoveDataCommand;
 export type MarkerCommand =
   | AddMarkerCommand
@@ -342,6 +487,7 @@ export type TakeCommand =
 export type ExpectCommand = ExpectClipCommand | ExpectDataCommand;
 export type EditCommand =
   | ClipCommand
+  | TrackCommand
   | DataCommand
   | MarkerCommand
   | TakeCommand
@@ -357,9 +503,11 @@ export type EditErrorCode =
   | "missing-clip"
   | "locked-track"
   | "missing-track"
+  | "track-not-empty"
   | "invalid-edge"
   | "invalid-range"
   | "split-policy-required"
+  | "invalid-extension"
   | "invalid-id"
   | "disposed"
   | "stale-revision"
@@ -473,6 +621,15 @@ export interface TakePatch {
   readonly after: Take | undefined;
 }
 
+/** One track change. `undefined` represents an absent track. */
+export interface TrackPatch {
+  readonly id: string;
+  readonly before: Track | undefined;
+  readonly after: Track | undefined;
+  /** For an added or removed track: the track it sits after. Absent puts it at the end. */
+  readonly follows?: string;
+}
+
 /** A clip's half-open placement interval in project ticks. */
 export interface AffectedInterval {
   readonly clipId: string;
@@ -505,6 +662,9 @@ export interface EditCommit {
    */
   readonly takePatches: readonly TakePatch[];
   readonly inverseTakePatches: readonly TakePatch[];
+  /** Track changes. Empty when no track was added, updated or removed. */
+  readonly trackPatches: readonly TrackPatch[];
+  readonly inverseTrackPatches: readonly TrackPatch[];
   /**
    * The transaction's commands with every generated ID made explicit and each
    * split named by `atContent`, so another editor at the same revision replays
@@ -538,6 +698,8 @@ export interface EditTargets {
   readonly clipIds: readonly string[];
   readonly markerIds: readonly string[];
   readonly takeIds: readonly string[];
+  /** Tracks added, updated, removed or reordered. Omitted when unchanged. */
+  readonly trackIds?: readonly string[];
   /** Entity data records it writes. */
   readonly entities: readonly { readonly scope: string; readonly id: string }[];
 }
@@ -656,7 +818,8 @@ export interface AudioSpan {
   readonly clipId: string;
   readonly trackId: string;
   readonly chainId: string | null;
-  readonly takeId: string;
+  /** The active take ID, or `null` when played directly from `clip.source`. */
+  readonly takeId: string | null;
   readonly assetId: string;
   readonly assetVersion: Version;
   readonly streamId: string;
@@ -676,14 +839,14 @@ export type PlanIssue =
   | {
       readonly code: "unresolved-stream";
       readonly clipId: string;
-      readonly takeId: string;
+      readonly takeId: string | null;
       readonly assetId: string;
       readonly streamId: string;
     }
   | {
       readonly code: "invalid-stream";
       readonly clipId: string;
-      readonly takeId: string;
+      readonly takeId: string | null;
       readonly reason: string;
     };
 
@@ -712,6 +875,12 @@ export interface ReadHandle {
   clipsListing(takeId: string): readonly string[];
   /** Markers with `range.start <= start < range.end`, in snapshot order. */
   markersIn(range: TickRange): readonly Marker[];
+  /**
+   * Point and region markers intersecting `[range.start, range.end)`, in snapshot
+   * order. Includes a region marker whose start lies before `range.start` as long
+   * as `start + duration > range.start`.
+   */
+  regionsIn(range: TickRange): readonly Marker[];
   /** The first marker after `tick`. */
   nextMarker(tick: Tick): Marker | undefined;
   /** The last marker before `tick`. */
@@ -806,6 +975,43 @@ export interface Editor {
   dispose(): void;
 }
 
+/** Context passed to `TimelinePlugin.validate`. */
+export interface ValidateExtensionContext {
+  readonly target: "clip" | "track" | "marker" | "take";
+  readonly id: string;
+  readonly value: JsonValue;
+}
+
+/** Context passed to `TimelinePlugin.onSplit` when a clip carrying the namespace is split. */
+export interface SplitExtensionContext {
+  readonly clip: Clip;
+  readonly left: Clip;
+  readonly right: Clip;
+  readonly at: Tick;
+  readonly value: JsonValue;
+}
+
+/**
+ * The namespace payload to store on each half of a split clip. Return
+ * `undefined` for a half to omit the namespace on that side.
+ */
+export interface SplitExtensionResult {
+  readonly left: JsonValue | undefined;
+  readonly right: JsonValue | undefined;
+}
+
+/**
+ * Registers domain semantics for one `extensions[namespace]` payload: optional
+ * validation on load and edits, and optional split behavior for clips.
+ */
+export interface TimelinePlugin {
+  readonly namespace: string;
+  readonly version: number;
+  /** Return a nonempty string reason to reject the payload with `invalid-extension`. */
+  readonly validate?: ((context: ValidateExtensionContext) => string | undefined) | undefined;
+  readonly onSplit?: ((context: SplitExtensionContext) => SplitExtensionResult) | undefined;
+}
+
 export interface EditorOptions {
   readonly project: Project;
   readonly history?: HistoryLimits | undefined;
@@ -816,4 +1022,6 @@ export interface EditorOptions {
    * a session token. Omitted, the editor draws a random one.
    */
   readonly actor?: string | undefined;
+  /** Domain plugins owning extension namespaces on tracks, clips, markers and takes. */
+  readonly plugins?: readonly TimelinePlugin[] | undefined;
 }

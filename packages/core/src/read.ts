@@ -1,7 +1,7 @@
 import { defined } from "./invariant.ts";
 import { isArray, requireEdit, safeInteger } from "./validation.ts";
 import { visitRange } from "./interval-index.ts";
-import { markerIndex } from "./markers.ts";
+import { markerIndex, markersIntersecting } from "./markers.ts";
 import { planAudio } from "./playback.ts";
 import { findTake } from "./takes.ts";
 import type {
@@ -42,7 +42,17 @@ interface Pinned {
 // that take list, so the lists a view or planner asks for again and again are
 // made once and outlive an edit elsewhere.
 const takeLists = new WeakMap<readonly Take[], WeakMap<Clip, readonly Take[]>>();
+const trackOrders = new WeakMap<readonly Track[], ReadonlyMap<string, number>>();
 const noTakes: readonly Take[] = Object.freeze([]);
+
+function orderOf(tracks: readonly Track[]): ReadonlyMap<string, number> {
+  let order = trackOrders.get(tracks);
+  if (!order) {
+    order = new Map(tracks.map((track, index) => [track.id, index]));
+    trackOrders.set(tracks, order);
+  }
+  return order;
+}
 
 function validateTick(tick: Tick): void {
   requireEdit(safeInteger(tick), "invalid-range", null, "Expected an integer tick");
@@ -61,10 +71,9 @@ function validate(range: TickRange): void {
 
 // Weak keys allow retained snapshots to pin their layout without retaining
 // every revision for the lifetime of the editor.
-export function readRegistry(tracks: readonly Track[]): ReadRegistry {
+export function readRegistry(): ReadRegistry {
   const pins = new WeakMap<ProjectSnapshot, Pinned>();
   const handles = new WeakMap<ProjectSnapshot, ReadHandle>();
-  const order = new Map(tracks.map((track, index) => [track.id, index]));
   return {
     pin(snapshot, layout, positions) {
       pins.set(snapshot, { layout, positions });
@@ -75,6 +84,8 @@ export function readRegistry(tracks: readonly Track[]): ReadRegistry {
       const cached = handles.get(snapshot);
       if (cached) return cached;
       const { layout, positions } = pinned;
+      const tracks = snapshot.tracks;
+      const order = orderOf(tracks);
       // Built on first use, and only for a query that scans every clip.
       let listings: ReadonlyMap<string, readonly string[]> | undefined;
       const takeOf = (id: string): Take | undefined => findTake(snapshot.takes, id);
@@ -152,6 +163,11 @@ export function readRegistry(tracks: readonly Track[]): ReadRegistry {
               markerIndex(markers, range.end, false),
             ),
           );
+        },
+        regionsIn(range: TickRange): readonly Marker[] {
+          validate(range);
+          const markers = snapshot.markers ?? [];
+          return markersIntersecting(markers, range.start, range.end);
         },
         nextMarker(tick: Tick): Marker | undefined {
           validateTick(tick);

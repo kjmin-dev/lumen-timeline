@@ -1,7 +1,14 @@
-import type { Clip, Take } from "@lumen-timeline/core";
+import type { Clip, Tick } from "@lumen-timeline/core";
 import { tickAt } from "./geometry.ts";
 import type { Viewport } from "./geometry.ts";
 import type { WaveformRequest } from "./types.ts";
+
+/** Source media mapping read by `placeWaveform`: a `Take` or a direct `ClipSource`. */
+export interface WaveformSource {
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly sourceAtContentZero?: Tick | undefined;
+}
 
 /** A waveform request and the CSS pixel column its first bucket fills. */
 export interface PlacedWaveform {
@@ -10,13 +17,13 @@ export interface PlacedWaveform {
 }
 
 /**
- * The source range of `take` that a clip shows between two CSS pixel
- * positions, one bucket per whole pixel column. `null` when no column or no
- * tick of the clip is visible.
+ * The source range of `take` (or direct `clip.source`) that a clip shows between
+ * two CSS pixel positions, one bucket per whole pixel column. `null` when no
+ * column or no tick of the clip is visible.
  */
 export function placeWaveform(
   clip: Clip,
-  take: Take,
+  take: WaveformSource,
   x: number,
   endX: number,
   view: Viewport,
@@ -27,7 +34,7 @@ export function placeWaveform(
   const end = Math.min(clip.start + clip.duration, tickAt(to, view));
   if (to <= from || end <= start) return null;
   // Timeline tick t plays source time t - start + contentIn + sourceAtContentZero.
-  const offset = clip.contentIn + take.sourceAtContentZero - clip.start;
+  const offset = clip.contentIn + (take.sourceAtContentZero ?? 0) - clip.start;
   return {
     request: Object.freeze({
       assetId: take.assetId,

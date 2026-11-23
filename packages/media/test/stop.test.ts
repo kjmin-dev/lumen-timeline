@@ -110,6 +110,8 @@ test("play with a stop cuts every voice there and pauses at it", async (t) => {
       segmentStart: 0,
       audition: null,
       until: null,
+      playbackRate: 1,
+      loop: null,
     },
   );
   // Play continues from the stop to the end.

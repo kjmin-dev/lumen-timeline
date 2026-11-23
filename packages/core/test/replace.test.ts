@@ -136,12 +136,12 @@ test("a foreign or invalid snapshot is refused and changes nothing", () => {
     () => notified++,
   );
   const foreign: Draft<Project>[] = [
-    { ...project(), tracks: [{ id: "voice", overlap: "exclusive" }], clips: [] },
-    { ...project(), tracks: [{ id: "voice" }, { id: "mix" }] },
     { ...project(), duration: 2000 },
     { ...project(), minClipDuration: 5 },
   ];
   for (const snapshot of foreign) assert.equal(codeOf(ana.replace(snapshot)), "foreign-snapshot");
+  const named = createEditor({ project: { ...project(), id: "proj-a" }, actor: "ana" });
+  assert.equal(codeOf(named.replace({ ...project(), id: "proj-b" })), "foreign-snapshot");
   const overlap = project();
   const second = overlap.clips[1];
   assert.ok(second);

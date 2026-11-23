@@ -1,10 +1,15 @@
 import type { Clip, Take, Track } from "@lumen-timeline/core";
 import { activeTake, takeCaption } from "./captions.ts";
 import type { CaptionWords } from "./captions.ts";
-import { rectangle } from "./geometry.ts";
+import {
+  laneHeight as defaultLaneHeight,
+  rectangle,
+  rowInset as defaultRowInset,
+} from "./geometry.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
 import { placeWaveform } from "./waveforms.ts";
-import type { WaveformRequest } from "./types.ts";
+import type { WaveformSource } from "./waveforms.ts";
+import type { ClipStyleFn, WaveformRequest } from "./types.ts";
 
 // One CPU layout feeds every drawing backend. A row's layout is a list of quads
 // in stacking order, in CSS pixels relative to the viewport origin: the row's
@@ -17,9 +22,45 @@ export const quadFloats = 8;
 /** A packed color: red in the lowest byte, alpha in the highest, as GPUs read RGBA8. */
 export type Rgba = number;
 
-export function rgba(hex: string, alpha = 255): Rgba {
-  const value = Number.parseInt(hex.slice(1, 7), 16);
-  return (((alpha & 255) << 24) | ((value & 255) << 16) | (value & 0xff00) | (value >>> 16)) >>> 0;
+function parseHexRgb(hex: string): readonly [number, number, number, number] | null {
+  if (!hex.startsWith("#")) return null;
+  const digits = hex.slice(1);
+  if (digits.length === 3) {
+    const r = Number.parseInt(digits.charAt(0) + digits.charAt(0), 16);
+    const g = Number.parseInt(digits.charAt(1) + digits.charAt(1), 16);
+    const b = Number.parseInt(digits.charAt(2) + digits.charAt(2), 16);
+    return Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b) ? null : [r, g, b, 255];
+  }
+  if (digits.length === 6 || digits.length === 8) {
+    const r = Number.parseInt(digits.slice(0, 2), 16);
+    const g = Number.parseInt(digits.slice(2, 4), 16);
+    const b = Number.parseInt(digits.slice(4, 6), 16);
+    const a = digits.length === 8 ? Number.parseInt(digits.slice(6, 8), 16) : 255;
+    return Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b) || Number.isNaN(a)
+      ? null
+      : [r, g, b, a];
+  }
+  return null;
+}
+
+export function rgba(hex: string, alpha?: number): Rgba {
+  const parsed = parseHexRgb(hex);
+  if (!parsed) return 0;
+  const [r, g, b, parsedAlpha] = parsed;
+  const a = alpha === undefined ? parsedAlpha : alpha;
+  return (((a & 255) << 24) | ((b & 255) << 16) | ((g & 255) << 8) | (r & 255)) >>> 0;
+}
+
+/** Derives a muted fill color from an accent hex color (for `clip.color` / `track.color`). */
+function mutedFill(hex: string): Rgba {
+  const parsed = parseHexRgb(hex);
+  if (!parsed) return 0;
+  const [r, g, b] = parsed;
+  const mix = (channel: number, base: number): number => Math.round(base * 0.62 + channel * 0.38);
+  const mr = mix(r, 0x19);
+  const mg = mix(g, 0x1e);
+  const mb = mix(b, 0x22);
+  return ((255 << 24) | (mb << 16) | (mg << 8) | mr) >>> 0;
 }
 
 /** The quads of one row, reused from paint to paint. */
@@ -107,6 +148,18 @@ export interface LayoutRow extends Packed {
   readonly top: number;
 }
 
+export interface RowTheme {
+  readonly rowEven: Rgba;
+  readonly rowOdd: Rgba;
+  readonly grid: Rgba;
+  readonly palette: readonly {
+    readonly stripeHex: string;
+    readonly fill: Rgba;
+    readonly stripe: Rgba;
+    readonly waveform: Rgba;
+  }[];
+}
+
 export interface RowLayout {
   readonly view: Viewport;
   readonly width: number;
@@ -121,6 +174,10 @@ export interface RowLayout {
   readonly label: LabelSource;
   /** Collects the assets whose waveforms the row asked for. */
   readonly assets?: Set<string> | undefined;
+  readonly laneHeight?: number | undefined;
+  readonly rowInset?: number | undefined;
+  readonly theme?: RowTheme | undefined;
+  readonly clipStyle?: ClipStyleFn | undefined;
 }
 
 /** Where a label starts after its clip's left edge, and its top below the clip's. */
@@ -166,28 +223,75 @@ export function layoutRow(
   quads: QuadList,
   boxes: Box<Clip>[],
 ): void {
-  const { view, width, top, dpr } = layout;
+  const { view, width, top, dpr, theme, clipStyle } = layout;
+  const laneH = layout.laneHeight ?? defaultLaneHeight;
+  const inset = layout.rowInset ?? defaultRowInset;
   quads.clear();
-  quads.rect(0, top, width, row.height - 1, backgrounds[row.index % 2] ?? 0);
-  for (const x of layout.grid) quads.rect(Math.round(x), top, 1, row.height, gridColor);
-  const [fill = 0, stripe = 0, ink = 0] = fills[row.index % fills.length] ?? [];
-  const stripeText = palette(row.index)[1];
+  const rowBg = theme
+    ? row.index % 2 === 0
+      ? theme.rowEven
+      : theme.rowOdd
+    : (backgrounds[row.index % 2] ?? 0);
+  const gridRgba = theme ? theme.grid : gridColor;
+  quads.rect(0, top, width, row.height - 1, rowBg);
+  for (const x of layout.grid) quads.rect(Math.round(x), top, 1, row.height, gridRgba);
+  const themedEntry = theme?.palette[row.index % theme.palette.length];
+  const [defaultFill = 0, defaultStripe = 0, defaultInk = 0] = themedEntry
+    ? [themedEntry.fill, themedEntry.stripe, themedEntry.waveform]
+    : (fills[row.index % fills.length] ?? []);
+  const defaultStripeText = themedEntry ? themedEntry.stripeHex : palette(row.index)[1];
+  const trackColor = row.track.color && parseHexRgb(row.track.color) ? row.track.color : undefined;
+  const rowFill = trackColor ? mutedFill(trackColor) : defaultFill;
+  const rowStripe = trackColor ? rgba(trackColor) : defaultStripe;
+  const rowInk = trackColor ? rgba(trackColor, 0x66) : defaultInk;
+  const rowStripeText = trackColor ?? defaultStripeText;
+
   for (const clip of clips) {
     // pack() assigned a lane to every clip on this track.
-    const b = rectangle(clip, row.lanes.get(clip.id) ?? 0, top, view, width);
+    const b = rectangle(clip, row.lanes.get(clip.id) ?? 0, top, view, width, laneH, inset);
     if (b.endX <= b.x) continue;
     boxes.push(b);
+    const custom = clipStyle?.(clip, row.track, row.index);
+    const clipColor = clip.color && parseHexRgb(clip.color) ? clip.color : undefined;
+    const fill =
+      custom?.fill && parseHexRgb(custom.fill)
+        ? rgba(custom.fill)
+        : clipColor
+          ? mutedFill(clipColor)
+          : rowFill;
+    const stripe =
+      custom?.stripe && parseHexRgb(custom.stripe)
+        ? rgba(custom.stripe)
+        : clipColor
+          ? rgba(clipColor)
+          : rowStripe;
+    const ink =
+      custom?.waveform && parseHexRgb(custom.waveform)
+        ? rgba(custom.waveform)
+        : custom?.stripe && parseHexRgb(custom.stripe)
+          ? rgba(custom.stripe, 0x66)
+          : clipColor
+            ? rgba(clipColor, 0x66)
+            : rowInk;
+    const captionColor = custom?.captionColor ?? custom?.stripe ?? clipColor ?? rowStripeText;
     quads.rect(b.x, b.y, b.endX - b.x, b.height, fill);
     quads.rect(b.x, b.y, b.endX - b.x, 3, stripe);
     // The clip's takes are read once, for its waveform and its caption.
     const active = clip.takeIds ? activeTake(clip, layout.takesOf(clip.id)) : undefined;
-    if (active) waveform(clip, active, b, layout, quads, ink);
+    const mediaSource: WaveformSource | undefined =
+      active ?? (!clip.takeIds ? clip.source : undefined);
+    if (mediaSource) waveform(clip, mediaSource, b, layout, quads, ink);
     // The label starts on a device pixel and is cropped 3 pixels inside the clip.
     const x = Math.round((b.x + labelInset) * dpr) / dpr;
     const room = b.endX - 3 - x;
     if (room < labelRoom) continue;
-    const caption = takeCaption(clip, active, layout.words);
-    const slot = layout.label(clip.name ?? clip.id, caption, stripeText);
+    const caption =
+      custom?.caption === null
+        ? undefined
+        : custom?.caption !== undefined
+          ? custom.caption
+          : takeCaption(clip, active, layout.words);
+    const slot = layout.label(custom?.label ?? clip.name ?? clip.id, caption, captionColor);
     if (!slot) continue;
     const w = Math.min(slot.width, room);
     const u1 = slot.u0 + ((slot.u1 - slot.u0) * w) / slot.width;
@@ -195,19 +299,19 @@ export function layoutRow(
   }
 }
 
-// The active take's peaks across the clip's visible columns, below its name.
+// The active take's (or direct source's) peaks across the clip's visible columns, below its name.
 function waveform(
   clip: Clip,
-  take: Take,
+  source: WaveformSource,
   b: Box<Clip>,
   layout: RowLayout,
   quads: QuadList,
   color: Rgba,
 ): void {
   if (!layout.peaks) return;
-  const placed = placeWaveform(clip, take, b.x, b.endX, layout.view);
+  const placed = placeWaveform(clip, source, b.x, b.endX, layout.view);
   if (!placed) return;
-  layout.assets?.add(take.assetId);
+  layout.assets?.add(source.assetId);
   const { buckets } = placed.request;
   const peaks = layout.peaks(placed.request);
   if (!peaks || peaks.length < 2 * buckets) return;

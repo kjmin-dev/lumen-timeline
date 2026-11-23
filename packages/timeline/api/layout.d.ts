@@ -1,7 +1,7 @@
 import type { Clip, Take, Track } from "@lumen-timeline/core";
 import type { CaptionWords } from "./captions.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
-import type { WaveformRequest } from "./types.ts";
+import type { ClipStyleFn, WaveformRequest } from "./types.ts";
 /** Floats per quad: x, y, width, height, then the atlas region u0, v0, u1, v1. */
 export declare const quadFloats = 8;
 /** A packed color: red in the lowest byte, alpha in the highest, as GPUs read RGBA8. */
@@ -39,6 +39,17 @@ export interface LayoutRow extends Packed {
     /** Top in the scrolled content, in CSS pixels. */
     readonly top: number;
 }
+export interface RowTheme {
+    readonly rowEven: Rgba;
+    readonly rowOdd: Rgba;
+    readonly grid: Rgba;
+    readonly palette: readonly {
+        readonly stripeHex: string;
+        readonly fill: Rgba;
+        readonly stripe: Rgba;
+        readonly waveform: Rgba;
+    }[];
+}
 export interface RowLayout {
     readonly view: Viewport;
     readonly width: number;
@@ -53,6 +64,10 @@ export interface RowLayout {
     readonly label: LabelSource;
     /** Collects the assets whose waveforms the row asked for. */
     readonly assets?: Set<string> | undefined;
+    readonly laneHeight?: number | undefined;
+    readonly rowInset?: number | undefined;
+    readonly theme?: RowTheme | undefined;
+    readonly clipStyle?: ClipStyleFn | undefined;
 }
 /** Where a label starts after its clip's left edge, and its top below the clip's. */
 export declare const labelInset = 9;

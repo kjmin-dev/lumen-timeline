@@ -1,5 +1,12 @@
-import { issue, openProject, orderTrack, validateClip } from "./document.ts";
-import type { TrackLayout } from "./document.ts";
+import {
+  checkPlacement,
+  issue,
+  openProject,
+  orderTrack,
+  parseClipSource,
+  validateClip,
+} from "./document.ts";
+import type { Rules, TrackLayout } from "./document.ts";
 import { ClipDraft, applyClips, inverse, rebase } from "./clip-patches.ts";
 import { difference } from "./diff.ts";
 import { DataDraft, applyData, invertData, jsonEqual } from "./entity-data.ts";
@@ -8,6 +15,8 @@ import { defined } from "./invariant.ts";
 import { MarkerDraft, applyMarkers, invertMarkers, rebaseMarkers } from "./markers.ts";
 import { createHistory } from "./history.ts";
 import type { HistoryEntry } from "./history.ts";
+import { createPluginRegistry } from "./plugins.ts";
+import type { PluginRegistry } from "./plugins.ts";
 import { parseReplay, replayOf } from "./replay.ts";
 import type { Records } from "./replay.ts";
 import { reportListenerError } from "./host.ts";
@@ -19,16 +28,20 @@ import {
   checkReferences,
   countReferences,
   invertTakes,
+  parseCandidates,
   rebaseTakes,
   referenceDelta,
   remapsMedia,
   stagedDelta,
 } from "./takes.ts";
 import { splitClip } from "./time.ts";
-import { EditError, isArray, requireEdit, validId } from "./validation.ts";
+import { TrackDraft, applyTracks, invertTrackPatches, rebaseTracks } from "./tracks.ts";
+import { EditError, freezeJson, isArray, isRecord, requireEdit, validId } from "./validation.ts";
 import type {
+  AddClipCommand,
   AddMarkerCommand,
   AddTakeCommand,
+  AddTrackCommand,
   AffectedInterval,
   Clip,
   ClipCommand,
@@ -49,6 +62,7 @@ import type {
   ExpectClipCommand,
   ExpectDataCommand,
   HistoryState,
+  JsonObject,
   MoveMarkerCommand,
   MoveCommand,
   PreviewCommand,
@@ -56,24 +70,39 @@ import type {
   PreviewResult,
   Project,
   ProjectSnapshot,
+  RemoveClipCommand,
   RemoveDataCommand,
   RemoveMarkerCommand,
   RemoveTakeCommand,
+  RemoveTrackCommand,
   ReorderTakesCommand,
+  ReorderTracksCommand,
   ReplayCommand,
   RevisionOptions,
   SelectTakeCommand,
   SetDataCommand,
   SplitCommand,
+  Track,
+  TrackCommand,
+  TrackPatch,
   TrimCommand,
+  UpdateClipCommand,
   UpdateMarkerCommand,
   UpdateTakeCommand,
+  UpdateTrackCommand,
 } from "./types.ts";
 
 // Distributes over unions, so each form of a command keeps its own fields.
 type Arguments<C> = C extends unknown ? Omit<C, "type"> : never;
 
 export interface Commands {
+  addClip(args: Arguments<AddClipCommand>): AddClipCommand;
+  removeClip(args: Arguments<RemoveClipCommand>): RemoveClipCommand;
+  updateClip(args: Arguments<UpdateClipCommand>): UpdateClipCommand;
+  addTrack(args: Arguments<AddTrackCommand>): AddTrackCommand;
+  updateTrack(args: Arguments<UpdateTrackCommand>): UpdateTrackCommand;
+  removeTrack(args: Arguments<RemoveTrackCommand>): RemoveTrackCommand;
+  reorderTracks(args: Arguments<ReorderTracksCommand>): ReorderTracksCommand;
   addMarker(args: Arguments<AddMarkerCommand>): AddMarkerCommand;
   moveMarker(args: Arguments<MoveMarkerCommand>): MoveMarkerCommand;
   updateMarker(args: Arguments<UpdateMarkerCommand>): UpdateMarkerCommand;
@@ -95,6 +124,13 @@ export interface Commands {
 }
 
 export const commands: Readonly<Commands> = Object.freeze({
+  addClip: (args) => ({ ...args, type: "add-clip" }),
+  removeClip: (args) => ({ ...args, type: "remove-clip" }),
+  updateClip: (args) => ({ ...args, type: "update-clip" }),
+  addTrack: (args) => ({ ...args, type: "add-track" }),
+  updateTrack: (args) => ({ ...args, type: "update-track" }),
+  removeTrack: (args) => ({ ...args, type: "remove-track" }),
+  reorderTracks: (args) => ({ ...args, type: "reorder-tracks" }),
   moveClips: (args) => ({ ...args, type: "move" }),
   trimClip: (args) => ({ ...args, type: "trim" }),
   splitClip: (args) => ({ ...args, type: "split" }),
@@ -170,6 +206,8 @@ interface Staged {
   readonly delta: ReadonlyMap<string, number>;
 }
 
+const emptyTrackPatches: readonly TrackPatch[] = Object.freeze([]);
+
 /** A history entry holding these records, as `forward` and their inverse. */
 function entryOf(forward: Records, backward: Records): HistoryEntry {
   return {
@@ -182,16 +220,28 @@ function entryOf(forward: Records, backward: Records): HistoryEntry {
       ? { markers: forward.markers, inverseMarkers: backward.markers }
       : {}),
     ...(forward.takes.length ? { takes: forward.takes, inverseTakes: backward.takes } : {}),
+    ...(forward.tracks?.length
+      ? { tracks: forward.tracks, inverseTracks: backward.tracks ?? emptyTrackPatches }
+      : {}),
+    ...(forward.trackOrder || backward.trackOrder
+      ? {
+          ...(forward.trackOrder ? { trackOrder: forward.trackOrder } : {}),
+          ...(backward.trackOrder ? { inverseTrackOrder: backward.trackOrder } : {}),
+        }
+      : {}),
   };
 }
 
 /** The records a transaction changes, as a gate or a held result names them. */
 function targetsOf(changedIds: readonly string[], forward: Records): EditTargets {
   const entities = new Map(forward.data.map((p) => [JSON.stringify([p.scope, p.id]), p]));
+  const trackIds = new Set((forward.tracks ?? []).map((p) => p.id));
+  if (forward.trackOrder) for (const id of forward.trackOrder) trackIds.add(id);
   return Object.freeze({
     clipIds: changedIds,
     markerIds: Object.freeze(forward.markers.map((p) => p.id)),
     takeIds: Object.freeze(forward.takes.map((p) => p.id)),
+    ...(trackIds.size ? { trackIds: Object.freeze([...trackIds]) } : {}),
     entities: Object.freeze(
       [...entities.values()].map(({ scope, id }) => Object.freeze({ scope, id })),
     ),
@@ -212,23 +262,42 @@ function recordsOf(entry: HistoryEntry): { forward: Records; backward: Records }
       data: entry.data,
       markers: entry.markers ?? [],
       takes: entry.takes ?? [],
+      ...(entry.tracks ? { tracks: entry.tracks } : {}),
+      ...(entry.trackOrder ? { trackOrder: entry.trackOrder } : {}),
     },
     backward: {
       clips: entry.inverse,
       data: entry.inverseData,
       markers: entry.inverseMarkers ?? [],
       takes: entry.inverseTakes ?? [],
+      ...(entry.inverseTracks ? { tracks: entry.inverseTracks } : {}),
+      ...(entry.inverseTrackOrder ? { trackOrder: entry.inverseTrackOrder } : {}),
     },
   };
 }
 
-export function createEditor({ project, history: limits, actor }: EditorOptions): Editor {
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+function isTrackCommand(command: EditCommand | null): command is TrackCommand {
+  return (
+    command !== null &&
+    (command.type === "add-track" ||
+      command.type === "update-track" ||
+      command.type === "remove-track" ||
+      command.type === "reorder-tracks")
+  );
+}
+
+export function createEditor({ project, history: limits, actor, plugins }: EditorOptions): Editor {
   requireEdit(actor === undefined || validId(actor), "invalid-id", actor, "Expected an actor name");
-  const opened = openProject(project);
+  const registry: PluginRegistry = createPluginRegistry(plugins);
+  const opened = openProject(project, registry);
   let { snapshot, rules, byTrack } = opened;
   const ids = idAllocator(actor, snapshot);
   let byId = opened.positions ?? positions(snapshot.clips);
-  const reads = readRegistry(snapshot.tracks);
+  const reads = readRegistry();
   // Keeps the current snapshot readable, here and by an editor that opens it.
   function pin(): void {
     reads.pin(snapshot, byTrack, byId);
@@ -276,8 +345,32 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     clips: ClipDraft,
     markers: MarkerDraft,
     takes: TakeDraft,
+    tracks: TrackDraft,
   ): EditCommand | null {
     if (command?.type === "split") return splitRecord(command, clips);
+    if (
+      command?.type === "add-clip" &&
+      typeof command.clip === "object" &&
+      command.clip !== null &&
+      command.clip.id === undefined
+    )
+      return Object.freeze({
+        ...command,
+        clip: Object.freeze({ ...command.clip, id: ids.next((id) => clips.get(id) !== undefined) }),
+      });
+    if (
+      command?.type === "add-track" &&
+      typeof command.track === "object" &&
+      command.track !== null &&
+      command.track.id === undefined
+    )
+      return Object.freeze({
+        ...command,
+        track: Object.freeze({
+          ...command.track,
+          id: ids.next((id) => tracks.get(id) !== undefined),
+        }),
+      });
     if (command?.type === "add-marker" && command.id === undefined)
       return Object.freeze({ ...command, id: ids.next((id) => markers.get(id) !== undefined) });
     const takeTaken = (id: string): boolean => takes.get(id) !== undefined;
@@ -314,12 +407,12 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
   }
 
   // The current version of a clip that take commands may edit.
-  function editable(draft: ClipDraft): (id: string) => Clip {
+  function editable(draft: ClipDraft, activeRules: () => Rules): (id: string) => Clip {
     return (id) => {
       const clip = validId(id) ? draft.get(id) : undefined;
       requireEdit(clip, "missing-clip", id, "Clip does not exist");
       requireEdit(
-        !defined(rules.tracks.get(clip.trackId), "clip track").locked,
+        !defined(activeRules().tracks.get(clip.trackId), "clip track").locked,
         "locked-track",
         clip.trackId,
         "Track is locked",
@@ -328,14 +421,228 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     };
   }
 
-  function stageClip(command: ClipCommand | null, draft: ClipDraft): void {
+  function stageClip(
+    command: ClipCommand | null,
+    draft: ClipDraft,
+    activeRules: Rules,
+    takes?: TakeDraft,
+  ): void {
     const type = command?.type;
     requireEdit(
-      command !== null && (type === "move" || type === "trim" || type === "split"),
+      command !== null &&
+        (type === "move" ||
+          type === "trim" ||
+          type === "split" ||
+          type === "add-clip" ||
+          type === "remove-clip" ||
+          type === "update-clip"),
       "unknown-command",
       null,
       "Unknown clip command",
     );
+    if (type === "add-clip") {
+      const input = command.clip;
+      requireEdit(
+        typeof input === "object" && input !== null && !isArray(input),
+        "invalid-clip",
+        null,
+        "Expected a clip object",
+      );
+      const id: unknown = Reflect.get(input, "id");
+      requireEdit(
+        validId(id) && draft.get(id) === undefined,
+        "invalid-clip",
+        id,
+        "A new clip requires an unused ID",
+      );
+      if (command.after !== undefined) {
+        requireEdit(
+          validId(command.after) && draft.get(command.after) !== undefined,
+          "missing-clip",
+          command.after,
+          "Reference clip does not exist",
+        );
+      }
+      const trackId: unknown = Reflect.get(input, "trackId");
+      const track = typeof trackId === "string" ? activeRules.tracks.get(trackId) : undefined;
+      requireEdit(track, "missing-track", trackId, "Track does not exist");
+      requireEdit(!track.locked, "locked-track", track.id, "Track is locked");
+      const rawContentIn: unknown = Reflect.get(input, "contentIn");
+      const contentIn = rawContentIn === undefined ? 0 : rawContentIn;
+      const rawKind: unknown = Reflect.get(input, "kind");
+      const rawStart: unknown = Reflect.get(input, "start");
+      const rawDuration: unknown = Reflect.get(input, "duration");
+      const rawBounds: unknown = Reflect.get(input, "contentBounds");
+      const rawName: unknown = Reflect.get(input, "name");
+      const rawColor: unknown = Reflect.get(input, "color");
+      const rawSource: unknown = Reflect.get(input, "source");
+      const rawTakeIds: unknown = Reflect.get(input, "takeIds");
+      const rawActiveTakeId: unknown = Reflect.get(input, "activeTakeId");
+      const rawContinuityId: unknown = Reflect.get(input, "continuityId");
+      const rawExt: unknown = Reflect.get(input, "extensions");
+      requireEdit(
+        rawName === undefined || typeof rawName === "string",
+        "invalid-clip",
+        id,
+        "Expected a string name",
+      );
+      requireEdit(
+        rawColor === undefined || typeof rawColor === "string",
+        "invalid-clip",
+        id,
+        "Expected a string color",
+      );
+      requireEdit(
+        (rawActiveTakeId === undefined ||
+          rawActiveTakeId === null ||
+          typeof rawActiveTakeId === "string") &&
+          (rawContinuityId === undefined ||
+            rawContinuityId === null ||
+            typeof rawContinuityId === "string"),
+        "invalid-clip",
+        id,
+        "Expected string take and continuity IDs",
+      );
+      const frozenTakeIds = rawTakeIds === undefined ? undefined : freezeJson(rawTakeIds);
+      const candidates = parseCandidates(id, frozenTakeIds, rawActiveTakeId);
+      if (candidates && takes) {
+        for (const takeId of candidates.takeIds)
+          requireEdit(takes.get(takeId), "missing-take", takeId, "Take does not exist");
+      }
+      const source = parseClipSource(id, rawSource);
+      let extensions: JsonObject | undefined;
+      if (rawExt !== undefined) {
+        const frozen = freezeJson(rawExt);
+        requireEdit(isRecord(frozen), "invalid-clip", id, "Expected an extensions map");
+        registry.validate("clip", id, frozen);
+        extensions = frozen;
+      }
+      const placement = checkPlacement(
+        {
+          id,
+          trackId: track.id,
+          kind: rawKind,
+          start: rawStart,
+          duration: rawDuration,
+          contentIn,
+          contentBounds: rawBounds,
+        },
+        activeRules,
+      );
+      const added: Clip = Object.freeze({
+        id,
+        trackId: placement.trackId,
+        kind: placement.kind,
+        start: placement.start,
+        duration: placement.duration,
+        contentIn: placement.contentIn,
+        ...(placement.contentBounds === undefined
+          ? {}
+          : { contentBounds: placement.contentBounds }),
+        ...(source === undefined ? {} : { source }),
+        ...candidates,
+        ...(rawContinuityId === undefined ? {} : { continuityId: rawContinuityId }),
+        ...(extensions === undefined ? {} : { extensions }),
+        ...(rawName === undefined ? {} : { name: rawName }),
+        ...(rawColor === undefined ? {} : { color: rawColor }),
+      });
+      draft.add(added, command.after);
+      return;
+    }
+    if (type === "remove-clip") {
+      const clip = validId(command.clipId) ? draft.get(command.clipId) : undefined;
+      requireEdit(clip, "missing-clip", command.clipId, "Clip does not exist");
+      requireEdit(
+        !defined(activeRules.tracks.get(clip.trackId), "source track").locked,
+        "locked-track",
+        clip.trackId,
+        "Track is locked",
+      );
+      draft.remove(clip);
+      return;
+    }
+    if (type === "update-clip") {
+      const clip = validId(command.clipId) ? draft.get(command.clipId) : undefined;
+      requireEdit(clip, "missing-clip", command.clipId, "Clip does not exist");
+      requireEdit(
+        !defined(activeRules.tracks.get(clip.trackId), "source track").locked,
+        "locked-track",
+        clip.trackId,
+        "Track is locked",
+      );
+      const next: Mutable<Clip> = { ...clip };
+      if (command.name !== undefined) {
+        requireEdit(
+          command.name === null || typeof command.name === "string",
+          "invalid-clip",
+          clip.id,
+          "Expected a string name",
+        );
+        if (command.name === null) delete next.name;
+        else next.name = command.name;
+      }
+      if (command.color !== undefined) {
+        requireEdit(
+          command.color === null || typeof command.color === "string",
+          "invalid-clip",
+          clip.id,
+          "Expected a string color",
+        );
+        if (command.color === null) delete next.color;
+        else next.color = command.color;
+      }
+      if (command.kind !== undefined) {
+        requireEdit(validId(command.kind), "incompatible-kind", clip.id, "Expected a clip kind");
+        next.kind = command.kind;
+      }
+      if (command.contentBounds !== undefined) {
+        if (command.contentBounds === null) delete next.contentBounds;
+        else {
+          const checked = checkPlacement(
+            {
+              id: clip.id,
+              trackId: clip.trackId,
+              kind: next.kind,
+              start: clip.start,
+              duration: clip.duration,
+              contentIn: clip.contentIn,
+              contentBounds: command.contentBounds,
+            },
+            activeRules,
+          );
+          if (checked.contentBounds !== undefined) next.contentBounds = checked.contentBounds;
+        }
+      }
+      if (command.source !== undefined) {
+        if (command.source === null) delete next.source;
+        else {
+          const source = parseClipSource(clip.id, command.source);
+          if (source !== undefined) next.source = source;
+        }
+      }
+      if (command.continuityId !== undefined) {
+        requireEdit(
+          command.continuityId === null || typeof command.continuityId === "string",
+          "invalid-clip",
+          clip.id,
+          "Expected a string continuity ID",
+        );
+        if (command.continuityId === null) delete next.continuityId;
+        else next.continuityId = command.continuityId;
+      }
+      if (command.extensions !== undefined) {
+        if (command.extensions === null) delete next.extensions;
+        else {
+          const frozen = freezeJson(command.extensions);
+          requireEdit(isRecord(frozen), "invalid-clip", clip.id, "Expected an extensions map");
+          registry.validate("clip", clip.id, frozen);
+          next.extensions = frozen;
+        }
+      }
+      validateClip(next, activeRules);
+      draft.replace(clip, [next]);
+      return;
+    }
     const ids = type === "move" ? command.clipIds : [command.clipId];
     requireEdit(
       isArray(ids) && ids.length > 0 && ids.every(validId) && new Set(ids).size === ids.length,
@@ -356,7 +663,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       const clip = draft.get(id);
       requireEdit(clip, "missing-clip", id, "Clip does not exist");
       requireEdit(
-        !defined(rules.tracks.get(clip.trackId), "source track").locked,
+        !defined(activeRules.tracks.get(clip.trackId), "source track").locked,
         "locked-track",
         clip.trackId,
         "Source track is locked",
@@ -365,7 +672,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       let after: readonly Clip[];
       if (type === "move") {
         const trackId = command.trackId === undefined ? clip.trackId : command.trackId;
-        const destination = rules.tracks.get(trackId);
+        const destination = activeRules.tracks.get(trackId);
         requireEdit(destination, "missing-track", trackId, "Destination does not exist");
         requireEdit(!destination.locked, "locked-track", trackId, "Destination is locked");
         if (command.delta === 0 && trackId === clip.trackId) continue;
@@ -406,12 +713,6 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
           id,
           "Split must be inside the clip",
         );
-        requireEdit(
-          !Object.keys(clip.extensions ?? {}).length,
-          "split-policy-required",
-          id,
-          "A split policy is required for this clip extension",
-        );
         const { rightId } = command;
         requireEdit(
           validId(rightId) && !draft.get(rightId),
@@ -419,9 +720,21 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
           rightId,
           "The right clip requires a new ID",
         );
-        after = splitClip(clip, at, rightId);
+        const [leftRaw, rightRaw] = splitClip(clip, at, rightId);
+        if (Object.keys(clip.extensions ?? {}).length) {
+          const splitExt = registry.split(clip, leftRaw, rightRaw, at);
+          const withExt = (half: Clip, ext: JsonObject | undefined): Clip => {
+            const copy: Mutable<Clip> = { ...half };
+            if (ext === undefined) delete copy.extensions;
+            else copy.extensions = ext;
+            return copy;
+          };
+          after = [withExt(leftRaw, splitExt.left), withExt(rightRaw, splitExt.right)];
+        } else {
+          after = [leftRaw, rightRaw];
+        }
       }
-      for (const next of after) validateClip(next, rules);
+      for (const next of after) validateClip(next, activeRules);
       draft.replace(clip, after);
     }
   }
@@ -492,20 +805,39 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     }
   }
 
-  // Staged clips passed validateClip, so every touched track exists.
-  function stageTracks(before: readonly Clip[], after: readonly Clip[]): TrackLayout {
+  // Staged clips passed validateClip, so every touched track exists in `activeRules`.
+  function stageTracks(
+    before: readonly Clip[],
+    after: readonly Clip[],
+    activeRules: Rules = rules,
+    trackPatches: readonly TrackPatch[] = emptyTrackPatches,
+  ): TrackLayout {
     const removedIds = new Set(before.map((clip) => clip.id));
     const touched = new Set(before.concat(after).map((clip) => clip.trackId));
+    for (const patch of trackPatches) touched.add(patch.id);
     const layout = new Map<string, readonly Clip[]>(byTrack);
     const staged = new Map<string, Clip[]>();
     for (const trackId of touched) {
+      if (!activeRules.tracks.has(trackId)) {
+        const leftover = (byTrack.get(trackId) ?? []).filter((clip) => !removedIds.has(clip.id));
+        requireEdit(
+          leftover.length === 0,
+          "track-not-empty",
+          trackId,
+          "Track still contains clips",
+        );
+        layout.delete(trackId);
+        continue;
+      }
       const lane = (byTrack.get(trackId) ?? []).filter((clip) => !removedIds.has(clip.id));
       staged.set(trackId, lane);
       layout.set(trackId, lane);
     }
     for (const clip of after) defined(staged.get(clip.trackId), "staged lane").push(clip);
-    for (const [id, lane] of staged) orderTrack(lane, rules, id);
-
+    for (const [id, lane] of staged) {
+      for (const clip of lane) validateClip(clip, activeRules);
+      orderTrack(lane, activeRules, id);
+    }
     return layout;
   }
 
@@ -513,9 +845,11 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     patches: readonly ClipPatch[],
     before: readonly Clip[],
     after: readonly Clip[],
+    activeRules: Rules = rules,
+    trackPatches: readonly TrackPatch[] = emptyTrackPatches,
   ): Geometry {
-    const layout = stageTracks(before, after);
-    const clips = applyClips(snapshot.clips, patches, byId);
+    const layout = stageTracks(before, after, activeRules, trackPatches);
+    const clips = patches.length ? applyClips(snapshot.clips, patches, byId) : snapshot.clips;
     // Placement-only changes keep every ID at its existing array position.
     const structural = patches.some((p) => p.before === undefined || p.after === undefined);
     return { clips, layout, positions: structural ? positions(clips) : byId };
@@ -556,7 +890,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
           null,
           "Preview supports placement moves and trims",
         );
-        stageClip(command, draft);
+        stageClip(command, draft, rules);
       }
       const patches = draft.patches();
       const placements = Object.freeze(patches.flatMap((p) => (p.after ? [p.after] : [])));
@@ -580,6 +914,24 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     }
   }
 
+  function rulesFor(tracks: readonly Track[]): Rules {
+    return {
+      tracks: new Map(tracks.map((track) => [track.id, track])),
+      duration: rules.duration,
+      minimum: rules.minimum,
+    };
+  }
+
+  function inverseTrackOrder(
+    baseTracks: readonly Track[],
+    nextTracks: readonly Track[],
+    inversePatches: readonly TrackPatch[],
+  ): readonly string[] | undefined {
+    const applied = applyTracks(nextTracks, inversePatches).map((t) => t.id);
+    const baseIds = baseTracks.map((t) => t.id);
+    return sameIds(applied, baseIds) ? undefined : Object.freeze(baseIds);
+  }
+
   // Stages dispatched commands in order and returns what they change, adding
   // each command with its generated IDs filled in to `resolved`.
   function stage(list: readonly (EditCommand | null)[], resolved: EditCommand[]): Staged {
@@ -587,8 +939,14 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     const fields = new DataDraft(snapshot.entityData);
     const markers = new MarkerDraft(snapshot.markers);
     const takes = new TakeDraft(snapshot.takes);
+    const tracks = new TrackDraft(snapshot.tracks);
+    const currentRules = (): Rules => ({
+      tracks: tracks.map(),
+      duration: rules.duration,
+      minimum: rules.minimum,
+    });
     for (const dispatched of list) {
-      const command = withIds(dispatched, clips, markers, takes);
+      const command = withIds(dispatched, clips, markers, takes, tracks);
       if (command) resolved.push(command);
       if (command?.type === "set-data" || command?.type === "remove-data") fields.stage(command);
       else if (
@@ -597,7 +955,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         command?.type === "update-marker" ||
         command?.type === "remove-marker"
       )
-        markers.stage(command, rules);
+        markers.stage(command, currentRules(), registry);
       else if (
         command?.type === "add-take" ||
         command?.type === "select-take" ||
@@ -608,20 +966,41 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       )
         takes.stage(command, {
           clips,
-          editable: editable(clips),
+          editable: editable(clips, currentRules),
           listings: (id) => (listings().get(id) ?? 0) + (stagedDelta(clips).get(id) ?? 0),
+          plugins: registry,
+        });
+      else if (isTrackCommand(command))
+        tracks.stage(command, {
+          hasClipsOn: (trackId) => clips.onTrack(trackId).length > 0,
+          removeTrackClips: (trackId) => {
+            for (const clip of clips.onTrack(trackId)) clips.remove(clip);
+          },
+          plugins: registry,
         });
       else if (command?.type === "expect-clip") expectClip(command, clips);
       else if (command?.type === "expect-data") expectData(command, fields);
       else if (command?.type === "replay")
         requireEdit(false, "invalid-replay", null, "A replay forms a transaction by itself");
-      else stageClip(command, clips);
+      else stageClip(command, clips, currentRules(), takes);
     }
+    const stagedTracks = tracks.result();
+    const invTracks = invertTrackPatches(stagedTracks.patches);
+    const nextTracks =
+      stagedTracks.patches.length || stagedTracks.order
+        ? applyTracks(snapshot.tracks, stagedTracks.patches, stagedTracks.order)
+        : snapshot.tracks;
+    const invOrder =
+      stagedTracks.patches.length || stagedTracks.order
+        ? inverseTrackOrder(snapshot.tracks, nextTracks, invTracks)
+        : undefined;
     const forward: Records = {
       clips: clips.patches(),
       data: fields.patches(),
       markers: markers.patches(),
       takes: takes.patches(),
+      ...(stagedTracks.patches.length ? { tracks: stagedTracks.patches } : {}),
+      ...(stagedTracks.order ? { trackOrder: stagedTracks.order } : {}),
     };
     return {
       forward,
@@ -630,6 +1009,8 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         data: invertData(forward.data),
         markers: invertMarkers(forward.markers),
         takes: invertTakes(forward.takes),
+        ...(invTracks.length ? { tracks: invTracks } : {}),
+        ...(invOrder ? { trackOrder: invOrder } : {}),
       },
       delta: referenceDelta(forward.clips),
     };
@@ -639,22 +1020,51 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
   // replay command apply them. `backward` holds the recorded inverses, which
   // stay in use where nothing needed rebasing.
   function replayed(forward: Records, backward?: Records): Staged {
-    const clips = rebase(forward.clips, snapshot.clips, byId, (clip) => validateClip(clip, rules));
-    const markers = rebaseMarkers(forward.markers, snapshot.markers, rules);
+    const trackPatches = forward.tracks?.length
+      ? rebaseTracks(forward.tracks, snapshot.tracks, registry)
+      : emptyTrackPatches;
+    const nextTracks =
+      trackPatches.length || forward.trackOrder
+        ? applyTracks(snapshot.tracks, trackPatches, forward.trackOrder)
+        : snapshot.tracks;
+    const nextRules = trackPatches.length ? rulesFor(nextTracks) : rules;
+    const clips = rebase(forward.clips, snapshot.clips, byId, (clip) => {
+      validateClip(clip, nextRules);
+      registry.validate("clip", clip.id, clip.extensions);
+    });
+    const markers = rebaseMarkers(forward.markers, snapshot.markers, nextRules, registry);
     const delta = referenceDelta(clips);
     const takes = rebaseTakes(
       forward.takes,
       snapshot.takes,
       (id) => (listings().get(id) ?? 0) + (delta.get(id) ?? 0) > 0,
+      registry,
     );
+    const invTracks =
+      backward && trackPatches === (forward.tracks ?? emptyTrackPatches)
+        ? (backward.tracks ?? emptyTrackPatches)
+        : invertTrackPatches(trackPatches);
+    const invOrder =
+      trackPatches.length || forward.trackOrder
+        ? inverseTrackOrder(snapshot.tracks, nextTracks, invTracks)
+        : undefined;
     return {
-      forward: { clips, data: forward.data, markers, takes },
+      forward: {
+        clips,
+        data: forward.data,
+        markers,
+        takes,
+        ...(trackPatches.length ? { tracks: trackPatches } : {}),
+        ...(forward.trackOrder ? { trackOrder: forward.trackOrder } : {}),
+      },
       backward: {
         clips: backward && clips === forward.clips ? backward.clips : inverse(clips),
         data: backward ? backward.data : invertData(forward.data),
         markers:
           backward && markers === forward.markers ? backward.markers : invertMarkers(markers),
         takes: backward && takes === forward.takes ? backward.takes : invertTakes(takes),
+        ...(invTracks.length ? { tracks: invTracks } : {}),
+        ...(invOrder ? { trackOrder: invOrder } : {}),
       },
       delta,
     };
@@ -702,14 +1112,16 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
             "A replay forms a transaction by itself",
           );
           replaying = true;
-          staged = replayed(parseReplay(replay, rules));
+          staged = replayed(parseReplay(replay, rules, snapshot.tracks, registry));
         } else staged = stage(list, resolved);
         const { forward } = staged;
         if (
           !forward.clips.length &&
           !forward.data.length &&
           !forward.markers.length &&
-          !forward.takes.length
+          !forward.takes.length &&
+          !forward.tracks?.length &&
+          !forward.trackOrder
         )
           return { ok: true, revision: snapshot.revision, unchanged: true };
       } else {
@@ -726,19 +1138,35 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       // Undo, redo and a replay record what they applied, so it replays elsewhere.
       if (mode !== "edit" || replaying) resolved.push(replayOf(staged.forward));
       const {
-        forward: { clips: patches, data, markers: markerPatches, takes: takePatches },
+        forward: {
+          clips: patches,
+          data,
+          markers: markerPatches,
+          takes: takePatches,
+          tracks: trackPatches = emptyTrackPatches,
+          trackOrder,
+        },
         backward: {
           clips: inverses,
           data: inverseData,
           markers: inverseMarkerPatches,
           takes: inverseTakePatches,
+          tracks: inverseTrackPatches = emptyTrackPatches,
         },
         delta,
       } = staged;
 
+      const trackList =
+        trackPatches.length || trackOrder
+          ? applyTracks(snapshot.tracks, trackPatches, trackOrder)
+          : snapshot.tracks;
+      const nextRules = trackPatches.length ? rulesFor(trackList) : rules;
       const before = patches.flatMap((p) => (p.before ? [p.before] : []));
       const after = patches.flatMap((p) => (p.after ? [p.after] : []));
-      const geometry = patches.length ? prepareLayout(patches, before, after) : null;
+      const geometry =
+        patches.length || trackPatches.length
+          ? prepareLayout(patches, before, after, nextRules, trackPatches)
+          : null;
       const entityData = applyData(snapshot.entityData, data);
       const markerList = applyMarkers(snapshot.markers, markerPatches);
       const takeList = applyTakes(snapshot.takes, takePatches);
@@ -776,6 +1204,8 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         inverseMarkerPatches,
         takePatches,
         inverseTakePatches,
+        trackPatches,
+        inverseTrackPatches,
         commands: Object.freeze(resolved),
       });
       if (gate) {
@@ -816,6 +1246,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
       const next: Mutable<ProjectSnapshot> = {
         ...snapshot,
         revision,
+        tracks: trackList,
         clips: clipList,
       };
       if (entityData === undefined) delete next.entityData;
@@ -851,6 +1282,7 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         if (stored) entries.set(result, { entry: stored, kind: "record" });
       }
       recount(delta);
+      rules = nextRules;
       if (geometry) {
         byId = geometry.positions;
         byTrack = geometry.layout;
@@ -876,6 +1308,10 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
           "missing-take",
           "invalid-take",
           "listed-take",
+          "missing-track",
+          "track-not-empty",
+          "incompatible-kind",
+          "invalid-extension",
         ].includes(error.code);
       return {
         ok: false,
@@ -891,13 +1327,15 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
     if (gating) throw new Error("A gate cannot edit the project");
     try {
       requireEdit(!disposed, "disposed", null, "Editor has been disposed");
-      const opened = openProject(input);
+      const opened = openProject(input, registry);
       const target = opened.snapshot;
+      const currentId = snapshot["id"];
+      const targetId = target["id"];
       requireEdit(
-        jsonEqual(target.tracks, snapshot.tracks) &&
-          target.duration === snapshot.duration &&
+        target.duration === snapshot.duration &&
           target.minClipDuration === snapshot.minClipDuration &&
-          target.timebase === snapshot.timebase,
+          target.timebase === snapshot.timebase &&
+          (currentId === undefined || targetId === undefined || currentId === targetId),
         "foreign-snapshot",
         null,
         "The snapshot belongs to another project",
@@ -910,18 +1348,23 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         !forward.clips.length &&
         !forward.data.length &&
         !forward.markers.length &&
-        !forward.takes.length
+        !forward.takes.length &&
+        !forward.tracks?.length &&
+        !forward.trackOrder
       ) {
         const { revision: _current, ...current } = snapshot;
         const { revision: _adopted, ...adopted } = target;
         if (jsonEqual(current, adopted))
           return { ok: true, revision: snapshot.revision, unchanged: true };
       }
+      const trackPatches = forward.tracks ?? emptyTrackPatches;
+      const inverseTrackPatches = invertTrackPatches(trackPatches);
       const backward: Records = {
         clips: inverse(forward.clips),
         data: invertData(forward.data),
         markers: invertMarkers(forward.markers),
         takes: invertTakes(forward.takes),
+        ...(inverseTrackPatches.length ? { tracks: inverseTrackPatches } : {}),
       };
       const before = forward.clips.flatMap((p) => (p.before ? [p.before] : []));
       const after = forward.clips.flatMap((p) => (p.after ? [p.after] : []));
@@ -957,6 +1400,8 @@ export function createEditor({ project, history: limits, actor }: EditorOptions)
         inverseMarkerPatches: backward.markers,
         takePatches: forward.takes,
         inverseTakePatches: backward.takes,
+        trackPatches,
+        inverseTrackPatches,
         commands: Object.freeze([replayOf(forward)]),
       });
       ids.advance(target);

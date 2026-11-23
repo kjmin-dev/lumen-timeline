@@ -6,13 +6,21 @@ export declare function inverse(patches: readonly ClipPatch[]): readonly ClipPat
 export declare class ClipDraft {
     readonly clips: readonly Clip[];
     readonly positions: ReadonlyMap<string, number>;
-    readonly edited: Map<string, Clip>;
+    readonly edited: Map<string, Clip | undefined>;
     readonly owners: Map<string, number>;
     readonly groups: Map<number, Clip[]>;
+    /** Clips added without an `after` anchor (or after another appended clip). */
+    readonly appended: Clip[];
     constructor(clips: readonly Clip[], positions: ReadonlyMap<string, number>);
     get(id: string): Clip | undefined;
     /** Each clip this transaction touched so far, with the clips that now stand in its place. */
-    changes(): Iterable<readonly [Clip, readonly Clip[]]>;
+    changes(): Iterable<readonly [Clip | undefined, readonly Clip[]]>;
+    /** Every clip currently present on `trackId`, in draft state. */
+    onTrack(trackId: string): Clip[];
+    /** Adds a brand-new clip, optionally right after `afterId`. */
+    add(clip: Clip, afterId?: string): void;
+    /** Removes a live clip from the draft. */
+    remove(clip: Clip): void;
     replace(clip: Clip, after: readonly Clip[]): void;
     patches(): readonly ClipPatch[];
 }

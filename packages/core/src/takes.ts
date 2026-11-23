@@ -1,5 +1,6 @@
 import type { ClipDraft } from "./clip-patches.ts";
 import { defined } from "./invariant.ts";
+import type { PluginRegistry } from "./plugins.ts";
 import { invertRecords, rebaseRecords, stagedPatches } from "./record-patches.ts";
 import { MAX_TICK } from "./time.ts";
 import type {
@@ -81,7 +82,11 @@ function checkTake(take: Take): void {
 }
 
 /** Parses one take of a loaded project. */
-export function parseTake(value: JsonValue, taken: (id: string) => boolean): Take {
+export function parseTake(
+  value: JsonValue,
+  taken: (id: string) => boolean,
+  plugins?: PluginRegistry,
+): Take {
   const record = isRecord(value) ? value : undefined;
   const id = record?.["id"];
   requireEdit(
@@ -114,6 +119,7 @@ export function parseTake(value: JsonValue, taken: (id: string) => boolean): Tak
     id,
     "Expected an extensions map",
   );
+  plugins?.validate("take", id, extensions);
   return Object.freeze({
     ...record,
     id,
@@ -202,7 +208,7 @@ export function referenceDelta(patches: readonly ClipPatch[]): Map<string, numbe
 export function stagedDelta(clips: ClipDraft): Map<string, number> {
   const delta = new Map<string, number>();
   for (const [original, current] of clips.changes()) {
-    count(delta, [original], -1);
+    if (original) count(delta, [original], -1);
     count(delta, current, 1);
   }
   return delta;
@@ -219,6 +225,7 @@ export interface TakeStage {
   editable(id: string): Clip;
   /** How many clips list the take at this point in the transaction. */
   listings(id: string): number;
+  readonly plugins?: PluginRegistry | undefined;
 }
 
 /** Stages take commands for one transaction. `undefined` marks a removal. */
@@ -252,7 +259,7 @@ export class TakeDraft {
         null,
         "Expected a boolean activate flag",
       );
-      const id = this.register(command.take, command.takeId);
+      const id = this.register(command.take, command.takeId, stage.plugins);
       for (const clipId of clipIds) {
         const clip = stage.editable(clipId);
         const list = clip.takeIds ?? [];
@@ -314,7 +321,7 @@ export class TakeDraft {
   }
 
   // The editor fills in a missing ID before staging a new take or a copy.
-  private register(input: unknown, takeId: unknown): string {
+  private register(input: unknown, takeId: unknown, plugins?: PluginRegistry): string {
     requireEdit(
       (input === undefined) !== (takeId === undefined),
       "invalid-take",
@@ -354,6 +361,7 @@ export class TakeDraft {
     if (extensions !== undefined) {
       const frozen = freezeJson(extensions);
       requireEdit(isRecord(frozen), "invalid-take", id, "Expected an extensions map");
+      plugins?.validate("take", id, frozen);
       data = frozen;
     }
     const take: Take = Object.freeze({
@@ -495,6 +503,7 @@ export function rebaseTakes(
   patches: readonly TakePatch[],
   base: readonly Take[] | undefined,
   listed: (id: string) => boolean,
+  plugins?: PluginRegistry,
 ): readonly TakePatch[] {
   const current = (id: string): Take | undefined => findTake(base, id);
   const kept = patches.filter(({ id, before, after }) =>
@@ -502,7 +511,15 @@ export function rebaseTakes(
       ? current(id) === undefined
       : after !== undefined || (current(id) !== undefined && !listed(id)),
   );
-  return rebaseRecords(kept.length === patches.length ? patches : kept, current, checkTake, "take");
+  return rebaseRecords(
+    kept.length === patches.length ? patches : kept,
+    current,
+    (take) => {
+      checkTake(take);
+      plugins?.validate("take", take.id, take.extensions);
+    },
+    "take",
+  );
 }
 
 /**

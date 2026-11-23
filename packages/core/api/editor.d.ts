@@ -1,6 +1,13 @@
-import type { AddMarkerCommand, AddTakeCommand, Editor, EditorOptions, ExpectClipCommand, ExpectDataCommand, MoveMarkerCommand, MoveCommand, PruneTakesCommand, RemoveDataCommand, RemoveMarkerCommand, RemoveTakeCommand, ReorderTakesCommand, ReplayCommand, SelectTakeCommand, SetDataCommand, SplitCommand, TrimCommand, UpdateMarkerCommand, UpdateTakeCommand } from "./types.ts";
+import type { AddClipCommand, AddMarkerCommand, AddTakeCommand, AddTrackCommand, Editor, EditorOptions, ExpectClipCommand, ExpectDataCommand, MoveMarkerCommand, MoveCommand, PruneTakesCommand, RemoveClipCommand, RemoveDataCommand, RemoveMarkerCommand, RemoveTakeCommand, RemoveTrackCommand, ReorderTakesCommand, ReorderTracksCommand, ReplayCommand, SelectTakeCommand, SetDataCommand, SplitCommand, TrimCommand, UpdateClipCommand, UpdateMarkerCommand, UpdateTakeCommand, UpdateTrackCommand } from "./types.ts";
 type Arguments<C> = C extends unknown ? Omit<C, "type"> : never;
 export interface Commands {
+    addClip(args: Arguments<AddClipCommand>): AddClipCommand;
+    removeClip(args: Arguments<RemoveClipCommand>): RemoveClipCommand;
+    updateClip(args: Arguments<UpdateClipCommand>): UpdateClipCommand;
+    addTrack(args: Arguments<AddTrackCommand>): AddTrackCommand;
+    updateTrack(args: Arguments<UpdateTrackCommand>): UpdateTrackCommand;
+    removeTrack(args: Arguments<RemoveTrackCommand>): RemoveTrackCommand;
+    reorderTracks(args: Arguments<ReorderTracksCommand>): ReorderTracksCommand;
     addMarker(args: Arguments<AddMarkerCommand>): AddMarkerCommand;
     moveMarker(args: Arguments<MoveMarkerCommand>): MoveMarkerCommand;
     updateMarker(args: Arguments<UpdateMarkerCommand>): UpdateMarkerCommand;
@@ -21,5 +28,5 @@ export interface Commands {
     replay(args: Arguments<ReplayCommand>): ReplayCommand;
 }
 export declare const commands: Readonly<Commands>;
-export declare function createEditor({ project, history: limits, actor }: EditorOptions): Editor;
+export declare function createEditor({ project, history: limits, actor, plugins }: EditorOptions): Editor;
 export {};

@@ -1,11 +1,17 @@
 import { labelBaseline, labelHeight } from "./layout.ts";
 import type { LabelSlot } from "./layout.ts";
 
-const nameFont = "500 12px system-ui, sans-serif";
-const captionFont = "11px system-ui, sans-serif";
-const nameColor = "#faf6e9";
+const defaultNameFont = "500 12px system-ui, sans-serif";
+const defaultCaptionFont = "11px system-ui, sans-serif";
+const defaultNameColor = "#faf6e9";
 /** Labels wider than this, in CSS pixels, are cut. */
 const maxLabelWidth = 480;
+
+export interface LabelAtlasStyle {
+  readonly nameFont?: string | undefined;
+  readonly captionFont?: string | undefined;
+  readonly nameColor?: string | undefined;
+}
 
 /**
  * Clip labels rasterized once at the device pixel ratio, in rows of equal
@@ -32,7 +38,15 @@ export interface LabelAtlas {
   dispose(): void;
 }
 
-export function createLabelAtlas(doc: Document, dpr: number, size = 2048): LabelAtlas {
+export function createLabelAtlas(
+  doc: Document,
+  dpr: number,
+  size = 2048,
+  style: LabelAtlasStyle = {},
+): LabelAtlas {
+  const nameFont = style.nameFont ?? defaultNameFont;
+  const captionFont = style.captionFont ?? defaultCaptionFont;
+  const nameColor = style.nameColor ?? defaultNameColor;
   const canvas = doc.createElement("canvas");
   canvas.width = canvas.height = size;
   const context = canvas.getContext("2d");

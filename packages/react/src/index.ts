@@ -33,7 +33,24 @@ export interface TimelineProps extends TimelineOptions {
  */
 export function Timeline(props: TimelineProps): ReactElement {
   const { editor, transport, renderer, ref, className, style } = props;
-  const { pixelsPerSecond, startTick, snap, labels, waveforms } = props;
+  const {
+    pixelsPerSecond,
+    startTick,
+    snap,
+    labels,
+    waveforms,
+    chrome,
+    theme,
+    layout,
+    readOnly,
+    shortcuts,
+    formatTime,
+    gridSpacing,
+    clipStyle,
+    renderTrackHeader,
+    renderOverlay,
+    events,
+  } = props;
   const element = useRef<HTMLDivElement>(null);
   const view = useRef<TimelineView | null>(null);
   useLayoutEffect(() => {
@@ -49,6 +66,17 @@ export function Timeline(props: TimelineProps): ReactElement {
       snap,
       labels,
       waveforms,
+      chrome,
+      theme,
+      layout,
+      readOnly,
+      shortcuts,
+      formatTime,
+      gridSpacing,
+      clipStyle,
+      renderTrackHeader,
+      renderOverlay,
+      events,
     });
     view.current = mounted;
     return () => {
@@ -58,7 +86,24 @@ export function Timeline(props: TimelineProps): ReactElement {
     // Only these need a new view.
   }, [editor, transport, renderer]);
   useLayoutEffect(() => {
-    view.current?.update({ pixelsPerSecond, startTick, snap, labels, waveforms });
+    view.current?.update({
+      pixelsPerSecond,
+      startTick,
+      snap,
+      labels,
+      waveforms,
+      chrome,
+      theme,
+      layout,
+      readOnly,
+      shortcuts,
+      formatTime,
+      gridSpacing,
+      clipStyle,
+      renderTrackHeader,
+      renderOverlay,
+      events,
+    });
   });
   useImperativeHandle<TimelineView | null, TimelineView | null>(ref, () => view.current, [
     editor,

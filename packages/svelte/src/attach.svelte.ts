@@ -37,8 +37,44 @@ export function timeline(options: () => TimelineAttachmentOptions): Attachment<H
       };
     });
     $effect(() => {
-      const { pixelsPerSecond, startTick, snap, labels, waveforms } = options();
-      untrack(() => view?.update({ pixelsPerSecond, startTick, snap, labels, waveforms }));
+      const {
+        pixelsPerSecond,
+        startTick,
+        snap,
+        labels,
+        waveforms,
+        chrome,
+        theme,
+        layout,
+        readOnly,
+        shortcuts,
+        formatTime,
+        gridSpacing,
+        clipStyle,
+        renderTrackHeader,
+        renderOverlay,
+        events,
+      } = options();
+      untrack(() =>
+        view?.update({
+          pixelsPerSecond,
+          startTick,
+          snap,
+          labels,
+          waveforms,
+          chrome,
+          theme,
+          layout,
+          readOnly,
+          shortcuts,
+          formatTime,
+          gridSpacing,
+          clipStyle,
+          renderTrackHeader,
+          renderOverlay,
+          events,
+        }),
+      );
     });
   };
 }
