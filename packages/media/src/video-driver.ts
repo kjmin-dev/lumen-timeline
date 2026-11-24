@@ -5,6 +5,7 @@ import type { Anchor, Voice } from "./voice-scheduler.ts";
 import type {
   AudioContextLike,
   AudioNodeLike,
+  MediaCache,
   MediaErrorHandler,
   ResolveBuffer,
   SeekResult,
@@ -19,7 +20,8 @@ function reportsOutputTime(context: AudioContextLike): context is TimedAudioCont
 export interface VideoDriverOptions {
   readonly editor: Editor;
   readonly catalog: StreamCatalog;
-  readonly resolveBuffer: ResolveBuffer;
+  readonly resolveBuffer?: ResolveBuffer | undefined;
+  readonly media?: MediaCache | undefined;
   readonly trackOutput?: ((trackId: string) => AudioNodeLike | undefined) | undefined;
   readonly fadeOutSeconds?: number | undefined;
   readonly onError?: MediaErrorHandler | undefined;
@@ -47,6 +49,8 @@ export class VideoTransport {
   readonly onFrame: (seconds: number) => void;
   readonly useVideoFrameCallback: boolean;
   phaseResets: number;
+  /** The largest gap between booked audio and the video clock at the last frame, in seconds. */
+  phaseError: number;
   phaseExcursion: { readonly sign: number; readonly since: number } | null;
   running: boolean;
   readonly listeners: AbortController;
@@ -64,6 +68,7 @@ export class VideoTransport {
       editor,
       catalog,
       resolveBuffer,
+      media,
       trackOutput,
       fadeOutSeconds,
       onError = () => {},
@@ -81,6 +86,7 @@ export class VideoTransport {
       fadeOutSeconds,
       catalog,
       resolveBuffer,
+      media,
       onError,
     });
     if (
@@ -92,6 +98,7 @@ export class VideoTransport {
     }
     this.onFrame = onFrame;
     this.phaseResets = 0;
+    this.phaseError = 0;
     this.phaseExcursion = null;
     this.running = !video.paused && !video.ended && video.readyState >= 3;
     this.listeners = new AbortController();
@@ -180,27 +187,8 @@ export class VideoTransport {
   lostLock(media: number, audio: number): boolean {
     // Consecutive video observations can agree with one another while a long
     // source booked against an older anchor slips further from the output clock.
-    const tick = media * hz;
-    let worst = 0;
-    for (const voice of this.voices.values()) {
-      // A voice with an end sample was booked, so its start fields are set too.
-      const { bookedStart, bookedEnd, startSample, endSample } = voice;
-      if (
-        endSample === undefined ||
-        bookedStart === undefined ||
-        bookedEnd === undefined ||
-        startSample === undefined ||
-        voice.ended ||
-        voice.failed ||
-        tick < bookedStart ||
-        tick >= bookedEnd
-      )
-        continue;
-      const fraction = (tick - bookedStart) / (bookedEnd - bookedStart);
-      const sample = startSample + fraction * (endSample - startSample);
-      const error = sample / this.context.sampleRate - audio;
-      if (Math.abs(error) > Math.abs(worst)) worst = error;
-    }
+    const worst = this.scheduler.phaseError(media * hz, audio);
+    this.phaseError = Math.abs(worst);
     if (Math.abs(worst) <= 0.025) {
       this.phaseExcursion = null;
       return false;

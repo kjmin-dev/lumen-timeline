@@ -61,6 +61,7 @@ export function createAudioTransport({
   fadeOutSeconds,
   catalog,
   resolveBuffer,
+  media,
   onError,
 }: MediaOptions): AudioTransport {
   let end = sequenceDuration(editor.getSnapshot());
@@ -101,6 +102,7 @@ export function createAudioTransport({
     fadeOutSeconds,
     catalog,
     resolveBuffer,
+    media,
     onError,
     onWake: observe,
   });
@@ -130,6 +132,7 @@ export function createAudioTransport({
     requestedTick: Tick | null = null,
     precision: ClockPrecision = "exact",
   ): void {
+    if (!disposed) scheduler.setFocus(requestedTick ?? position);
     if (
       disposed ||
       (state.status === status &&
@@ -392,7 +395,7 @@ export function createAudioTransport({
       const op = (starting = request<PlayResult>());
       wantPlay = true;
       publish("starting");
-      const start = () => {
+      const go = (): void => {
         if (starting !== op) return;
         if (context.state !== "running") throw new Error("Audio context did not resume");
         anchorAt(position);
@@ -400,6 +403,21 @@ export function createAudioTransport({
         starting = null;
         op.resolve("playing");
         observe();
+      };
+      // With a media cache, playback starts once the audio at the playhead is loaded.
+      const start = (): void => {
+        if (starting !== op) return;
+        if (context.state !== "running") throw new Error("Audio context did not resume");
+        const loading = scheduler.whenReady(position);
+        if (!loading) go();
+        else
+          void loading.then(() => {
+            try {
+              go();
+            } catch (error) {
+              failed(error);
+            }
+          });
       };
       const failed = (error: unknown): void => {
         if (starting !== op) return;
@@ -450,10 +468,17 @@ export function createAudioTransport({
       const op = (seeking = { ...request<SeekResult>(), tick });
       position = lastPresented;
       publish("seeking", tick, state.precision);
-      queueMicrotask(() => {
+      const arrive = (): void => {
         if (seeking !== op) return;
         anchorAt(tick);
         observe();
+      };
+      queueMicrotask(() => {
+        if (seeking !== op) return;
+        // With a media cache, the seek lands once the audio at its target is loaded.
+        const loading = scheduler.whenReady(tick);
+        if (loading) void loading.then(arrive);
+        else arrive();
       });
       return op.promise;
     },
@@ -534,14 +559,29 @@ export function createAudioTransport({
       audition = active;
       jump(plan.range.start);
       publish("starting");
-      const start = (): void => {
+      const failed = (error: unknown): void => {
+        if (audition === active) endAudition((r) => r.reject(error), true);
+      };
+      const go = (): void => {
         if (audition !== active) return;
         if (context.state !== "running") throw new Error("Audio context did not resume");
         anchorAt(plan.range.start);
         observe();
       };
-      const failed = (error: unknown): void => {
-        if (audition === active) endAudition((r) => r.reject(error), true);
+      // With a media cache, the audition starts once the clip's first second is loaded.
+      const start = (): void => {
+        if (audition !== active) return;
+        if (context.state !== "running") throw new Error("Audio context did not resume");
+        const loading = scheduler.whenReady(plan.range.start);
+        if (!loading) go();
+        else
+          void loading.then(() => {
+            try {
+              go();
+            } catch (error) {
+              failed(error);
+            }
+          });
       };
       try {
         if (context.state === "running") start();
@@ -564,6 +604,7 @@ export function createAudioTransport({
       scheduler.setCatalog(next);
     },
     diagnostics: (id) => scheduler.diagnostics(id),
+    playback: () => scheduler.playback(),
     dispose() {
       if (disposed) return;
       position = audition ? Math.min(audition.state.returnTick, end) : currentTick();

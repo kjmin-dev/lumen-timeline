@@ -114,13 +114,30 @@ export interface MediaOptions {
    */
   readonly fadeOutSeconds?: number | undefined;
   readonly catalog: StreamCatalog;
-  readonly resolveBuffer: ResolveBuffer;
+  /**
+   * Supplies each voice's whole decoded stream. Give this or `media`, not both.
+   * Suits short assets; a long one is better read in chunks through `media`.
+   */
+  readonly resolveBuffer?: ResolveBuffer | undefined;
+  /**
+   * Reads voices in chunks through a host-owned media cache, which keeps
+   * decoded audio within a byte budget and loads ahead of the playhead. Give
+   * this or `resolveBuffer`, not both.
+   */
+  readonly media?: MediaCache | undefined;
   readonly onError?: MediaErrorHandler | undefined;
 }
 
 export interface VideoTransportOptions extends MediaOptions {
   /** Host-owned reference video. It supplies the clock. */
   readonly video: VideoElementLike;
+  /**
+   * The reference video's frame rate, such as `30000 / 1001`. With it, a seek
+   * asks the element for the middle of the frame that holds the target, so
+   * rounding never lands on a neighbouring frame, and the target tick itself is
+   * presented.
+   */
+  readonly frameRate?: number | undefined;
 }
 
 /** Scheduling state for one clip's voice, for tests and diagnostics. */
@@ -129,7 +146,188 @@ export interface TransportDiagnostics {
   readonly sampleRate: number;
   /** An opaque identity that changes when the voice is booked again. */
   readonly reservation: object | undefined;
+  /** The output sample where the voice's last booked segment stops. */
   readonly endSample: number | undefined;
+  /** Source nodes booked for the voice and not yet ended. */
+  readonly segments: number;
+}
+
+/** Playback timing across all voices since the transport was made. */
+export interface PlaybackDiagnostics {
+  /** Source nodes booked and not yet ended. */
+  readonly nodes: number;
+  /** Segments booked from the previous segment's end sample, without a gap. */
+  readonly seams: number;
+  /** Segments whose length was corrected to follow the clock, within 0.1%. */
+  readonly corrections: number;
+  /**
+   * Voices that started after their place on the timeline because their audio
+   * was not ready, joining it in time but missing the start.
+   */
+  readonly lateStarts: number;
+  /** Segments whose audio was not ready by their start, which then rejoined late. */
+  readonly underruns: number;
+  /** Times the video clock lost its lock with booked audio and everything was booked again. */
+  readonly phaseResets: number;
+  /**
+   * The largest gap, in seconds, between a booked voice and the video clock at
+   * the last frame observed. `0` for the audio transport, which is the clock.
+   */
+  readonly phaseError: number;
+}
+
+/**
+ * Samples `start` to `end` of one stream at `sampleRate`. A chunk cache asks
+ * for chunks on a fixed grid of the stream.
+ */
+export interface SampleRequest {
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly assetVersion: string | number;
+  readonly sampleRate: number;
+  /** The first sample frame. */
+  readonly start: number;
+  /** The frame after the last. */
+  readonly end: number;
+}
+
+/**
+ * Reads decoded samples for a media cache. This is where a host fetches,
+ * authenticates and decodes its media: from pre-cut segments, byte ranges
+ * through WebCodecs, a disk cache or anything else.
+ */
+export interface StreamReader {
+  /**
+   * Resolves the request's frames as a buffer whose frame 0 is `request.start`,
+   * at `request.sampleRate`. It may end early where the stream does. The
+   * signal aborts when nothing needs the chunk any more.
+   */
+  read(
+    request: SampleRequest,
+    signal: AbortSignal,
+  ): ChannelBufferLike | PromiseLike<ChannelBufferLike>;
+}
+
+export interface MediaCacheOptions {
+  readonly reader: StreamReader;
+  /** Seconds of each stream in one chunk. Defaults to 10. */
+  readonly chunkSeconds?: number | undefined;
+  /**
+   * Bytes of decoded audio to keep. Chunks nothing plays or wants are dropped,
+   * least recently used first, to stay within it. Defaults to 256 MiB.
+   */
+  readonly budgetBytes?: number | undefined;
+  /** Chunk reads in flight at once. Defaults to 4. */
+  readonly concurrency?: number | undefined;
+  /** Seconds of project time a transport loads ahead of its playhead. Defaults to 30. */
+  readonly ahead?: number | undefined;
+  /** Seconds of project time a transport keeps behind its playhead. Defaults to 5. */
+  readonly behind?: number | undefined;
+}
+
+/** Part of a stream to load ahead, in sample frames. */
+export interface StreamRange {
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly assetVersion: string | number;
+  readonly sampleRate: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** Keeps preloaded chunks wanted until released. */
+export interface PreloadHandle {
+  /** Resolves once every chunk is loaded or has failed, with the number that failed. */
+  readonly settled: Promise<number>;
+  /** Chunks loaded so far, and in all. */
+  progress(): { readonly loaded: number; readonly total: number };
+  /** Lets the chunks go, so the budget can drop them. Returns whether it was held. */
+  release(): boolean;
+}
+
+export interface MediaCacheEvent {
+  readonly type: "loaded" | "evicted" | "failed";
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly assetVersion: string | number;
+  /** The chunk's sample frames. */
+  readonly start: number;
+  readonly end: number;
+  readonly error?: unknown;
+}
+
+export interface MediaCacheDiagnostics {
+  readonly budgetBytes: number;
+  /** Bytes of decoded chunks held now, and the most ever held. */
+  readonly bytes: number;
+  readonly peakBytes: number;
+  readonly chunks: number;
+  /** Chunks a voice, a waveform read or a hold is using, which the budget cannot drop. */
+  readonly inUse: number;
+  readonly loading: number;
+  /** Chunks wanted ahead and not loaded yet. */
+  readonly queued: number;
+  readonly loads: number;
+  readonly hits: number;
+  readonly evictions: number;
+  readonly failures: number;
+  /** Reads that were aborted because nothing needed their chunk any more. */
+  readonly aborted: number;
+}
+
+/**
+ * Decoded audio in fixed chunks, shared by every transport and waveform source
+ * that uses it, within a byte budget.
+ */
+export interface MediaCache {
+  readonly chunkSeconds: number;
+  readonly budgetBytes: number;
+  /**
+   * Loads these ranges, or the source ranges of these planned spans, and keeps
+   * them until the handle is released.
+   */
+  preload(ranges: readonly (StreamRange | AudioSpan)[]): PreloadHandle;
+  /**
+   * A waveform source that reads through the cache. `overview` gives peaks the
+   * host computed ahead, which a zoomed-out view draws without reading samples.
+   */
+  peakSource(stream: CachedPeakStream): PeakSource;
+  /** The loaded sample ranges of a stream, merged and in order. */
+  loaded(assetId: string, streamId: string, assetVersion: string | number): readonly SampleSpan[];
+  subscribe(listener: (event: MediaCacheEvent) => void): () => void;
+  diagnostics(): MediaCacheDiagnostics;
+  /** Drops every chunk nothing uses. */
+  clear(): void;
+  /** Aborts reads and drops every chunk. Transports using it stop finding audio. */
+  dispose(): void;
+}
+
+/** A half-open range of sample frames. */
+export interface SampleSpan {
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface CachedPeakStream {
+  readonly assetId: string;
+  readonly streamId: string;
+  readonly assetVersion: string | number;
+  readonly sampleRate: number;
+  /** Sample frames in the stream. */
+  readonly length: number;
+  /** Defaults to 0. */
+  readonly channel?: number | undefined;
+  readonly overview?: PeakOverview | undefined;
+}
+
+/**
+ * Min/max pairs the host computed ahead, as `buildPeakOverview` makes them.
+ * Pair `i` covers samples `i * samplesPerPair` up to the next pair's first.
+ */
+export interface PeakOverview {
+  readonly samplesPerPair: number;
+  /** Interleaved minimum and maximum for each pair. */
+  readonly peaks: Float32Array;
 }
 
 export type SeekResult = "arrived" | "superseded";
@@ -211,7 +409,10 @@ export interface AudioTransport {
    * command. With `until`, playback pauses there. Called while playing, it
    * moves the stop, or with no `until` clears it. A pause, a seek or an
    * audition clears it too. Rejects with a `RangeError` for a stop that does
-   * not follow the playback position.
+   * not follow the playback position. With a media cache, a play or a
+   * playing seek waits at `starting` or `seeking` until the audio of the
+   * second after its position is loaded, for at most two seconds, so it
+   * starts with sound.
    */
   play(options?: PlayOptions): Promise<"playing" | "empty" | "superseded">;
   pause(): void;
@@ -233,6 +434,8 @@ export interface AudioTransport {
   readonly catalog: StreamCatalog;
   setCatalog(catalog: StreamCatalog): void;
   diagnostics(clipId: string): TransportDiagnostics;
+  /** Timing across all voices: seams, corrections, late starts and underruns. */
+  playback(): PlaybackDiagnostics;
   dispose(): void;
 }
 
@@ -275,6 +478,8 @@ export interface VideoTransport {
   readonly catalog: StreamCatalog;
   setCatalog(catalog: StreamCatalog): void;
   diagnostics(clipId: string): TransportDiagnostics;
+  /** Timing across all voices: seams, corrections, late starts and underruns. */
+  playback(): PlaybackDiagnostics;
   dispose(): void;
 }
 
@@ -294,6 +499,11 @@ export interface PeakSource {
    * Missing samples count as no samples.
    */
   read(start: number, end: number): ArrayLike<number> | PromiseLike<ArrayLike<number>>;
+  /**
+   * Peaks computed ahead. Columns at least `samplesPerPair` wide draw from
+   * them and read no samples, so a zoomed-out view of a long stream stays cheap.
+   */
+  readonly overview?: PeakOverview | undefined;
 }
 
 /** A peak source over a decoded buffer, which reads without waiting. */

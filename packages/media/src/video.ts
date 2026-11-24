@@ -28,8 +28,12 @@ export function createVideoTransport({
   fadeOutSeconds,
   catalog,
   resolveBuffer,
+  media,
+  frameRate,
   onError,
 }: VideoTransportOptions): VideoTransport {
+  if (frameRate !== undefined && !(Number.isFinite(frameRate) && frameRate > 0))
+    throw new RangeError("Frame rate must be a finite positive number");
   const listeners = new Set<(state: VideoTransportState) => void>();
   const events = new AbortController();
   const initial = Math.round(video.currentTime * hz);
@@ -59,9 +63,13 @@ export function createVideoTransport({
     state = Object.freeze({ ...state, ...delta });
     for (const listener of listeners) listener(state);
   }
-  // After a seek, presentation continues from the element's position.
-  function landed(): void {
-    const tick = Math.round(video.currentTime * hz);
+  // After a seek, presentation continues from the element's position, or
+  // from the target itself when the element stands where the transport put it.
+  function landed(target?: Tick): void {
+    const tick =
+      target !== undefined && Math.abs(video.currentTime - elementTime(target)) < 1e-6
+        ? target
+        : Math.round(video.currentTime * hz);
     update({
       presentedTick: tick,
       requestedTick: null,
@@ -73,12 +81,14 @@ export function createVideoTransport({
     editor,
     catalog,
     resolveBuffer,
+    media,
     trackOutput,
     fadeOutSeconds,
     onError,
     onFrame: (seconds) => {
       const tick = Math.round(seconds * hz);
       const previous = state.presentedTick;
+      driver.scheduler.setFocus(tick);
       update({ presentedTick: tick });
       if (audition && tick >= audition.state.range.end) void endAudition(finished, true);
       else if (state.until !== null && tick >= state.until) void stopped(state.until);
@@ -124,14 +134,24 @@ export function createVideoTransport({
       // The element reports a failed seek itself.
     }
   }
+  // The element time a seek to `tick` asks for: the middle of the frame that
+  // holds it when the frame rate is known, so rounding cannot pick a neighbour.
+  function elementTime(tick: Tick): number {
+    const seconds = tick / hz;
+    if (frameRate === undefined) return seconds;
+    const frame = Math.floor(seconds * frameRate + 1e-8);
+    const middle = (frame + 0.5) / frameRate;
+    return Number.isFinite(video.duration) && middle > video.duration ? seconds : middle;
+  }
   async function move(tick: Tick): Promise<SeekResult> {
     const token = ++request;
     nativeSeek = false;
+    driver.scheduler.setFocus(tick);
     update({ requestedTick: tick });
     try {
-      return await driver.seek(tick / hz);
+      return await driver.seek(elementTime(tick));
     } finally {
-      if (token === request) landed();
+      if (token === request) landed(tick);
     }
   }
   function halt(): void {
@@ -287,6 +307,7 @@ export function createVideoTransport({
       driver.setCatalog(next);
     },
     diagnostics: (id) => driver.scheduler.diagnostics(id),
+    playback: () => driver.scheduler.playback(driver.phaseResets, driver.phaseError),
     dispose() {
       if (events.signal.aborted) return;
       request++;
