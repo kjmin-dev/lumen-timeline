@@ -1,6 +1,6 @@
 # Edit long media within a memory budget
 
-**Status.** Delivered in one pull request, from 55d9023, after #61. [Long media](../long-media.md) · [Media transports](../media-transports.md) · [Waveform tiles](../waveforms.md)
+**Status.** Delivered in [#63](https://github.com/kjmin-dev/lumen-timeline/pull/63), from 55d9023, after #61. [Long media](../long-media.md) · [Media transports](../media-transports.md) · [Waveform tiles](../waveforms.md)
 
 **User outcome.** A dubbing or podcast editor opens a session of two or three hours with thousands of clips. Memory stays within a budget the host sets, playback and seeks start with sound, the audio stays locked to a reference video for the whole session, and the host decides how media is fetched, authenticated and loaded ahead.
 
