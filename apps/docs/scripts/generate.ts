@@ -74,6 +74,7 @@ const DOC_ROUTES = new Map<string, string>([
   ["docs/incremental-playback.md", "/guides/incremental-playback/"],
   ["docs/vanilla-timeline.md", "/guides/timeline-view/"],
   ["docs/waveforms.md", "/guides/waveforms/"],
+  ["docs/long-media.md", "/guides/long-media/"],
   ["docs/sync.md", "/guides/sync/"],
   ["docs/frameworks.md", "/frameworks/overview/"],
   ["docs/clock-and-wasm.md", "/benchmarks/clock-and-wasm/"],
@@ -966,6 +967,12 @@ export async function generateAll(): Promise<void> {
     },
     { mdx: true },
   );
+  await copyDoc("docs/long-media.md", "guides/long-media.md", {
+    title: "Long media",
+    description:
+      "Chunked reads through a host-written reader within a memory budget, loading ahead of the playhead, clock-locked segments and waveform overviews for sessions of hours.",
+    order: 8,
+  });
   await copyDoc(
     "docs/sync.md",
     "guides/sync.mdx",
@@ -973,7 +980,7 @@ export async function generateAll(): Promise<void> {
       title: "Shared sessions",
       description:
         "Server-free multi-editor convergence with @lumen-timeline/sync: sequencer, confirmation policies, transaction review and handover.",
-      order: 8,
+      order: 9,
     },
     {
       mdx: true,

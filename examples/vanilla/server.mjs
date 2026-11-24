@@ -2,6 +2,7 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { extname } from "node:path";
+import { createTokens, overview, segment } from "./long-media.mjs";
 
 export async function serve(port = 0) {
   const base = new URL("../../", import.meta.url);
@@ -14,8 +15,47 @@ export async function serve(port = 0) {
     ".webm": "video/webm",
     ".ogg": "audio/ogg",
   };
+  const tokens = createTokens();
+  // The three-hour session's media: ten-second segments and waveform
+  // overviews behind a bearer token that expires.
+  function serveLong(req, res, url) {
+    const path = url.pathname;
+    const json = (status, body) =>
+      res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body));
+    if (path === "/media/long/token" && req.method === "POST") {
+      const ttl = Math.min(3600, Math.max(1, Number(url.searchParams.get("ttl") ?? 300) || 300));
+      json(200, { token: tokens.issue(ttl), expiresIn: ttl });
+      return;
+    }
+    if (path === "/media/long/stats") {
+      json(200, tokens.stats);
+      return;
+    }
+    const match = /^\/media\/long\/([a-z]+)\/(?:(\d+)\.wav|peaks\.f32)$/.exec(path);
+    const body = match && (match[2] ? segment(match[1], Number(match[2])) : overview(match[1]));
+    if (!body) {
+      res.writeHead(404).end();
+      return;
+    }
+    if (!tokens.check(req.headers.authorization)) {
+      res.writeHead(401, { "WWW-Authenticate": "Bearer" }).end();
+      return;
+    }
+    res
+      .writeHead(200, {
+        "Content-Type": match[2] ? "audio/wav" : "application/octet-stream",
+        "Content-Length": body.length,
+        "Cache-Control": "private, no-store",
+      })
+      .end(body);
+  }
   const server = http.createServer(async (req, res) => {
-    const path = new URL(req.url, "http://localhost").pathname;
+    const url = new URL(req.url, "http://localhost");
+    const path = url.pathname;
+    if (path.startsWith("/media/long/")) {
+      serveLong(req, res, url);
+      return;
+    }
     if (path === "/") {
       res.writeHead(302, { Location: "/examples/vanilla/index.html" }).end();
       return;

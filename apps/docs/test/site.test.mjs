@@ -92,6 +92,7 @@ describe("built documentation site", () => {
       "guides/incremental-playback/index.html",
       "guides/timeline-view/index.html",
       "guides/waveforms/index.html",
+      "guides/long-media/index.html",
       "guides/sync/index.html",
       "frameworks/overview/index.html",
       "frameworks/react/index.html",
