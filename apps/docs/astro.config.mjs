@@ -16,6 +16,14 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Lumen Timeline",
+      logo: { src: "./public/favicon.png" },
+      favicon: "/favicon.ico",
+      head: [
+        {
+          tag: "link",
+          attrs: { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
+        },
+      ],
       description:
         "A JavaScript framework for browser-based audio and video editors: headless editing core, sample-accurate Web Audio transports, GPU timeline rendering, waveform workers, optional sync and React, Svelte, SolidJS and Vue wrappers.",
       defaultLocale: "root",

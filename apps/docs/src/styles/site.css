@@ -94,6 +94,19 @@ html[lang="ko"] {
   overflow-wrap: break-word;
 }
 
+.site-title {
+  gap: 0.55rem;
+  color: var(--lt-text);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.site-title img {
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+}
+
 .card,
 .sl-link-card {
   border-radius: 0.75rem;
