@@ -221,6 +221,43 @@ The audio driver supports arbitrary positive playback rates via `setPlaybackRate
 - **Interruption.** When the context stops running, freeze the playhead, invalidate reservations and retain the latest play intent. Recovery uses a fresh anchor. A user pause while interrupted keeps the transport paused after recovery. If editing shrinks the extent behind playback, clamp to the new end and stop.
 - **Ownership.** Pass a host-owned context, editor, output node and asset resolver. Pause and disposal leave other users of the context running. Disposal cancels pending loads and rejects pending transport operations, clears callbacks and releases this driver's reservations. Samples already in the device output pipeline may still drain.
 
+## Clip speed
+
+A clip with a [rate](headless-editing.md#clip-speed) other than 1 plays `rate` seconds of source per second of timeline. Both transports play it one of two ways:
+
+- **Varispeed**, without a stretch engine. The voice plays its source from the clip's position at `rate` times the transport's speed, so a faster clip also sounds higher, as tape does. It needs nothing beyond the buffer `resolveBuffer` returns.
+- **Time-stretched**, with a `stretch` engine. The transport hands the engine the clip's audible source range and the number of frames it lasts on the timeline, and plays the rendering it returns at the timeline's pace. Speed changes and pitch stays.
+
+`@lumen-timeline/media/signalsmith` provides an engine on [Signalsmith Stretch](https://signalsmith-audio.co.uk/code/stretch/), an MIT-licensed C++ stretcher compiled to WebAssembly. Install it beside the media package:
+
+```sh
+npm install signalsmith-stretch
+```
+
+```js title="host.js"
+import { createAudioTransport } from "@lumen-timeline/media";
+import { createSignalsmithStretch } from "@lumen-timeline/media/signalsmith";
+
+// One engine per page: it caches renderings for every transport that uses it.
+export const stretcher = createSignalsmithStretch();
+export const transport = createAudioTransport({
+  editor,
+  context,
+  catalog,
+  resolveBuffer,
+  stretch: stretcher.stretch,
+});
+```
+
+- **Rendering.** Each request renders in its own `OfflineAudioContext`, on the audio rendering thread rather than the main thread. It reads 0.1 s of source before the range, so the stretcher's analysis window is full at the clip's first frame, and a quarter second on each side as context. Three seconds of 48 kHz mono source render in 25 to 105 ms in Chromium, Firefox and WebKit. `resolveBuffer` must return a decoded `AudioBuffer` for the engine to read its channels.
+- **Cache.** A rendering is kept per source buffer, source range and length, within `cacheBytes` (64 MiB by default), and the least recently used goes first. A seek, a replay or another transport reuses it. `concurrency` (2 by default) limits renderings in flight; one that every requesting voice has given up on before it starts never runs. `cachedBytes()` and `clear()` report and release the cache, and `preset: "cheaper"` trades quality for speed.
+- **Loading.** The engine imports `signalsmith-stretch` on its first rendering. Pass `load` to supply the module another way. The library creates its AudioWorklet from a `blob:` URL, so a Content Security Policy must allow `blob:` in `script-src` or `worker-src`.
+- **Timing.** A voice waits for its rendering as it waits for a buffer that decodes later, so a clip retimed during playback is silent for the tens of milliseconds its rendering takes. Edits that leave the clip's audible range, rate and take alone keep its voice.
+- **Failures.** A rendering that fails, or returns fewer frames than asked, is reported to `onError` with the clip's span, and the clip plays as varispeed.
+- **Alignment.** `npm run verify:stretch` stretches a 440 Hz tone and five-millisecond bursts at rates 0.5, 0.8, 1.25 and 2 in all three engines, which give the same samples. The tone stays within 0.2% of its pitch, every burst's energy lands within 2.5 ms of the position the rate maps it to, about 1 ms late on average, and every rendering has exactly the length asked for. Through the audio transport, a 440 Hz line at rate 1.25 plays 550 Hz as varispeed and 440 Hz stretched.
+
+A host with another stretcher, or one on a server, passes its own `stretch(request, signal)`. The request carries the `span`, the decoded source `buffer`, `sourceStart` and `sourceEnd` in source samples, and `length` in frames at the span's sample rate; frame 0 plays at `span.audible.start`. Return an `AudioBuffer` of at least `length` frames at that sample rate, or a promise of one. The signal aborts when the voice is no longer needed.
+
 ## Play to a stop
 
 `play({ until })` plays from the playhead and pauses at `until`, for a host action such as playing one line. Both transports implement it.

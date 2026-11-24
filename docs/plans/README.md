@@ -16,5 +16,6 @@ Each plan states a user outcome, the commit it starts from, the pull requests th
 | [Share one project between editors](shared-sessions.md)    | Optional sharing with no server required: any participant orders commands                    | #29, #35–#38       |
 | [Render a large timeline](scale-rendering.md)              | Waveform tiles from a worker, WebGL2, opt-in WebGPU and Canvas 2D on one layout, device loss | #39–#44            |
 | [Four framework wrappers](framework-wrappers.md)           | React, Svelte, SolidJS and Vue mount the shared view and select fields for their own panels  | #51–#55            |
+| [Clip speed and time stretch](clip-speed.md)               | Retime a clip by rate or length, played as varispeed or stretched at its own pitch           | PR S               |
 
 Milestones and their exit criteria are in the [roadmap](../../ROADMAP.md#milestones).

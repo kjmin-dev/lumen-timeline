@@ -1,3 +1,4 @@
+import { contentAt } from "@lumen-timeline/core";
 import type { Clip, Tick } from "@lumen-timeline/core";
 import { tickAt } from "./geometry.ts";
 import type { Viewport } from "./geometry.ts";
@@ -33,14 +34,16 @@ export function placeWaveform(
   const start = Math.max(clip.start, tickAt(from, view));
   const end = Math.min(clip.start + clip.duration, tickAt(to, view));
   if (to <= from || end <= start) return null;
-  // Timeline tick t plays source time t - start + contentIn + sourceAtContentZero.
-  const offset = clip.contentIn + (take.sourceAtContentZero ?? 0) - clip.start;
+  // Timeline tick t plays the clip's content at t, which sits at
+  // sourceAtContentZero in the source. A rate other than 1 spreads more or
+  // less source over the same columns.
+  const zero = take.sourceAtContentZero ?? 0;
   return {
     request: Object.freeze({
       assetId: take.assetId,
       streamId: take.streamId,
-      start: start + offset,
-      end: end + offset,
+      start: zero + contentAt(clip, start),
+      end: zero + contentAt(clip, end),
       buckets: to - from,
     }),
     x: from,

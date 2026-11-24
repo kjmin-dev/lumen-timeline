@@ -51,8 +51,49 @@ export function ticksToUnits(ticks: Tick, numerator: number, denominator: number
   return convert(ticks, numerator, denominator, false);
 }
 
+/**
+ * The slowest and fastest clip rates. A clip's rate is content ticks per
+ * timeline tick: 0.5 plays its content at half speed over twice the length.
+ */
+export const MIN_CLIP_RATE = 0.25;
+export const MAX_CLIP_RATE = 4;
+
+/** A clip's rate: its `rate` field, or 1 when absent. */
+export const rateOf = (clip: { readonly rate?: number | undefined }): number => clip.rate ?? 1;
+
+/** Rounds half away from zero, as tick conversions do. */
+export function roundTick(value: number): Tick {
+  const rounded = value < 0 ? -Math.round(-value) : Math.round(value);
+  return rounded || 0;
+}
+
+/**
+ * The content length a clip of `rate` covers in `ticks` of timeline. At rate 1
+ * this is `ticks` itself; otherwise it rounds to the nearest tick.
+ */
+export function contentLength(ticks: Tick, rate: number): Tick {
+  return rate === 1 ? ticks : roundTick(ticks * rate);
+}
+
+/** The timeline ticks that cover `length` of content at `rate`, rounded to the nearest tick. */
+export function timelineLength(length: Tick, rate: number): Tick {
+  return rate === 1 ? length : roundTick(length / rate);
+}
+
 /** Clip placement fields read by `sourceWindow`. */
-export type ClipWindow = Pick<Clip, "start" | "duration" | "contentIn">;
+export type ClipWindow = Pick<Clip, "start" | "duration" | "contentIn"> & {
+  readonly rate?: number | undefined;
+};
+
+/** The content position a clip plays at timeline tick `tick`. */
+export function contentAt(clip: ClipWindow, tick: Tick): Tick {
+  return clip.contentIn + contentLength(tick - clip.start, rateOf(clip));
+}
+
+/** A clip's content end: the content position at its timeline end. */
+export function contentEnd(clip: ClipWindow): Tick {
+  return clip.contentIn + contentLength(clip.duration, rateOf(clip));
+}
 
 /** A take's source mapping and availability, normalized to project ticks. */
 export interface TakeWindow {
@@ -61,11 +102,14 @@ export interface TakeWindow {
   readonly availableEnd: Tick;
 }
 
-/** The audible part of a clip in `[from, until)` and its source position. */
+/** The audible part of a clip in `[from, until)` and its source positions. */
 export interface SourceWindow {
   readonly start: Tick;
   readonly end: Tick;
+  /** Source position at `start`. */
   readonly sourceStart: Tick;
+  /** Source position at `end`. At rate 1, `sourceStart + end - start`. */
+  readonly sourceEnd: Tick;
 }
 
 // Clip, take and query boundaries have already been normalized to project ticks.
@@ -75,16 +119,39 @@ export function sourceWindow(
   from: Tick,
   until: Tick,
 ): SourceWindow | null {
-  const origin = take.sourceAtContentZero + clip.contentIn - clip.start;
-  const start = Math.max(from, clip.start, take.availableStart - origin);
-  const end = Math.min(until, clip.start + clip.duration, take.availableEnd - origin);
-  return start < end ? { start, end, sourceStart: start + origin } : null;
+  const rate = rateOf(clip);
+  // Content position c plays at timeline tick clip.start + (c - contentIn) / rate,
+  // and sources take.sourceAtContentZero + c. The first and last ticks whose
+  // source lies inside the available range bound the window.
+  const zero = take.sourceAtContentZero + clip.contentIn;
+  const first = clip.start + Math.ceil((take.availableStart - zero) / rate);
+  const last = clip.start + Math.ceil((take.availableEnd - zero) / rate);
+  const start = Math.max(from, clip.start, first);
+  const end = Math.min(until, clip.start + clip.duration, last);
+  if (start >= end) return null;
+  return {
+    start,
+    end,
+    sourceStart: take.sourceAtContentZero + contentAt(clip, start),
+    sourceEnd: take.sourceAtContentZero + contentAt(clip, end),
+  };
 }
 
 /** Fields `splitClip` reads. It copies every other field of the record unchanged. */
-export type SplitSource = Pick<Clip, "start" | "duration" | "contentIn">;
+export type SplitSource = Pick<Clip, "start" | "duration" | "contentIn"> & {
+  readonly rate?: number | undefined;
+};
 
-export function splitClip<C extends SplitSource>(clip: C, at: Tick, rightId: string): [C, C] {
+/**
+ * Cuts a clip at timeline tick `at`. The right half starts at content position
+ * `atContent`, which defaults to the content the clip plays at `at`.
+ */
+export function splitClip<C extends SplitSource>(
+  clip: C,
+  at: Tick,
+  rightId: string,
+  atContent: Tick = contentAt(clip, at),
+): [C, C] {
   const leftDuration = at - clip.start;
   if (!Number.isSafeInteger(at) || leftDuration <= 0 || leftDuration >= clip.duration) {
     throw new RangeError("Split must be inside the clip");
@@ -96,7 +163,7 @@ export function splitClip<C extends SplitSource>(clip: C, at: Tick, rightId: str
       id: rightId,
       start: at,
       duration: clip.duration - leftDuration,
-      contentIn: clip.contentIn + leftDuration,
+      contentIn: atContent,
     },
   ];
 }

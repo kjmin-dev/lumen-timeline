@@ -62,6 +62,8 @@ Policy applies to the entire call. Arrays run synchronously in order against a p
 
    Undoing a left trim after an unrelated move therefore restores the edge and leaves the clip where the move put it. Two edits of the same value still conflict.
 
+   A clip with a [rate](headless-editing.md#clip-speed) other than 1, before, after or now, rounds between timeline and content positions, so its placement is one value: start, duration, content offset and rate. An edit that changed it conflicts with any other change to it since.
+
    A candidate list replays by element. An edit owns the takes it added, removed or moved in `takeIds`, and every other element stays where it is now. Undoing an added take after another take was added meanwhile removes only its own. A removed take that is already gone stays gone, and an owned take goes back after its nearest predecessor in the edit's list that the clip still holds. The active take is one value: two selections conflict. A clip with no candidates replays as an empty list and no active take, and a list that empties drops both fields.
 
 4. Undoing a split also removes the clips it added. Each must equal its recorded clip by value. Redo checks that the required new IDs are available, and places each clip after the one it followed.

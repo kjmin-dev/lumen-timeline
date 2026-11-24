@@ -21,13 +21,14 @@ import Demo from "../../components/Demo.astro";
 <CardGrid>
   <Card title="Headless 282.24 MHz core" icon="setting">
     One integer tick clock covers 44.1 kHz, 48 kHz and 30000/1001 fps without floating-point drift.
-    Move, trim, split, markers, candidate takes, selective history and pure audio planning all run
-    in Node with zero browser dependencies.
+    Move, trim, split, clip speed, markers, candidate takes, selective history and pure audio
+    planning all run in Node with zero browser dependencies.
   </Card>
   <Card title="Sample-accurate playback & audition" icon="rocket">
     Reference-video and audio-only transports share one Web Audio voice scheduler. Local edits
     reconcile only affected clips while unaffected stems keep playing, and candidate takes audition
-    isolated or in the mix without editing the document.
+    isolated or in the mix without editing the document. A retimed clip plays as varispeed, or at
+    its own pitch through an optional Signalsmith Stretch engine.
   </Card>
   <Card title="One layout across WebGL2, WebGPU and Canvas 2D" icon="laptop">
     A single CPU layout drives hit testing and GPU instanced rendering, recovering seamlessly from

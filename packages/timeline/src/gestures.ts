@@ -1,4 +1,9 @@
-import { commands, TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
+import {
+  commands,
+  MAX_CLIP_RATE,
+  MIN_CLIP_RATE,
+  TICKS_PER_SECOND as hz,
+} from "@lumen-timeline/core";
 import type {
   Clip,
   ClipQueryOptions,
@@ -13,6 +18,7 @@ import { element, tagName } from "./dom.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Span, Viewport } from "./geometry.ts";
 import type {
+  EdgeMode,
   SnapConfig,
   SnapOptions,
   TimelineEvents,
@@ -68,6 +74,8 @@ export interface EditingOptions {
   readonly chrome: () => ResolvedChrome;
   readonly uiLabels: () => ResolvedUiLabels;
   readonly events: () => TimelineEvents | undefined;
+  /** What an edge drag does now. */
+  readonly edgeMode: () => EdgeMode;
 }
 
 export interface EditingBinding {
@@ -83,6 +91,8 @@ interface Drag {
   readonly y: number;
   readonly tick: Tick;
   readonly edge: Edge;
+  /** An edge drag that changes the clip's rate instead of trimming it. */
+  readonly stretch: boolean;
   revision: number;
   readonly anchorTrack: string;
   readonly anchorId: string;
@@ -190,6 +200,25 @@ function isEntry(node: EventTarget | null): boolean {
   );
 }
 
+/**
+ * The timeline length a stretch of `edge` by `delta` gives `clip`, held to the
+ * lengths whose rate stays from `MIN_CLIP_RATE` to `MAX_CLIP_RATE`, and to a
+ * start at or after zero. The bounds use the rate a `retime` by duration
+ * computes, so a clamped drag is never rejected for its rate.
+ */
+export function stretchLength(clip: Clip, edge: "left" | "right", delta: Tick): Tick {
+  const content = (clip.rate ?? 1) * clip.duration;
+  const rateAt = (length: number): number => content / length;
+  let shortest = Math.max(1, Math.ceil(content / MAX_CLIP_RATE));
+  while (rateAt(shortest) > MAX_CLIP_RATE) shortest++;
+  let longest = Math.floor(content / MIN_CLIP_RATE);
+  while (rateAt(longest) < MIN_CLIP_RATE) longest--;
+  // A stretch of the start keeps the end, so the start cannot pass zero.
+  if (edge === "left") longest = Math.min(longest, clip.start + clip.duration);
+  const length = edge === "right" ? clip.duration + delta : clip.duration - delta;
+  return Math.max(shortest, Math.min(longest, length));
+}
+
 export function snapConfig(snap?: SnapOptions): SnapConfig {
   const config: SnapConfig = { gridTicks: Math.round(hz / 30), tolerancePx: 5, ...snap };
   if (
@@ -219,11 +248,12 @@ export function bindEditing({
   chrome,
   uiLabels,
   events,
+  edgeMode,
 }: EditingOptions): EditingBinding {
   const toolbar = root.ownerDocument.createElement("form");
   toolbar.className = "lt-edit";
   toolbar.innerHTML = `<label><span data-op-label>Operation</span> <select aria-label="Edit operation"><option value="move">Move</option>
-    <option value="left">Trim start</option><option value="right">Trim end</option></select></label>
+    <option value="left">Trim start</option><option value="right">Trim end</option><option value="rate">Speed</option></select></label>
     <label><span data-delta-label>Delta (s)</span> <input type="number" value="1" step="any" aria-label="Edit delta in seconds"></label>
     <button type="submit" data-apply>Apply</button><button type="button" data-split>Split at playhead</button>`;
   message.before(toolbar);
@@ -234,6 +264,7 @@ export function bindEditing({
   const moveOption = element(operation, 'option[value="move"]', "option");
   const leftOption = element(operation, 'option[value="left"]', "option");
   const rightOption = element(operation, 'option[value="right"]', "option");
+  const rateOption = element(operation, 'option[value="rate"]', "option");
   const deltaInput = element(toolbar, "input", "input");
   const applyButton = element(toolbar, "[data-apply]", "button");
   const splitButton = element(toolbar, "[data-split]", "button");
@@ -276,7 +307,8 @@ export function bindEditing({
     moveOption.textContent = text.move;
     leftOption.textContent = text.trimStart;
     rightOption.textContent = text.trimEnd;
-    deltaLabel.textContent = text.delta;
+    rateOption.textContent = text.speed;
+    valueLabels();
     applyButton.textContent = text.apply;
     splitButton.textContent = text.splitAtPlayhead;
     undoButton.textContent = undoButton.title = text.undo;
@@ -294,6 +326,14 @@ export function bindEditing({
         : commands.trimClip({ clipId: first, edge, delta });
     report(editor.dispatch(cmd));
   }
+  /** Sets the single selected clip's speed, in percent of normal. */
+  function retime(percent: number): void {
+    if (readOnly()) return;
+    const ids = editor.session.getSelection();
+    const only = ids[0];
+    if (ids.length !== 1 || only === undefined) return;
+    report(editor.dispatch(commands.retimeClip({ clipId: only, rate: percent / 100 })));
+  }
   function split(): void {
     if (readOnly()) return;
     const ids = editor.session.getSelection();
@@ -302,6 +342,8 @@ export function bindEditing({
     const result = report(editor.dispatch(commands.splitClip({ clipId: only, at: playhead() })));
     if (result.ok && !result.unchanged) editor.session.select(result.createdIds);
   }
+  // Stretching shows a column cursor, trimming the plain resize arrows.
+  const edgeCursor = (): string => (edgeMode() === "stretch" ? "col-resize" : "ew-resize");
   function finish(): void {
     const old = drag;
     drag = null;
@@ -374,7 +416,13 @@ export function bindEditing({
             delta: snapped.delta,
             trackId: dest,
           })
-        : commands.trimClip({ clipId: anchor.id, edge: drag.edge, delta: snapped.delta });
+        : drag.stretch
+          ? commands.retimeClip({
+              clipId: anchor.id,
+              duration: stretchLength(anchor, drag.edge, snapped.delta),
+              anchor: drag.edge === "left" ? "end" : "start",
+            })
+          : commands.trimClip({ clipId: anchor.id, edge: drag.edge, delta: snapped.delta });
     const options = { expectedRevision: current.revision };
     const preview = report(editor.preview(cmd, options));
     if (commit) {
@@ -424,6 +472,7 @@ export function bindEditing({
       return;
     }
     const edge = handleAt(b, p.x, p.width);
+    const stretch = edge !== "move" && edgeMode() === "stretch";
     if (!selected.includes(b.clip.id) || edge !== "move") editor.session.select([b.clip.id]);
     const ids = new Set(editor.session.getSelection());
     const doc = editor.getSnapshot();
@@ -433,6 +482,7 @@ export function bindEditing({
       y: e.clientY,
       tick: p.tick,
       edge,
+      stretch,
       revision: doc.revision,
       anchorTrack: b.clip.trackId,
       anchorId: b.clip.id,
@@ -440,7 +490,7 @@ export function bindEditing({
       moved: false,
     };
     surface.setPointerCapture(e.pointerId);
-    surface.style.cursor = edge === "move" ? "grabbing" : "ew-resize";
+    surface.style.cursor = edge === "move" ? "grabbing" : edgeCursor();
   });
   listen(surface, "pointermove", (e) => {
     if (drag) {
@@ -456,7 +506,7 @@ export function bindEditing({
       ? "pointer"
       : handleAt(p.box, p.x, p.width) === "move"
         ? "grab"
-        : "ew-resize";
+        : edgeCursor();
   });
   listen(surface, "pointerup", (e) => intent(e, true));
   listen(surface, "dblclick", (e) => {
@@ -503,7 +553,24 @@ export function bindEditing({
       }
     }
   });
-  listen(operation, "change", buttons);
+  // The value field reads seconds, or a speed in percent.
+  function valueLabels(): void {
+    const rate = operation.value === "rate";
+    deltaLabel.textContent = rate ? uiLabels().speedPercent : uiLabels().delta;
+    deltaInput.setAttribute("aria-label", rate ? uiLabels().speedPercent : "Edit delta in seconds");
+  }
+  listen(operation, "change", () => {
+    const rate = operation.value === "rate";
+    valueLabels();
+    // A speed starts at the selected clip's own.
+    const only = editor.session.getSelection();
+    const clip =
+      rate && only.length === 1
+        ? editor.getSnapshot().clips.find((c) => c.id === only[0])
+        : undefined;
+    deltaInput.value = rate ? String(Math.round((clip?.rate ?? 1) * 1000) / 10) : "1";
+    buttons();
+  });
   listen(toolbar, "submit", (event) => {
     event.preventDefault();
     if (composing || readOnly()) return;
@@ -513,7 +580,8 @@ export function bindEditing({
       return;
     }
     const edge = operation.value;
-    if (edge === "move" || edge === "left" || edge === "right")
+    if (edge === "rate") retime(seconds);
+    else if (edge === "move" || edge === "left" || edge === "right")
       apply(edge, Math.round(seconds * hz));
   });
   listen(splitButton, "click", split);

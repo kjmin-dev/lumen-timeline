@@ -1,5 +1,5 @@
 import { validId } from "./validation.ts";
-import { sourceWindow, ticksToUnits, unitsToTicks } from "./time.ts";
+import { contentAt, rateOf, sourceWindow, ticksToUnits, unitsToTicks } from "./time.ts";
 import type {
   AudioPlan,
   AudioSpan,
@@ -55,12 +55,13 @@ function nativeRange(
   start: Tick,
   end: Tick,
   source: Tick,
+  sourceUntil: Tick,
   stream: StreamBinding,
 ): SourceRange | null {
   const clamp = (sample: number): number =>
     Math.max(stream.availableStart, Math.min(stream.availableEnd, sample));
   const sourceStart = clamp(ticksToUnits(source, stream.sampleRate));
-  const sourceEnd = clamp(ticksToUnits(source + (end - start), stream.sampleRate));
+  const sourceEnd = clamp(ticksToUnits(sourceUntil, stream.sampleRate));
   return sourceEnd > sourceStart ? Object.freeze({ start, end, sourceStart, sourceEnd }) : null;
 }
 
@@ -83,15 +84,15 @@ function planClip(
     availableEnd: unitsToTicks(stream.availableEnd, sampleRate),
   };
   // Placements, content time and take positions are each within seven days.
-  const origin = source.sourceAtContentZero + clip.contentIn;
   const full = sourceWindow(clip, window, clip.start, clip.start + clip.duration);
   if (!full) return null;
   const start = Math.max(full.start, range.start);
   const end = Math.min(full.end, range.end);
   if (end <= start) return null;
-  const queried = nativeRange(start, end, full.sourceStart + (start - full.start), stream);
+  const at = (tick: Tick): Tick => source.sourceAtContentZero + contentAt(clip, tick);
+  const queried = nativeRange(start, end, at(start), at(end), stream);
   if (!queried) return null;
-  const audible = nativeRange(full.start, full.end, full.sourceStart, stream);
+  const audible = nativeRange(full.start, full.end, full.sourceStart, full.sourceEnd, stream);
   // Unreachable: rounding and clamping are monotonic, so the full range holds
   // at least the samples of the window inside it.
   if (!audible) return null;
@@ -105,7 +106,8 @@ function planClip(
     streamId: source.streamId,
     sampleRate,
     gain: track.gain ?? 1,
-    sourceOriginTick: origin - clip.start,
+    rate: rateOf(clip),
+    sourceOriginTick: at(0),
     audible,
     window: queried,
   });

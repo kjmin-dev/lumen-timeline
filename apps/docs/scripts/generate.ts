@@ -455,7 +455,7 @@ const PACKAGE_SPECS: readonly PackageSpec[] = [
     category: "engine",
     runtime: "Browser (Web Audio & Worker)",
     summary:
-      "Reference-video and audio-only transports, shared Web Audio voice scheduler, candidate auditioning and Rust 1.100.0 SIMD waveform tile worker.",
+      "Reference-video and audio-only transports, shared Web Audio voice scheduler, candidate auditioning, Rust 1.100.0 SIMD waveform tile worker, and an optional Signalsmith Stretch engine (`@lumen-timeline/media/signalsmith`) that plays retimed clips at their own pitch.",
     guide: "/guides/transports/",
   },
   {
@@ -588,10 +588,16 @@ async function generatePackages(): Promise<void> {
     const name = pkgJsonRaw["name"];
     let peer = "None";
     const peerDeps = pkgJsonRaw["peerDependencies"];
+    const peerMeta = pkgJsonRaw["peerDependenciesMeta"];
+    // A peer marked optional is needed only by the entry point that uses it.
+    const optional = (dep: string): boolean => {
+      const meta = isRecord(peerMeta) ? peerMeta[dep] : undefined;
+      return isRecord(meta) && meta["optional"] === true;
+    };
     if (isRecord(peerDeps)) {
       const entries = Object.entries(peerDeps)
         .filter((entry): entry is [string, string] => typeof entry[1] === "string")
-        .map(([dep, range]) => `\`${dep}\` ${range}`);
+        .map(([dep, range]) => `\`${dep}\` ${range}${optional(dep) ? " (optional)" : ""}`);
       if (entries.length > 0) peer = entries.join(", ");
     }
     const apiDts = await readFile(join(root, "packages", spec.id, "api/index.d.ts"), "utf8");
