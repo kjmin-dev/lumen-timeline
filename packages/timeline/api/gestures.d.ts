@@ -2,7 +2,7 @@ import type { Clip, ClipQueryOptions, Editor, Tick, TickRange } from "@lumen-tim
 import type { ResolvedChrome, ResolvedUiLabels } from "./config.ts";
 import type { Listen } from "./dom.ts";
 import type { Box, Span, Viewport } from "./geometry.ts";
-import type { SnapConfig, SnapOptions, TimelineEvents, TimelineTransport } from "./types.ts";
+import type { EdgeMode, SnapConfig, SnapOptions, TimelineEvents, TimelineTransport } from "./types.ts";
 export type Edge = "left" | "right" | "move";
 /** The candidate a drag snapped to, kept so a held snap resists jitter. */
 export interface SnapHold {
@@ -50,6 +50,8 @@ export interface EditingOptions {
     readonly chrome: () => ResolvedChrome;
     readonly uiLabels: () => ResolvedUiLabels;
     readonly events: () => TimelineEvents | undefined;
+    /** What an edge drag does now. */
+    readonly edgeMode: () => EdgeMode;
 }
 export interface EditingBinding {
     sync(): void;
@@ -65,5 +67,12 @@ export declare function snapDelta(delta: number, clips: readonly DragClip[], edg
     readonly delta: number;
     readonly held?: SnapHold;
 };
+/**
+ * The timeline length a stretch of `edge` by `delta` gives `clip`, held to the
+ * lengths whose rate stays from `MIN_CLIP_RATE` to `MAX_CLIP_RATE`, and to a
+ * start at or after zero. The bounds use the rate a `retime` by duration
+ * computes, so a clamped drag is never rejected for its rate.
+ */
+export declare function stretchLength(clip: Clip, edge: "left" | "right", delta: Tick): Tick;
 export declare function snapConfig(snap?: SnapOptions): SnapConfig;
-export declare function bindEditing({ root, surface, editor, transport, listen, point, getView, setGhost, message, history, config, readOnly, shortcuts, chrome, uiLabels, events, }: EditingOptions): EditingBinding;
+export declare function bindEditing({ root, surface, editor, transport, listen, point, getView, setGhost, message, history, config, readOnly, shortcuts, chrome, uiLabels, events, edgeMode, }: EditingOptions): EditingBinding;

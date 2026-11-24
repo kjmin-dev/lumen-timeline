@@ -26,6 +26,7 @@ const chromeKeys = [
   "trackReorder",
   "history",
   "snapToggle",
+  "stretchToggle",
   "clipToolbar",
   "takeLanes",
   "trackControls",
@@ -46,6 +47,7 @@ function everyChrome(value: (key: keyof TimelineChrome) => boolean): ResolvedChr
     trackReorder: value("trackReorder"),
     history: value("history"),
     snapToggle: value("snapToggle"),
+    stretchToggle: value("stretchToggle"),
     clipToolbar: value("clipToolbar"),
     takeLanes: value("takeLanes"),
     trackControls: value("trackControls"),
@@ -99,6 +101,9 @@ const defaultUiLabels: ResolvedUiLabels = {
   solo: "Solo",
   locked: "Locked",
   audition: "Audition",
+  stretch: "Stretch",
+  speed: "Speed",
+  speedPercent: "Speed (%)",
 };
 
 const uiLabelKeys: readonly UiLabelKey[] = [
@@ -135,6 +140,9 @@ const uiLabelKeys: readonly UiLabelKey[] = [
   "solo",
   "locked",
   "audition",
+  "stretch",
+  "speed",
+  "speedPercent",
 ];
 
 export function resolveUiLabels(labels: TimelineLabels = {}): ResolvedUiLabels {
@@ -173,6 +181,9 @@ export function resolveUiLabels(labels: TimelineLabels = {}): ResolvedUiLabels {
     solo: text("solo"),
     locked: text("locked"),
     audition: text("audition"),
+    stretch: text("stretch"),
+    speed: text("speed"),
+    speedPercent: text("speedPercent"),
   };
 }
 

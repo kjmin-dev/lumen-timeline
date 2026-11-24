@@ -381,3 +381,52 @@ test("a transport takes either a resolver or a media cache", (t) => {
   );
   media.dispose();
 });
+
+test("a retimed clip read in chunks plays each chunk as varispeed over its share of the timeline", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const media = createMediaCache({ reader: syncReader });
+  const editor = createEditor({
+    project: {
+      schemaVersion: 1,
+      duration: sec(40),
+      tracks: [{ id: "stem" }],
+      clips: [
+        {
+          id: "fast",
+          trackId: "stem",
+          kind: "audio",
+          start: 0,
+          duration: sec(30),
+          contentIn: 0,
+          rate: 2,
+          source: { assetId: "stem", streamId: "main" },
+        },
+      ],
+    },
+  });
+  const context = new FakeContext(rate);
+  const transport = createAudioTransport({ editor, context, output: sink, catalog, media });
+  t.after(() => {
+    transport.dispose();
+    editor.dispose();
+    media.dispose();
+  });
+  assert.equal(await transport.play(), "playing");
+  for (let step = 1; step <= 32 * 4; step++) {
+    context.currentTime = step / 4;
+    t.mock.timers.tick(25);
+  }
+  // Thirty seconds at 2× read sixty seconds of source: six ten-second chunks,
+  // each played over five seconds and continuing from its predecessor's end.
+  const nodes = context.nodes;
+  assert.equal(nodes.length, 6);
+  for (const [i, node] of nodes.entries()) {
+    assert.equal(requests.get(node.buffer ?? {})?.start, i * 10 * rate);
+    assert.equal(node.offset, 0);
+    assert.ok(Math.abs(node.playbackRate.value - 2) < 1e-3);
+    const end = node.stops[0] ?? NaN;
+    assert.equal(Math.round((end - node.when) * rate), 5 * rate);
+    if (i > 0) assert.equal(node.when, nodes[i - 1].stops[0]);
+  }
+  assert.equal(transport.playback().underruns, 0);
+});

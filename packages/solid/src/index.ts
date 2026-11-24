@@ -73,6 +73,7 @@ export function createTimeline(
         renderTrackHeader,
         renderOverlay,
         events,
+        edgeMode,
       } = options();
       return {
         pixelsPerSecond,
@@ -91,6 +92,7 @@ export function createTimeline(
         renderTrackHeader,
         renderOverlay,
         events,
+        edgeMode,
       };
     },
     (next) => untrack(view)?.update(next),

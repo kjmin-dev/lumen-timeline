@@ -2,7 +2,7 @@ import { normalizeEntityData } from "./entity-data.ts";
 import { compareMarkers, parseMarker } from "./markers.ts";
 import type { PluginRegistry } from "./plugins.ts";
 import { checkLoadedReferences, compareTakes, parseCandidates, parseTake } from "./takes.ts";
-import { MAX_TICK, TICKS_PER_SECOND } from "./time.ts";
+import { MAX_CLIP_RATE, MAX_TICK, MIN_CLIP_RATE, TICKS_PER_SECOND, contentLength } from "./time.ts";
 import { parseTrack } from "./tracks.ts";
 import type {
   Clip,
@@ -82,6 +82,8 @@ export interface PlacementInput {
   readonly duration: unknown;
   readonly contentIn: unknown;
   readonly contentBounds?: unknown;
+  /** Absent means 1. */
+  readonly rate?: unknown;
 }
 
 /** Validated placement fields. `contentBounds` is undefined when absent. */
@@ -92,6 +94,8 @@ export interface Placement {
   readonly duration: Tick;
   readonly contentIn: Tick;
   readonly contentBounds: ContentBounds | undefined;
+  /** 1 when the clip plays at normal speed. */
+  readonly rate: number;
 }
 
 /** Parses a direct clip source binding. */
@@ -137,7 +141,7 @@ export function parseClip(
     id,
     "Clip IDs must be unique",
   );
-  const { trackId, kind, start, duration, contentIn, contentBounds } = checkPlacement(
+  const { trackId, kind, start, duration, contentIn, contentBounds, rate } = checkPlacement(
     {
       id,
       trackId: clip["trackId"],
@@ -146,6 +150,7 @@ export function parseClip(
       duration: clip["duration"],
       contentIn: clip["contentIn"],
       contentBounds: clip["contentBounds"],
+      rate: clip["rate"],
     },
     rules,
   );
@@ -182,16 +187,20 @@ export function parseClip(
     "Expected a string color",
   );
   plugins?.validate("clip", id, extensions);
-  // A clip carries both candidate fields or neither. Kept fields keep their position.
+  // A clip carries both candidate fields or neither, and a rate only when it
+  // is not 1. Kept fields keep their position.
   const { takeIds: _noTakes, activeTakeId: _noActive, ...withoutCandidates } = clip;
+  const kept = candidates === undefined ? withoutCandidates : clip;
+  const { rate: _noRate, ...withoutRate } = kept;
   return Object.freeze({
-    ...(candidates === undefined ? withoutCandidates : clip),
+    ...(rate === 1 ? withoutRate : kept),
     id,
     trackId,
     kind,
     start,
     duration,
     contentIn,
+    ...(rate === 1 ? {} : { rate }),
     ...(contentBounds === undefined ? {} : { contentBounds }),
     ...(source === undefined ? {} : { source }),
     ...candidates,
@@ -342,7 +351,16 @@ export function openProject(input: unknown, plugins?: PluginRegistry): OpenedPro
 
 /** Checks placement fields against the rules shared by loading and every edit. */
 export function checkPlacement(
-  { id, trackId, kind, start, duration: length, contentIn, contentBounds }: PlacementInput,
+  {
+    id,
+    trackId,
+    kind,
+    start,
+    duration: length,
+    contentIn,
+    contentBounds,
+    rate: rawRate,
+  }: PlacementInput,
   { tracks, duration, minimum }: Rules,
 ): Placement {
   const track = typeof trackId === "string" ? tracks.get(trackId) : undefined;
@@ -365,8 +383,16 @@ export function checkPlacement(
   );
   // Content time and take positions both stay within seven days, so a source
   // mapping is always a safe integer.
+  const rate = rawRate === undefined ? 1 : rawRate;
   requireEdit(
-    safeInteger(contentIn) && Math.abs(contentIn) <= MAX_TICK,
+    typeof rate === "number" && rate >= MIN_CLIP_RATE && rate <= MAX_CLIP_RATE,
+    "invalid-rate",
+    id,
+    "Clip rate must be from " + MIN_CLIP_RATE + " to " + MAX_CLIP_RATE,
+  );
+  const contentOut = safeInteger(contentIn) ? contentIn + contentLength(length, rate) : NaN;
+  requireEdit(
+    safeInteger(contentIn) && Math.abs(contentIn) <= MAX_TICK && Math.abs(contentOut) <= MAX_TICK,
     "invalid-range",
     id,
     "Invalid content time",
@@ -382,18 +408,28 @@ export function checkPlacement(
       safeInteger(boundStart) &&
         safeInteger(boundEnd) &&
         contentIn >= boundStart &&
-        contentIn + length <= boundEnd,
+        contentOut <= boundEnd,
       "source-bounds",
       id,
       "Clip exceeds its available content handles",
     );
     bounds = Object.freeze({ ...record, start: boundStart, end: boundEnd });
   }
-  return { trackId: track.id, kind, start, duration: length, contentIn, contentBounds: bounds };
+  return {
+    trackId: track.id,
+    kind,
+    start,
+    duration: length,
+    contentIn,
+    contentBounds: bounds,
+    rate,
+  };
 }
 
 /** Validates a staged clip. Its ID was checked when it entered the document. */
 export function validateClip(clip: Clip, rules: Rules): void {
+  // A staged clip omits a rate of 1, as a loaded one does.
+  requireEdit(clip.rate !== 1, "invalid-rate", clip.id, "A rate of 1 is omitted");
   checkPlacement(clip, rules);
 }
 

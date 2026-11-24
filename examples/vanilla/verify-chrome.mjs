@@ -271,6 +271,65 @@ try {
   await snap.click();
   console.log(engine + ": the clip toolbar splits, and the snap switch frees a drag");
 
+  // The stretch switch and R make an edge drag change the clip's speed and
+  // keep its content; a trim keeps its speed.
+  const stretch = button("Stretch");
+  const shape = () =>
+    run(() => {
+      const { editor, hz } = window.lab;
+      const c = editor.getSnapshot().clips.find((item) => item.id === "line");
+      return { start: c.start / hz, duration: c.duration / hz, rate: c.rate ?? 1 };
+    });
+  const edgeDrag = async (seconds, pixels) => {
+    const from = await at(seconds, 30);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + pixels, from.y, { steps: 4 });
+    await page.mouse.up();
+    await frame();
+  };
+  await run(() => {
+    window.lab.modes = [];
+    window.lab.view.update({
+      events: { ...window.lab.events, onEdgeModeChange: (mode) => window.lab.modes.push(mode) },
+    });
+    window.lab.editor.session.select(["line"]);
+  });
+  assert.equal(await stretch.getAttribute("aria-pressed"), "false");
+  await edgeDrag(6 - 2 / 40, 40);
+  assert.deepEqual(await shape(), { start: 2, duration: 5, rate: 1 }, "a trim keeps the speed");
+  await button("Undo").click();
+  await stretch.click();
+  assert.equal(await stretch.getAttribute("aria-pressed"), "true");
+  await edgeDrag(6 - 2 / 40, 40);
+  assert.deepEqual(await shape(), { start: 2, duration: 5, rate: 0.8 }, "the end stretches");
+  await button("Undo").click();
+  await edgeDrag(2 + 2 / 40, 40);
+  assert.deepEqual(await shape(), { start: 3, duration: 3, rate: 4 / 3 }, "the start squeezes");
+  await button("Undo").click();
+  await surface.focus();
+  await page.keyboard.press("r");
+  assert.equal(await stretch.getAttribute("aria-pressed"), "false");
+  assert.deepEqual(await run(() => window.lab.modes), ["stretch", "trim"]);
+  // A host value applies when it changes, and a repeated one keeps the user's choice.
+  await run(() => window.lab.view.update({ edgeMode: "stretch" }));
+  assert.equal(await stretch.getAttribute("aria-pressed"), "true");
+  await stretch.click();
+  await run(() => window.lab.view.update({ edgeMode: "stretch" }));
+  assert.equal(await stretch.getAttribute("aria-pressed"), "false");
+  // The edit form sets a speed in percent, starting from the clip's own.
+  const form = page.locator(".lt-edit");
+  await form.getByLabel("Edit operation").selectOption("rate");
+  const speed = form.getByLabel("Speed (%)", { exact: true });
+  assert.equal(await speed.inputValue(), "100");
+  await speed.fill("80");
+  await form.getByRole("button", { name: "Apply" }).click();
+  assert.deepEqual(await shape(), { start: 2, duration: 5, rate: 0.8 });
+  await button("Undo").click();
+  await form.getByLabel("Edit operation").selectOption("move");
+  await run(() => window.lab.view.update({ events: window.lab.events }));
+  console.log(engine + ": the stretch switch, R and the speed field retime a clip");
+
   // Mute and solo are switches in the header, also on M and S.
   const mute = page.getByRole("button", { name: "Mute Voice" });
   const solo = page.getByRole("button", { name: "Solo Voice" });

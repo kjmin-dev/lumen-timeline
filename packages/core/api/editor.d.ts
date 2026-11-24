@@ -1,4 +1,4 @@
-import type { AddClipCommand, AddMarkerCommand, AddTakeCommand, AddTrackCommand, Editor, EditorOptions, ExpectClipCommand, ExpectDataCommand, MoveMarkerCommand, MoveCommand, PruneTakesCommand, RemoveClipCommand, RemoveDataCommand, RemoveMarkerCommand, RemoveTakeCommand, RemoveTrackCommand, ReorderTakesCommand, ReorderTracksCommand, ReplayCommand, SelectTakeCommand, SetDataCommand, SplitCommand, TrimCommand, UpdateClipCommand, UpdateMarkerCommand, UpdateTakeCommand, UpdateTrackCommand } from "./types.ts";
+import type { AddClipCommand, AddMarkerCommand, AddTakeCommand, AddTrackCommand, Editor, EditorOptions, ExpectClipCommand, ExpectDataCommand, MoveMarkerCommand, MoveCommand, PruneTakesCommand, RemoveClipCommand, RemoveDataCommand, RemoveMarkerCommand, RemoveTakeCommand, RetimeCommand, RemoveTrackCommand, ReorderTakesCommand, ReorderTracksCommand, ReplayCommand, SelectTakeCommand, SetDataCommand, SplitCommand, TrimCommand, UpdateClipCommand, UpdateMarkerCommand, UpdateTakeCommand, UpdateTrackCommand } from "./types.ts";
 type Arguments<C> = C extends unknown ? Omit<C, "type"> : never;
 export interface Commands {
     addClip(args: Arguments<AddClipCommand>): AddClipCommand;
@@ -15,6 +15,7 @@ export interface Commands {
     moveClips(args: Arguments<MoveCommand>): MoveCommand;
     trimClip(args: Arguments<TrimCommand>): TrimCommand;
     splitClip(args: Arguments<SplitCommand>): SplitCommand;
+    retimeClip(args: Arguments<RetimeCommand>): RetimeCommand;
     setEntityData(args: Arguments<SetDataCommand>): SetDataCommand;
     removeEntityData(args: Arguments<RemoveDataCommand>): RemoveDataCommand;
     addTake(args: Arguments<AddTakeCommand>): AddTakeCommand;

@@ -54,6 +54,7 @@ export function timeline(options: () => TimelineAttachmentOptions): Attachment<H
         renderTrackHeader,
         renderOverlay,
         events,
+        edgeMode,
       } = options();
       untrack(() =>
         view?.update({
@@ -73,6 +74,7 @@ export function timeline(options: () => TimelineAttachmentOptions): Attachment<H
           renderTrackHeader,
           renderOverlay,
           events,
+          edgeMode,
         }),
       );
     });

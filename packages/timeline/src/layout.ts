@@ -1,5 +1,5 @@
 import type { Clip, Take, Track } from "@lumen-timeline/core";
-import { activeTake, takeCaption } from "./captions.ts";
+import { activeTake, clipCaption } from "./captions.ts";
 import type { CaptionWords } from "./captions.ts";
 import {
   laneHeight as defaultLaneHeight,
@@ -434,7 +434,7 @@ export function layoutRow(
         ? undefined
         : custom?.caption !== undefined
           ? custom.caption
-          : takeCaption(clip, active, layout.words);
+          : clipCaption(clip, active, layout.words);
     const slot = layout.label(
       custom?.label ?? clip.name ?? clip.id,
       caption,

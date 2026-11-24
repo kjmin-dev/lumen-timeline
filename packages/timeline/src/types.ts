@@ -100,6 +100,12 @@ export interface TimelineLabels {
   readonly locked?: string | undefined;
   /** A take lane's audition button; the take's label follows. Defaults to "Audition". */
   readonly audition?: string | undefined;
+  /** The toolbar switch that makes edge drags stretch clips. Defaults to "Stretch". */
+  readonly stretch?: string | undefined;
+  /** The edit form's operation that sets a clip's speed. Defaults to "Speed". */
+  readonly speed?: string | undefined;
+  /** The edit form's value label for a speed. Defaults to "Speed (%)". */
+  readonly speedPercent?: string | undefined;
 }
 
 /**
@@ -133,6 +139,11 @@ export interface TimelineChrome {
   readonly history?: boolean | undefined;
   /** The toolbar switch that suspends snapping. Off in the `"minimal"` preset. */
   readonly snapToggle?: boolean | undefined;
+  /**
+   * The toolbar switch between trimming and stretching with edge drags, also
+   * flipped with R on the focused clip surface. Off in the `"minimal"` preset.
+   */
+  readonly stretchToggle?: boolean | undefined;
   /**
    * The floating toolbar above a single selected clip: split at the playhead,
    * and the take lanes switch for a clip with several candidates. Off in the
@@ -290,6 +301,13 @@ export interface TimelineClipEvent extends TimelinePointerEvent {
 }
 
 /** Host interaction callbacks fired by the timeline surface and viewport. */
+/**
+ * What dragging a clip's edge does. `"trim"` reveals or hides content and keeps
+ * the clip's speed. `"stretch"` keeps the content and changes the clip's rate,
+ * as a `retime` command anchored at the other edge.
+ */
+export type EdgeMode = "trim" | "stretch";
+
 export interface TimelineEvents {
   readonly onClipClick?: ((event: TimelineClipEvent) => void) | undefined;
   readonly onClipDoubleClick?: ((event: TimelineClipEvent) => void) | undefined;
@@ -302,6 +320,8 @@ export interface TimelineEvents {
    * transport.
    */
   readonly onTakeAudition?: ((event: TimelineTakeEvent) => void) | undefined;
+  /** The user switched edge drags between trimming and stretching. */
+  readonly onEdgeModeChange?: ((mode: EdgeMode) => void) | undefined;
 }
 
 /** A candidate of a clip, as a take lane names it. */
@@ -376,6 +396,13 @@ export interface TimelineOptions {
   /** Interaction and viewport change callbacks. */
   readonly events?: TimelineEvents | undefined;
   /**
+   * What dragging a clip's edge does. Defaults to `"trim"`. The user can flip
+   * it with the toolbar's stretch switch or R; `update` changes it only to a
+   * value other than the one last given, so a host that passes the same value
+   * on every render keeps the user's choice.
+   */
+  readonly edgeMode?: EdgeMode | undefined;
+  /**
    * The drawing backend. `auto`, the default, draws through WebGL2 on a
    * hardware GPU and through Canvas 2D where WebGL2 is missing or would run on
    * a software rasterizer. `webgl2` uses WebGL2 wherever it exists. `webgpu`
@@ -408,6 +435,7 @@ export type TimelineUpdate = Pick<
   | "renderTrackHeader"
   | "renderOverlay"
   | "events"
+  | "edgeMode"
 >;
 
 export interface TimelineDiagnostics {

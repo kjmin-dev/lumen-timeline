@@ -62,6 +62,7 @@ export function createAudioTransport({
   catalog,
   resolveBuffer,
   media,
+  stretch,
   onError,
 }: MediaOptions): AudioTransport {
   let end = sequenceDuration(editor.getSnapshot());
@@ -103,6 +104,7 @@ export function createAudioTransport({
     catalog,
     resolveBuffer,
     media,
+    stretch,
     onError,
     onWake: observe,
   });

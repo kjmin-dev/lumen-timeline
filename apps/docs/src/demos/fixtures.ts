@@ -4,7 +4,9 @@ import type {
   AudioContextLike,
   BufferSourceLike,
   PeakSource,
+  StretchAudio,
 } from "@lumen-timeline/media";
+import { createSignalsmithStretch } from "@lumen-timeline/media/signalsmith";
 import type { SyncMessage, SyncTransport } from "@lumen-timeline/sync";
 import type { TimelineTransport, TransportState } from "@lumen-timeline/timeline";
 
@@ -364,6 +366,8 @@ export function createPeakSourceMap(): Map<string, PeakSource> {
 export function createStudioAudioHost(): {
   context: AudioContextLike;
   buffers: ReadonlyMap<string, AudioBufferLike>;
+  /** Plays retimed lines at their own pitch, through Signalsmith Stretch. */
+  stretch: StretchAudio;
   close: () => void;
 } {
   const native = new AudioContext({ sampleRate: 48000, latencyHint: "playback" });
@@ -453,10 +457,30 @@ export function createStudioAudioHost(): {
     removeEventListener: (type, listener) => native.removeEventListener(type, listener),
   };
 
+  // The engine reads and returns real AudioBuffers; the transport sees handles.
+  const engine = createSignalsmithStretch();
+  const stretch: StretchAudio = (request, signal) => {
+    const source = nativeBuffers.get(request.buffer);
+    if (!source) return Promise.reject(new Error("Unknown demo buffer"));
+    return Promise.resolve(engine.stretch({ ...request, buffer: source }, signal)).then(
+      (rendered) => {
+        if (!(rendered instanceof AudioBuffer)) throw new Error("Expected a rendered AudioBuffer");
+        const handle: AudioBufferLike = {
+          sampleRate: rendered.sampleRate,
+          length: rendered.length,
+        };
+        nativeBuffers.set(handle, rendered);
+        return handle;
+      },
+    );
+  };
+
   return {
     context,
     buffers,
+    stretch,
     close: () => {
+      engine.clear();
       void native.close();
     },
   };

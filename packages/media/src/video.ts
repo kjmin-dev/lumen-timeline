@@ -30,6 +30,7 @@ export function createVideoTransport({
   resolveBuffer,
   media,
   frameRate,
+  stretch,
   onError,
 }: VideoTransportOptions): VideoTransport {
   if (frameRate !== undefined && !(Number.isFinite(frameRate) && frameRate > 0))
@@ -82,6 +83,7 @@ export function createVideoTransport({
     catalog,
     resolveBuffer,
     media,
+    stretch,
     trackOutput,
     fadeOutSeconds,
     onError,

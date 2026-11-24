@@ -68,6 +68,7 @@ jobs:
           LUMEN_SOFTWARE_GPU: "1"
       - run: npm run verify:tracks
       - run: npm run verify:chrome
+      - run: npm run verify:stretch
       # A short run keeps the benchmark page working; its figures come from real hardware.
       - run: npm run bench:render -- --seconds 6 --backends canvas2d --channel chromium
       - run: npm run verify:shared

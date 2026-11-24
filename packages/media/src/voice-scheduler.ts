@@ -24,6 +24,7 @@ import type {
   MediaErrorHandler,
   PlaybackDiagnostics,
   ResolveBuffer,
+  StretchAudio,
   TransportDiagnostics,
 } from "./types.ts";
 
@@ -64,6 +65,8 @@ export interface Voice {
   /** Booked segments that have not played out, in order. */
   segments: Segment[];
   /** The most recently booked segment's node. */
+  /** The buffer is a stretched rendering of the audible range, not the source stream. */
+  stretched?: boolean;
   node?: BufferSourceLike;
   gainNode?: GainNodeLike | null;
   /** The last segment is booked, up to the audible end or the stop tick. */
@@ -90,8 +93,20 @@ export interface VoiceSchedulerOptions {
   readonly catalog: StreamCatalog;
   readonly resolveBuffer?: ResolveBuffer | undefined;
   readonly media?: MediaCache | undefined;
+  readonly stretch?: StretchAudio | undefined;
   readonly onError?: MediaErrorHandler | undefined;
   readonly onWake?: (() => void) | undefined;
+}
+
+/** A voice's buffer, and whether it is a stretched rendering of the audible range. */
+interface Prepared {
+  readonly buffer: AudioBufferLike;
+  readonly stretched: boolean;
+}
+
+/** Frames of a stretched rendering: the span's audible timeline length at its sample rate. */
+export function stretchedLength(span: AudioSpan): number {
+  return ticksToUnits(span.audible.end - span.audible.start, span.sampleRate);
 }
 
 /** The part of a span that `scheduleWindow` books. */
@@ -112,6 +127,8 @@ const readyTimeout = 2000;
 
 // Quantize both endpoints on the same absolute output grid. A relative duration
 // can round up independently and double the sample at a split in Web Audio.
+// `playbackRate` is the transport's speed, which sets output times; `clipRate`
+// plays the source faster or slower than the timeline, as varispeed.
 export function scheduleWindow(
   node: BufferSourceLike,
   window: ScheduledWindow,
@@ -121,7 +138,9 @@ export function scheduleWindow(
   // A missing sourceStart reads as NaN, exactly as undefined did in arithmetic.
   sourceSeconds: number = (window.sourceStart ?? NaN) / hz,
   playbackRate: number = 1,
+  clipRate: number = 1,
 ): number {
+  const nodeRate = playbackRate * clipRate;
   const sample = (tick: Tick): number =>
     Math.round((audioAtProjectZero + tick / (hz * playbackRate)) * outputRate);
   const start = sharedStartSample ?? sample(window.start);
@@ -135,10 +154,10 @@ export function scheduleWindow(
     const length = Math.min(nominal + limit, Math.max(nominal - limit, end - start));
     end = start + length;
     if (length > 0 && length !== nominal)
-      node.playbackRate.value = playbackRate * (sourceFrames / length);
-    else if (playbackRate !== 1) node.playbackRate.value = playbackRate;
-  } else if (playbackRate !== 1) {
-    node.playbackRate.value = playbackRate;
+      node.playbackRate.value = nodeRate * (sourceFrames / length);
+    else if (nodeRate !== 1) node.playbackRate.value = nodeRate;
+  } else if (nodeRate !== 1) {
+    node.playbackRate.value = nodeRate;
   }
   node.start(start / outputRate, sourceSeconds);
   node.stop(end / outputRate);
@@ -149,7 +168,8 @@ export function scheduleWindow(
  * Books a stretch that ends on a chunk edge, so the next segment continues from
  * its end sample. Its length follows the source frames it plays; when the clock
  * has moved more than a frame from them, the far edge follows the clock, by at
- * most 0.1%, and the node plays exactly its frames over that length.
+ * most 0.1%, and the node plays exactly its frames over that length. A
+ * `clipRate` other than 1 plays the frames faster or slower, as varispeed.
  */
 export function scheduleSegment(
   node: BufferSourceLike,
@@ -160,15 +180,17 @@ export function scheduleSegment(
   outputRate: number,
   offsetSeconds: number,
   playbackRate: number = 1,
+  clipRate: number = 1,
 ): { readonly end: number; readonly corrected: boolean } {
-  const exact = (frames * outputRate) / (sourceRate * playbackRate);
+  const nodeRate = playbackRate * clipRate;
+  const exact = (frames * outputRate) / (sourceRate * nodeRate);
   const nominal = Math.round(exact);
   const limit = Math.max(1, Math.floor(nominal * 0.001));
   const drift = projectedEnd - (startSample + nominal);
   const length = Math.abs(drift) > 1 ? nominal + Math.max(-limit, Math.min(limit, drift)) : nominal;
   if (length > 0 && (length !== nominal || exact !== nominal))
-    node.playbackRate.value = playbackRate * (exact / length);
-  else if (playbackRate !== 1) node.playbackRate.value = playbackRate;
+    node.playbackRate.value = nodeRate * (exact / length);
+  else if (nodeRate !== 1) node.playbackRate.value = nodeRate;
   node.start(startSample / outputRate, offsetSeconds);
   node.stop((startSample + length) / outputRate);
   return { end: startSample + length, corrected: length !== nominal };
@@ -189,6 +211,7 @@ export class VoiceScheduler {
   playbackRate: number;
   readonly resolveBuffer: ResolveBuffer | undefined;
   readonly media: CacheInternals | undefined;
+  readonly stretch: StretchAudio | undefined;
   readonly onError: MediaErrorHandler;
   generation: number;
   readonly voices: Map<string, Voice>;
@@ -217,6 +240,7 @@ export class VoiceScheduler {
     catalog,
     resolveBuffer,
     media,
+    stretch,
     onError = () => {},
     onWake,
   }: VoiceSchedulerOptions) {
@@ -238,6 +262,7 @@ export class VoiceScheduler {
     this.playbackRate = 1;
     this.resolveBuffer = resolveBuffer;
     this.media = media === undefined ? undefined : cacheInternals(media);
+    this.stretch = stretch;
     this.onError = onError;
     this.generation = 0;
     this.voices = new Map();
@@ -335,12 +360,16 @@ export class VoiceScheduler {
       if (!resolve) continue;
       try {
         const buffer = resolve(span, voice.abort.signal);
+        // Without stretching, a resolved buffer takes the same turns to its
+        // voice as it always has.
         if (isThenable(buffer)) {
           Promise.resolve(buffer)
-            .then((value) => this.ready(voice, value))
+            .then((value) => this.settle(voice, this.prepare(voice, value)))
             .catch((error) => this.fail(voice, error));
         } else {
-          this.acceptBuffer(voice, buffer);
+          const prepared = this.prepare(voice, buffer);
+          if (isThenable(prepared)) this.settle(voice, prepared);
+          else this.acceptBuffer(voice, prepared);
         }
       } catch (error) {
         this.fail(voice, error);
@@ -373,25 +402,71 @@ export class VoiceScheduler {
     return this.generation === voice.generation && this.voices.get(voice.span.clipId) === voice;
   }
 
-  ready(voice: Voice, buffer: AudioBufferLike): void {
+  // A stretched rendering arrives later; anything else is ready now.
+  settle(voice: Voice, prepared: Prepared | PromiseLike<Prepared>): void {
+    if (!isThenable(prepared)) return this.ready(voice, prepared);
+    Promise.resolve(prepared)
+      .then((value) => this.ready(voice, value))
+      .catch((error) => this.fail(voice, error));
+  }
+
+  ready(voice: Voice, prepared: Prepared): void {
     if (!this.current(voice) || !this.anchor) return;
     const range = this.range();
     const { spans } = this.read.planAudio(range, this.catalog, this.options);
     const span = spans.find((s) => s.clipId === voice.span.clipId);
     if (!sameVoice(voice.span, span)) return this.cancel(voice);
-    this.acceptBuffer(voice, buffer);
+    this.acceptBuffer(voice, prepared);
     this.scheduleReady(spans, range);
   }
 
-  // JavaScript hosts are unchecked, so verify what the scheduler relies on.
-  acceptBuffer(voice: Voice, buffer: AudioBufferLike): void {
-    if (
-      buffer?.sampleRate !== voice.span.sampleRate ||
-      !(buffer.length >= voice.span.audible.sourceEnd)
-    ) {
-      throw new Error("Audio buffer does not cover the planned stream");
+  /**
+   * Checks a resolved stream and, for a clip with a rate, has the stretch
+   * engine render its audible range. Without an engine, or when rendering
+   * fails, the stream plays as varispeed.
+   */
+  prepare(voice: Voice, buffer: AudioBufferLike): Prepared | PromiseLike<Prepared> {
+    const { span } = voice;
+    checkSource(span, buffer);
+    const source: Prepared = { buffer, stretched: false };
+    const stretch = this.stretch;
+    if (span.rate === 1 || !stretch) return source;
+    const fallback = (error: unknown): Prepared => {
+      if (this.current(voice)) this.onError(error, span);
+      return source;
+    };
+    const request = Object.freeze({
+      span,
+      buffer,
+      sourceStart: span.audible.sourceStart,
+      sourceEnd: span.audible.sourceEnd,
+      length: stretchedLength(span),
+    });
+    let rendered: AudioBufferLike | PromiseLike<AudioBufferLike>;
+    try {
+      rendered = stretch(request, voice.abort.signal);
+    } catch (error) {
+      return fallback(error);
     }
+    const accept = (value: AudioBufferLike): Prepared => {
+      checkStretched(span, value);
+      return { buffer: value, stretched: true };
+    };
+    if (!isThenable(rendered)) {
+      try {
+        return accept(rendered);
+      } catch (error) {
+        return fallback(error);
+      }
+    }
+    return Promise.resolve(rendered).then(accept).catch(fallback);
+  }
+
+  acceptBuffer(voice: Voice, { buffer, stretched }: Prepared): void {
+    if (stretched) checkStretched(voice.span, buffer);
+    else checkSource(voice.span, buffer);
     voice.buffer = buffer;
+    voice.stretched = stretched;
   }
 
   /** Wakes the voices waiting on a chunk once, after the current task's other events. */
@@ -581,7 +656,8 @@ export class VoiceScheduler {
       if (behind) {
         start = Math.min(range.start, stop);
         frame =
-          span.audible.sourceStart + ticksToUnits(start - span.audible.start, span.sampleRate);
+          span.audible.sourceStart +
+          ticksToUnits(sourceTicks(start - span.audible.start, span.rate), span.sampleRate);
         shared = undefined;
         if (start >= stop) {
           voice.complete = true;
@@ -592,7 +668,11 @@ export class VoiceScheduler {
       const edgeTick =
         edge === span.audible.sourceEnd
           ? span.audible.end
-          : span.audible.start + unitsToTicks(edge - span.audible.sourceStart, span.sampleRate);
+          : span.audible.start +
+            timelineTicks(
+              unitsToTicks(edge - span.audible.sourceStart, span.sampleRate),
+              span.rate,
+            );
       const final = edgeTick >= stop;
       const end = final ? stop : edgeTick;
       const source = this.sourceAt(voice, frame, edge - frame);
@@ -637,7 +717,14 @@ export class VoiceScheduler {
     const speed = this.playbackRate;
     const origin = anchor.audio - anchor.tick / (hz * speed);
     const rate = this.context.sampleRate;
-    const offsetSeconds = source.offset / span.sampleRate;
+    // A stretched rendering starts at the audible start and plays at the
+    // timeline's pace. A source stream plays from its own position at the
+    // clip's rate, as varispeed.
+    const stretched = voice.stretched === true;
+    const offsetSeconds = stretched
+      ? (at.start - span.audible.start) / hz
+      : source.offset / span.sampleRate;
+    const clipRate = stretched ? 1 : span.rate;
     const startSample = at.shared ?? Math.round((origin + at.start / (hz * speed)) * rate);
     let endSample: number;
     if (at.final) {
@@ -649,6 +736,7 @@ export class VoiceScheduler {
         at.shared,
         offsetSeconds,
         speed,
+        clipRate,
       );
     } else {
       const booked = scheduleSegment(
@@ -660,6 +748,7 @@ export class VoiceScheduler {
         rate,
         offsetSeconds,
         speed,
+        clipRate,
       );
       endSample = booked.end;
       if (booked.corrected) this.counts.corrections++;
@@ -975,14 +1064,34 @@ export class VoiceScheduler {
   }
 }
 
+// Source ticks a clip of `rate` plays over `ticks` of timeline, rounded as the
+// core rounds content lengths.
+function sourceTicks(ticks: Tick, rate: number): Tick {
+  return rate === 1 ? ticks : Math.round(ticks * rate);
+}
+
+// Timeline ticks that cover `ticks` of source at `rate`.
+function timelineTicks(ticks: Tick, rate: number): Tick {
+  return rate === 1 ? ticks : Math.round(ticks / rate);
+}
+
 // A thenable is any object or function with a callable `then`, as for `await`.
-function isThenable(
-  value: AudioBufferLike | PromiseLike<AudioBufferLike>,
-): value is PromiseLike<AudioBufferLike> {
+function isThenable<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
   return (
     ((typeof value === "object" && value !== null) || typeof value === "function") &&
     typeof Reflect.get(value, "then") === "function"
   );
+}
+
+// JavaScript hosts are unchecked, so verify what the scheduler relies on.
+function checkSource(span: AudioSpan, buffer: AudioBufferLike): void {
+  if (buffer?.sampleRate !== span.sampleRate || !(buffer.length >= span.audible.sourceEnd))
+    throw new Error("Audio buffer does not cover the planned stream");
+}
+
+function checkStretched(span: AudioSpan, buffer: AudioBufferLike): void {
+  if (buffer?.sampleRate !== span.sampleRate || !(buffer.length >= stretchedLength(span)))
+    throw new Error("Stretched audio does not cover the planned span");
 }
 
 function sameVoice(a: AudioSpan, b: AudioSpan | undefined): boolean {
@@ -997,6 +1106,7 @@ function sameVoice(a: AudioSpan, b: AudioSpan | undefined): boolean {
     a.streamId === b.streamId &&
     a.sampleRate === b.sampleRate &&
     a.gain === b.gain &&
+    a.rate === b.rate &&
     a.sourceOriginTick === b.sourceOriginTick &&
     a.audible.start === b.audible.start &&
     a.audible.end === b.audible.end &&

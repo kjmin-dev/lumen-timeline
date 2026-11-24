@@ -34,7 +34,15 @@ import {
   remapsMedia,
   stagedDelta,
 } from "./takes.ts";
-import { splitClip } from "./time.ts";
+import {
+  MAX_CLIP_RATE,
+  MIN_CLIP_RATE,
+  contentAt,
+  contentLength,
+  rateOf,
+  splitClip,
+  timelineLength,
+} from "./time.ts";
 import { TrackDraft, applyTracks, invertTrackPatches, rebaseTracks } from "./tracks.ts";
 import { EditError, freezeJson, isArray, isRecord, requireEdit, validId } from "./validation.ts";
 import type {
@@ -74,6 +82,7 @@ import type {
   RemoveDataCommand,
   RemoveMarkerCommand,
   RemoveTakeCommand,
+  RetimeCommand,
   RemoveTrackCommand,
   ReorderTakesCommand,
   ReorderTracksCommand,
@@ -110,6 +119,7 @@ export interface Commands {
   moveClips(args: Arguments<MoveCommand>): MoveCommand;
   trimClip(args: Arguments<TrimCommand>): TrimCommand;
   splitClip(args: Arguments<SplitCommand>): SplitCommand;
+  retimeClip(args: Arguments<RetimeCommand>): RetimeCommand;
   setEntityData(args: Arguments<SetDataCommand>): SetDataCommand;
   removeEntityData(args: Arguments<RemoveDataCommand>): RemoveDataCommand;
   addTake(args: Arguments<AddTakeCommand>): AddTakeCommand;
@@ -134,6 +144,7 @@ export const commands: Readonly<Commands> = Object.freeze({
   moveClips: (args) => ({ ...args, type: "move" }),
   trimClip: (args) => ({ ...args, type: "trim" }),
   splitClip: (args) => ({ ...args, type: "split" }),
+  retimeClip: (args) => ({ ...args, type: "retime" }),
   setEntityData: (args) => ({ ...args, type: "set-data" }),
   removeEntityData: (args) => ({ ...args, type: "remove-data" }),
   addMarker: (args) => ({ ...args, type: "add-marker" }),
@@ -152,6 +163,62 @@ export const commands: Readonly<Commands> = Object.freeze({
 } satisfies Commands);
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+// A rate computed from two lengths that lands within rounding of 1 is 1.
+const settle = (rate: number): number => (Math.abs(rate - 1) < 1e-12 ? 1 : rate);
+
+/**
+ * The clip a retime leaves, or `undefined` when it changes nothing. The clip
+ * keeps the content it covers: a new rate sets its length, or a new length
+ * sets its rate, and the anchored edge stays where it is.
+ */
+function retimed(clip: Clip, command: RetimeCommand): Clip | undefined {
+  const anchor = command.anchor ?? "start";
+  requireEdit(
+    anchor === "start" || anchor === "end",
+    "invalid-edge",
+    clip.id,
+    "Anchor the start or the end",
+  );
+  requireEdit(
+    (command.rate === undefined) !== (command.duration === undefined),
+    "invalid-rate",
+    clip.id,
+    "Retime by either rate or duration",
+  );
+  const from = rateOf(clip);
+  let rate: number;
+  let length: number;
+  if (command.rate !== undefined) {
+    rate = command.rate;
+    requireEdit(
+      typeof rate === "number" && rate >= MIN_CLIP_RATE && rate <= MAX_CLIP_RATE,
+      "invalid-rate",
+      clip.id,
+      "Clip rate must be from " + MIN_CLIP_RATE + " to " + MAX_CLIP_RATE,
+    );
+    length =
+      rate === from ? clip.duration : timelineLength(contentLength(clip.duration, from), rate);
+  } else {
+    length = command.duration;
+    requireEdit(
+      Number.isSafeInteger(length) && length > 0,
+      "invalid-range",
+      clip.id,
+      "Duration must be a positive tick count",
+    );
+    rate = length === clip.duration ? from : settle((from * clip.duration) / length);
+  }
+  if (rate === from && length === clip.duration) return undefined;
+  const next: Mutable<Clip> = {
+    ...clip,
+    start: anchor === "end" ? clip.start + clip.duration - length : clip.start,
+    duration: length,
+  };
+  if (rate === 1) delete next.rate;
+  else next.rate = rate;
+  return next;
+}
 
 interface DocumentSubscriber {
   revision: number;
@@ -402,7 +469,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
     if (!converts && command.rightId !== undefined) return command;
     const rightId = command.rightId ?? ids.next((id) => clips.get(id) !== undefined);
     if (!converts) return Object.freeze({ ...command, rightId });
-    const atContent = command.at - clip.start + clip.contentIn;
+    const atContent = contentAt(clip, command.at);
     return Object.freeze({ type: "split", clipId: command.clipId, atContent, rightId });
   }
 
@@ -433,6 +500,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
         (type === "move" ||
           type === "trim" ||
           type === "split" ||
+          type === "retime" ||
           type === "add-clip" ||
           type === "remove-clip" ||
           type === "update-clip"),
@@ -473,6 +541,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
       const rawStart: unknown = Reflect.get(input, "start");
       const rawDuration: unknown = Reflect.get(input, "duration");
       const rawBounds: unknown = Reflect.get(input, "contentBounds");
+      const rawRate: unknown = Reflect.get(input, "rate");
       const rawName: unknown = Reflect.get(input, "name");
       const rawColor: unknown = Reflect.get(input, "color");
       const rawSource: unknown = Reflect.get(input, "source");
@@ -526,6 +595,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
           duration: rawDuration,
           contentIn,
           contentBounds: rawBounds,
+          rate: rawRate,
         },
         activeRules,
       );
@@ -536,6 +606,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
         start: placement.start,
         duration: placement.duration,
         contentIn: placement.contentIn,
+        ...(placement.rate === 1 ? {} : { rate: placement.rate }),
         ...(placement.contentBounds === undefined
           ? {}
           : { contentBounds: placement.contentBounds }),
@@ -607,6 +678,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
               duration: clip.duration,
               contentIn: clip.contentIn,
               contentBounds: command.contentBounds,
+              rate: clip.rate,
             },
             activeRules,
           );
@@ -650,7 +722,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
       null,
       "Expected distinct clip IDs",
     );
-    if (type !== "split") {
+    if (type === "move" || type === "trim") {
       requireEdit(
         Number.isSafeInteger(command.delta),
         "invalid-delta",
@@ -692,10 +764,14 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
                   ...clip,
                   start: clip.start + command.delta,
                   duration: clip.duration - command.delta,
-                  contentIn: clip.contentIn + command.delta,
+                  contentIn: contentAt(clip, clip.start + command.delta),
                 },
               ]
             : [{ ...clip, duration: clip.duration + command.delta }];
+      } else if (type === "retime") {
+        const next = retimed(clip, command);
+        if (!next) continue;
+        after = [next];
       } else {
         requireEdit(
           (command.at === undefined) !== (command.atContent === undefined),
@@ -703,10 +779,19 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
           id,
           "Name a split by either at or atContent",
         );
+        // A content position cuts where the clip plays it, and the right half
+        // starts at exactly that content.
+        const { atContent } = command;
+        requireEdit(
+          atContent === undefined || Number.isSafeInteger(atContent),
+          "invalid-range",
+          id,
+          "Split must be inside the clip",
+        );
         const at =
-          command.atContent === undefined
+          atContent === undefined
             ? command.at
-            : clip.start + command.atContent - clip.contentIn;
+            : clip.start + timelineLength(atContent - clip.contentIn, rateOf(clip));
         requireEdit(
           Number.isSafeInteger(at) && at > clip.start && at < clip.start + clip.duration,
           "invalid-range",
@@ -720,7 +805,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
           rightId,
           "The right clip requires a new ID",
         );
-        const [leftRaw, rightRaw] = splitClip(clip, at, rightId);
+        const [leftRaw, rightRaw] = splitClip(clip, at, rightId, atContent);
         if (Object.keys(clip.extensions ?? {}).length) {
           const splitExt = registry.split(clip, leftRaw, rightRaw, at);
           const withExt = (half: Clip, ext: JsonObject | undefined): Clip => {
@@ -885,10 +970,10 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
       const draft = new ClipDraft(snapshot.clips, byId);
       for (const command of isArray(input) ? input : [input]) {
         requireEdit(
-          command?.type === "move" || command?.type === "trim",
+          command?.type === "move" || command?.type === "trim" || command?.type === "retime",
           "unsupported-preview",
           null,
-          "Preview supports placement moves and trims",
+          "Preview supports placement moves, trims and retimes",
         );
         stageClip(command, draft, rules);
       }

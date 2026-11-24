@@ -1,6 +1,6 @@
 import type { AudioSpan, Editor, PlanIssue, PlanOptions, ReadHandle, StreamCatalog, Tick, TickRange } from "@lumen-timeline/core";
 import type { CacheInternals, Chunk, ChunkLease } from "./media-cache.ts";
-import type { AudioBufferLike, AudioContextLike, AudioNodeLike, BufferSourceLike, GainNodeLike, MediaCache, MediaErrorHandler, PlaybackDiagnostics, ResolveBuffer, TransportDiagnostics } from "./types.ts";
+import type { AudioBufferLike, AudioContextLike, AudioNodeLike, BufferSourceLike, GainNodeLike, MediaCache, MediaErrorHandler, PlaybackDiagnostics, ResolveBuffer, StretchAudio, TransportDiagnostics } from "./types.ts";
 /** A project tick paired with the audio-context time at which it plays. */
 export interface Anchor {
     readonly tick: Tick;
@@ -36,6 +36,8 @@ export interface Voice {
     /** Booked segments that have not played out, in order. */
     segments: Segment[];
     /** The most recently booked segment's node. */
+    /** The buffer is a stretched rendering of the audible range, not the source stream. */
+    stretched?: boolean;
     node?: BufferSourceLike;
     gainNode?: GainNodeLike | null;
     /** The last segment is booked, up to the audible end or the stop tick. */
@@ -61,23 +63,32 @@ export interface VoiceSchedulerOptions {
     readonly catalog: StreamCatalog;
     readonly resolveBuffer?: ResolveBuffer | undefined;
     readonly media?: MediaCache | undefined;
+    readonly stretch?: StretchAudio | undefined;
     readonly onError?: MediaErrorHandler | undefined;
     readonly onWake?: (() => void) | undefined;
 }
+/** A voice's buffer, and whether it is a stretched rendering of the audible range. */
+interface Prepared {
+    readonly buffer: AudioBufferLike;
+    readonly stretched: boolean;
+}
+/** Frames of a stretched rendering: the span's audible timeline length at its sample rate. */
+export declare function stretchedLength(span: AudioSpan): number;
 /** The part of a span that `scheduleWindow` books. */
 export interface ScheduledWindow {
     readonly start: Tick;
     readonly end: Tick;
     readonly sourceStart?: Tick;
 }
-export declare function scheduleWindow(node: BufferSourceLike, window: ScheduledWindow, audioAtProjectZero: number, outputRate: number, sharedStartSample?: number, sourceSeconds?: number, playbackRate?: number): number;
+export declare function scheduleWindow(node: BufferSourceLike, window: ScheduledWindow, audioAtProjectZero: number, outputRate: number, sharedStartSample?: number, sourceSeconds?: number, playbackRate?: number, clipRate?: number): number;
 /**
  * Books a stretch that ends on a chunk edge, so the next segment continues from
  * its end sample. Its length follows the source frames it plays; when the clock
  * has moved more than a frame from them, the far edge follows the clock, by at
- * most 0.1%, and the node plays exactly its frames over that length.
+ * most 0.1%, and the node plays exactly its frames over that length. A
+ * `clipRate` other than 1 plays the frames faster or slower, as varispeed.
  */
-export declare function scheduleSegment(node: BufferSourceLike, startSample: number, projectedEnd: number, frames: number, sourceRate: number, outputRate: number, offsetSeconds: number, playbackRate?: number): {
+export declare function scheduleSegment(node: BufferSourceLike, startSample: number, projectedEnd: number, frames: number, sourceRate: number, outputRate: number, offsetSeconds: number, playbackRate?: number, clipRate?: number): {
     readonly end: number;
     readonly corrected: boolean;
 };
@@ -96,6 +107,7 @@ export declare class VoiceScheduler {
     playbackRate: number;
     readonly resolveBuffer: ResolveBuffer | undefined;
     readonly media: CacheInternals | undefined;
+    readonly stretch: StretchAudio | undefined;
     readonly onError: MediaErrorHandler;
     generation: number;
     readonly voices: Map<string, Voice>;
@@ -114,15 +126,22 @@ export declare class VoiceScheduler {
     readonly timer: ReturnType<typeof setInterval>;
     private prefetched;
     private woken;
-    constructor({ context, output, trackOutput, fadeOutSeconds, editor, catalog, resolveBuffer, media, onError, onWake, }: VoiceSchedulerOptions);
+    constructor({ context, output, trackOutput, fadeOutSeconds, editor, catalog, resolveBuffer, media, stretch, onError, onWake, }: VoiceSchedulerOptions);
     setAnchor(tick: Tick, audio: number, earliestTick?: number): void;
     setPlaybackRate(rate: number): void;
     range(): TickRange;
     fill(changed?: ReadonlySet<string> | true): void;
     stale(read: ReadHandle, catalog: StreamCatalog, options: PlanOptions | undefined, generation: number): boolean;
     current(voice: Voice): boolean;
-    ready(voice: Voice, buffer: AudioBufferLike): void;
-    acceptBuffer(voice: Voice, buffer: AudioBufferLike): void;
+    settle(voice: Voice, prepared: Prepared | PromiseLike<Prepared>): void;
+    ready(voice: Voice, prepared: Prepared): void;
+    /**
+     * Checks a resolved stream and, for a clip with a rate, has the stretch
+     * engine render its audible range. Without an engine, or when rendering
+     * fails, the stream plays as varispeed.
+     */
+    prepare(voice: Voice, buffer: AudioBufferLike): Prepared | PromiseLike<Prepared>;
+    acceptBuffer(voice: Voice, { buffer, stretched }: Prepared): void;
     /** Wakes the voices waiting on a chunk once, after the current task's other events. */
     chunkSettled(chunk: Chunk): void;
     predecessor(span: AudioSpan, spans: readonly AudioSpan[], start: Tick): Voice | undefined;
@@ -192,3 +211,4 @@ export declare class VoiceScheduler {
     playback(phaseResets?: number, phaseError?: number): PlaybackDiagnostics;
     dispose(): void;
 }
+export {};

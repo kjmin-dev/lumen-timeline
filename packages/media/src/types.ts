@@ -94,6 +94,36 @@ export type ResolveBuffer = (
   signal: AbortSignal,
 ) => AudioBufferLike | PromiseLike<AudioBufferLike>;
 
+/**
+ * What a stretch engine renders for the voice of a clip with a rate: the
+ * span's audible source range, time-stretched to its audible timeline length
+ * without changing pitch.
+ */
+export interface StretchRequest {
+  /** The planned span. `span.audible` is the range to render, and `span.rate` its speed. */
+  readonly span: AudioSpan;
+  /** The decoded stream that `resolveBuffer` supplied, at `span.sampleRate`. */
+  readonly buffer: AudioBufferLike;
+  /** The first source sample, `span.audible.sourceStart`. */
+  readonly sourceStart: number;
+  /** The source sample after the last, `span.audible.sourceEnd`. */
+  readonly sourceEnd: number;
+  /**
+   * Frames to render at `span.sampleRate`. Frame 0 plays at `span.audible.start`
+   * and the last frame just before `span.audible.end`.
+   */
+  readonly length: number;
+}
+
+/**
+ * Renders a time-stretched buffer of `request.length` frames at the span's
+ * sample rate. The signal aborts when the voice is no longer needed.
+ */
+export type StretchAudio = (
+  request: StretchRequest,
+  signal: AbortSignal,
+) => AudioBufferLike | PromiseLike<AudioBufferLike>;
+
 /** Receives resolution, decoding and scheduling failures for one voice. */
 export type MediaErrorHandler = (error: unknown, span: AudioSpan) => void;
 
@@ -125,6 +155,15 @@ export interface MediaOptions {
    * this or `resolveBuffer`, not both.
    */
   readonly media?: MediaCache | undefined;
+  /**
+   * Renders clips with a rate other than 1 at their speed and original pitch,
+   * as `createSignalsmithStretch` from `@lumen-timeline/media/signalsmith`
+   * does. Without one, such a clip plays as varispeed: faster and higher, or
+   * slower and lower. A failed rendering is reported to `onError`, and the
+   * clip plays as varispeed. A rendering needs the whole stream, so with
+   * `media` such clips play as varispeed too.
+   */
+  readonly stretch?: StretchAudio | undefined;
   readonly onError?: MediaErrorHandler | undefined;
 }
 

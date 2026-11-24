@@ -13,9 +13,22 @@
       "@lumen-timeline/source": "./src/internal.ts",
       "types": "./dist/internal.d.ts",
       "default": "./dist/internal.js"
+    },
+    "./signalsmith": {
+      "@lumen-timeline/source": "./src/signalsmith.ts",
+      "types": "./dist/signalsmith.d.ts",
+      "default": "./dist/signalsmith.js"
     }
   },
   "dependencies": {
     "@lumen-timeline/core": "0.0.0"
+  },
+  "peerDependencies": {
+    "signalsmith-stretch": "^1.3.2"
+  },
+  "peerDependenciesMeta": {
+    "signalsmith-stretch": {
+      "optional": true
+    }
   }
 }

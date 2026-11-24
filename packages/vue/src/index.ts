@@ -53,6 +53,7 @@ const optionNames = [
   "renderTrackHeader",
   "renderOverlay",
   "events",
+  "edgeMode",
 ] as const satisfies readonly (keyof TimelineProps)[];
 
 /**
@@ -84,6 +85,7 @@ export const Timeline: DefineSetupFnComponent<TimelineProps> = defineComponent(
       renderTrackHeader: props.renderTrackHeader,
       renderOverlay: props.renderOverlay,
       events: toRaw(props.events),
+      edgeMode: props.edgeMode,
     });
     function mount(): void {
       const container = element.value;
@@ -124,6 +126,7 @@ export const Timeline: DefineSetupFnComponent<TimelineProps> = defineComponent(
         () => props.renderTrackHeader,
         () => props.renderOverlay,
         () => props.events,
+        () => props.edgeMode,
       ],
       () => view.value?.update(update()),
     );

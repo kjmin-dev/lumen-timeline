@@ -60,3 +60,23 @@ test("peaks outside -1 to 1 are clamped, and unusable values read as silence", (
     [1, -1, 0.5, 0, 0, 0],
   );
 });
+
+test("a retimed clip's waveform spreads its content over the same columns", () => {
+  // At rate 1.5 the three-second clip shows 4.5 s of content from 1 s.
+  const fast: Clip = { ...clip, rate: 1.5 };
+  const b = rectangle(fast, 0, 0, view, 1000);
+  assert.deepEqual(placeWaveform(fast, take, b.x, b.endX, view), {
+    request: { assetId: "a", streamId: "mono", start: sec(1.5), end: sec(6), buckets: 300 },
+    x: 200,
+  });
+  // One second into the clip is 1.5 s into its content.
+  const later = { startTick: sec(3), pixelsPerSecond: 100 };
+  const cut = rectangle(fast, 0, 0, later, 1000);
+  assert.deepEqual(placeWaveform(fast, take, cut.x, cut.endX, later)?.request, {
+    assetId: "a",
+    streamId: "mono",
+    start: sec(3),
+    end: sec(6),
+    buckets: 200,
+  });
+});

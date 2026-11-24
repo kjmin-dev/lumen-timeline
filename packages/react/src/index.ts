@@ -50,6 +50,7 @@ export function Timeline(props: TimelineProps): ReactElement {
     renderTrackHeader,
     renderOverlay,
     events,
+    edgeMode,
   } = props;
   const element = useRef<HTMLDivElement>(null);
   const view = useRef<TimelineView | null>(null);
@@ -77,6 +78,7 @@ export function Timeline(props: TimelineProps): ReactElement {
       renderTrackHeader,
       renderOverlay,
       events,
+      edgeMode,
     });
     view.current = mounted;
     return () => {
@@ -103,6 +105,7 @@ export function Timeline(props: TimelineProps): ReactElement {
       renderTrackHeader,
       renderOverlay,
       events,
+      edgeMode,
     });
   });
   useImperativeHandle<TimelineView | null, TimelineView | null>(ref, () => view.current, [

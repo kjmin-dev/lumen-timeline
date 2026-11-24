@@ -38,6 +38,7 @@ import type { Listen } from "./dom.ts";
 import type { Box, Packed, Viewport } from "./geometry.ts";
 import type {
   ClipStyleFn,
+  EdgeMode,
   OverlayRenderer,
   SnapConfig,
   TimelineDiagnostics,
@@ -128,6 +129,9 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   let waveforms: WaveformProvider | undefined = options.waveforms;
   // The viewport values the host last gave, which `update` compares against.
   let given = { pixelsPerSecond: options.pixelsPerSecond, startTick: options.startTick };
+  // What an edge drag does, and the mode the host last gave.
+  let edgeMode: EdgeMode = options.edgeMode ?? "trim";
+  let givenEdgeMode = options.edgeMode;
   const doc = container.ownerDocument;
   const windowProxy = doc.defaultView;
   if (!windowProxy) throw new Error("Mount the timeline in a document with a window");
@@ -144,6 +148,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
       <span class="lt-spacer"></span><span class="lt-history"></span>
       <button type="button" data-marker-add>Add marker</button>
       <button type="button" data-snap aria-pressed="true">Snap</button>
+      <button type="button" data-stretch aria-pressed="false">Stretch</button>
       <span class="lt-zoom"><button type="button" data-out aria-label="Zoom out">−</button><output class="lt-zoom-value"></output><button type="button" data-in aria-label="Zoom in">+</button></span>
     </div>
     <div class="lt-panel">
@@ -187,6 +192,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   const panel = element(root, ".lt-panel", "div"),
     historySlot = element(root, ".lt-history", "span"),
     snapButton = element(root, "[data-snap]", "button"),
+    stretchButton = element(root, "[data-stretch]", "button"),
     zoomValue = element(root, ".lt-zoom-value", "output");
   const clipTools = element(root, ".lt-clip-tools", "div"),
     clipSplit = element(root, "[data-clip-split]", "button"),
@@ -272,6 +278,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     markerNavWrap.hidden = !chrome.markerNavigator;
     markerAdd.hidden = !chrome.markerNavigator;
     snapButton.hidden = !chrome.snapToggle;
+    stretchButton.hidden = !chrome.stretchToggle;
     rulerRow.hidden = !chrome.ruler;
     panWrap.hidden = !chrome.scrollBar;
     message.hidden = !chrome.status;
@@ -294,6 +301,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     markerRename.textContent = uiLabels.renameMarker;
     markerRemove.textContent = uiLabels.removeMarker;
     snapButton.textContent = uiLabels.snap;
+    stretchButton.textContent = uiLabels.stretch;
     clipSplit.textContent = uiLabels.split;
     clipSplit.title = uiLabels.splitAtPlayhead;
     clipTakesLabel.textContent = uiLabels.takeLanes;
@@ -1110,6 +1118,22 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     if (only === undefined) return;
     if (setTakeLanes(openTakes === only ? null : only)) e.preventDefault();
   });
+  function setEdgeMode(next: EdgeMode, byUser: boolean): void {
+    if (next === edgeMode) return;
+    edgeMode = next;
+    stretchButton.setAttribute("aria-pressed", String(edgeMode === "stretch"));
+    if (byUser) hostEvents?.onEdgeModeChange?.(edgeMode);
+  }
+  listen(stretchButton, "click", () => {
+    setEdgeMode(edgeMode === "stretch" ? "trim" : "stretch", true);
+  });
+  // R flips edge drags between trimming and stretching.
+  listen(surface, "keydown", (e) => {
+    if (!shortcuts || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key.toLowerCase() !== "r" || e.target !== surface) return;
+    e.preventDefault();
+    setEdgeMode(edgeMode === "stretch" ? "trim" : "stretch", true);
+  });
   listen(snapButton, "click", () => {
     snapOn = !snapOn;
     snapButton.setAttribute("aria-pressed", String(snapOn));
@@ -1232,6 +1256,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     chrome: () => chrome,
     uiLabels: () => uiLabels,
     events: () => hostEvents,
+    edgeMode: () => edgeMode,
   });
   // Scrolls a clip's lane into view and, when its start is offscreen, pans to it.
   function hitTest({ x, y }: { readonly x: number; readonly y: number }): TimelineHit | null {
@@ -1466,6 +1491,11 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
       pixelsPerSecond: has("pixelsPerSecond") ? next.pixelsPerSecond : given.pixelsPerSecond,
       startTick: has("startTick") ? next.startTick : given.startTick,
     };
+    // A host that passes the same mode again keeps the user's choice.
+    if (has("edgeMode") && next.edgeMode !== givenEdgeMode) {
+      givenEdgeMode = next.edgeMode;
+      setEdgeMode(next.edgeMode ?? "trim", false);
+    }
 
     if (!sameSnap(nextConfig, config)) {
       config = nextConfig;

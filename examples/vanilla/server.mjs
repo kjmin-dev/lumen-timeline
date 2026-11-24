@@ -61,8 +61,10 @@ export async function serve(port = 0) {
       return;
     }
     if (
-      !/^\/(examples\/(vanilla|sync|bench)|packages\/(core|timeline|media|sync)|experiments\/sync)\/[a-zA-Z0-9_./-]+$/.test(
-        path,
+      !(
+        /^\/(examples\/(vanilla|sync|bench)|packages\/(core|timeline|media|sync)|experiments\/sync)\/[a-zA-Z0-9_./-]+$/.test(
+          path,
+        ) || path === "/node_modules/signalsmith-stretch/SignalsmithStretch.mjs"
       ) ||
       !types[extname(path)]
     ) {

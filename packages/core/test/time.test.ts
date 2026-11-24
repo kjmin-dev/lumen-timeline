@@ -39,6 +39,7 @@ test("seek into a clip, split its source, switch the right take and restore", ()
     start: 14 * hz,
     end: 14.5 * hz,
     sourceStart: 1.5 * hz,
+    sourceEnd: 2 * hz,
   });
   assert.deepEqual(
     sourceWindow(right, a, 14 * hz, 16 * hz),

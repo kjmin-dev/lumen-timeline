@@ -8,6 +8,7 @@ import type {
   MediaCache,
   MediaErrorHandler,
   ResolveBuffer,
+  StretchAudio,
   SeekResult,
   TimedAudioContext,
   VideoElementLike,
@@ -22,6 +23,7 @@ export interface VideoDriverOptions {
   readonly catalog: StreamCatalog;
   readonly resolveBuffer?: ResolveBuffer | undefined;
   readonly media?: MediaCache | undefined;
+  readonly stretch?: StretchAudio | undefined;
   readonly trackOutput?: ((trackId: string) => AudioNodeLike | undefined) | undefined;
   readonly fadeOutSeconds?: number | undefined;
   readonly onError?: MediaErrorHandler | undefined;
@@ -69,6 +71,7 @@ export class VideoTransport {
       catalog,
       resolveBuffer,
       media,
+      stretch,
       trackOutput,
       fadeOutSeconds,
       onError = () => {},
@@ -87,6 +90,7 @@ export class VideoTransport {
       catalog,
       resolveBuffer,
       media,
+      stretch,
       onError,
     });
     if (
