@@ -2,7 +2,7 @@ export { createEditor, commands } from "./editor.ts";
 export type { Commands } from "./editor.ts";
 export { definePlugin } from "./plugins.ts";
 export { EditError } from "./validation.ts";
-export { TICKS_PER_SECOND, unitsToTicks, ticksToUnits, sourceWindow } from "./time.ts";
+export { TICKS_PER_SECOND, MIN_CLIP_RATE, MAX_CLIP_RATE, contentAt, contentEnd, unitsToTicks, ticksToUnits, sourceWindow, } from "./time.ts";
 export type { ClipWindow, SourceWindow, TakeWindow } from "./time.ts";
 export { sequenceDuration } from "./extent.ts";
 export type { SequenceExtent } from "./extent.ts";

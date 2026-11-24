@@ -2,7 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { commands, createEditor } from "@lumen-timeline/core";
 import type { Clip } from "@lumen-timeline/core";
-import { activeTake, captionWords, takeCaption } from "@lumen-timeline/timeline/internal";
+import {
+  activeTake,
+  captionWords,
+  clipCaption,
+  ratePercent,
+  takeCaption,
+} from "@lumen-timeline/timeline/internal";
 
 test("a caption names the active candidate and counts the list in the host's words", () => {
   const editor = createEditor({
@@ -51,4 +57,17 @@ test("a caption names the active candidate and counts the list in the host's wor
     none: "No pass",
   });
   editor.dispose();
+});
+
+test("a retimed clip's caption adds its speed after its takes", () => {
+  const words = captionWords();
+  const base: Clip = { id: "c", trackId: "t", kind: "audio", start: 0, duration: 10, contentIn: 0 };
+  assert.equal(ratePercent(1.25), "125%");
+  assert.equal(ratePercent(4 / 3), "133.3%");
+  assert.equal(ratePercent(0.8), "80%");
+  assert.equal(clipCaption(base, undefined, words), undefined);
+  assert.equal(clipCaption({ ...base, rate: 0.5 }, undefined, words), "50%");
+  const listed: Clip = { ...base, takeIds: ["a", "b"], activeTakeId: "a", rate: 1.25 };
+  const take = { id: "a", assetId: "x", streamId: "mono", sourceAtContentZero: 0, label: "Warm" };
+  assert.equal(clipCaption(listed, take, words), "Warm · 2 takes · 125%");
 });

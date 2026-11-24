@@ -55,8 +55,17 @@ export interface Clip {
     readonly color?: string;
     readonly kind: string;
     readonly start: Tick;
+    /** Timeline length in project ticks. */
     readonly duration: Tick;
+    /** Content position at the clip's start. */
     readonly contentIn: Tick;
+    /**
+     * Content ticks played per timeline tick, between `MIN_CLIP_RATE` and
+     * `MAX_CLIP_RATE`. The clip covers `duration * rate` of content: above 1 it
+     * plays faster and shorter, below 1 slower and longer. Omitted means 1, and
+     * a snapshot omits a rate of 1. Change it with a `retime` command.
+     */
+    readonly rate?: number;
     readonly contentBounds?: ContentBounds;
     /**
      * Direct media source when the clip plays a single stream without candidate takes.
@@ -180,6 +189,29 @@ export interface SplitAtContent extends SplitBase {
     /** A content tick strictly between the clip's content edges. */
     readonly atContent: Tick;
 }
+/**
+ * Changes how fast a clip plays its content, keeping the content it covers.
+ * Give either the new `rate`, and the clip's length follows, or the new
+ * timeline `duration`, and the rate follows. `anchor` names the edge that
+ * stays in place: `"start"`, the default, keeps the clip's start and moves its
+ * end; `"end"` keeps its end and moves its start.
+ */
+export type RetimeCommand = RetimeToRate | RetimeToDuration;
+interface RetimeBase {
+    readonly type: "retime";
+    readonly clipId: string;
+    readonly anchor?: "start" | "end" | undefined;
+}
+export interface RetimeToRate extends RetimeBase {
+    /** Content ticks per timeline tick, from `MIN_CLIP_RATE` to `MAX_CLIP_RATE`. */
+    readonly rate: number;
+    readonly duration?: undefined;
+}
+export interface RetimeToDuration extends RetimeBase {
+    readonly rate?: undefined;
+    /** The new timeline length in project ticks. */
+    readonly duration: Tick;
+}
 /** The fields of a new clip. Omitting `id` generates one; `contentIn` defaults to 0. */
 export interface ClipInput {
     readonly id?: string | undefined;
@@ -188,6 +220,8 @@ export interface ClipInput {
     readonly start: Tick;
     readonly duration: Tick;
     readonly contentIn?: Tick | undefined;
+    /** Content ticks per timeline tick. Omitted or 1 plays at normal speed. */
+    readonly rate?: number | undefined;
     readonly name?: string | undefined;
     readonly color?: string | undefined;
     readonly contentBounds?: ContentBounds | undefined;
@@ -427,16 +461,16 @@ export interface ReplayCommand {
     readonly trackPatches?: readonly TrackPatch[] | undefined;
     readonly trackOrder?: readonly string[] | undefined;
 }
-export type ClipCommand = MoveCommand | TrimCommand | SplitCommand | AddClipCommand | RemoveClipCommand | UpdateClipCommand;
+export type ClipCommand = MoveCommand | TrimCommand | SplitCommand | RetimeCommand | AddClipCommand | RemoveClipCommand | UpdateClipCommand;
 export type TrackCommand = AddTrackCommand | UpdateTrackCommand | RemoveTrackCommand | ReorderTracksCommand;
 export type DataCommand = SetDataCommand | RemoveDataCommand;
 export type MarkerCommand = AddMarkerCommand | MoveMarkerCommand | UpdateMarkerCommand | RemoveMarkerCommand;
 export type TakeCommand = AddTakeCommand | SelectTakeCommand | RemoveTakeCommand | ReorderTakesCommand | UpdateTakeCommand | PruneTakesCommand;
 export type ExpectCommand = ExpectClipCommand | ExpectDataCommand;
 export type EditCommand = ClipCommand | TrackCommand | DataCommand | MarkerCommand | TakeCommand | ExpectCommand | ReplayCommand;
-export type PreviewCommand = MoveCommand | TrimCommand;
+export type PreviewCommand = MoveCommand | TrimCommand | RetimeCommand;
 /** Every code an `EditError` or a rejected edit can carry. */
-export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "track-not-empty" | "invalid-edge" | "invalid-range" | "split-policy-required" | "invalid-extension" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker" | "missing-take" | "invalid-take" | "active-take" | "listed-take" | "invalid-expectation" | "expectation-failed" | "invalid-replay" | "read-only";
+export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "track-not-empty" | "invalid-edge" | "invalid-range" | "invalid-rate" | "split-policy-required" | "invalid-extension" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker" | "missing-take" | "invalid-take" | "active-take" | "listed-take" | "invalid-expectation" | "expectation-failed" | "invalid-replay" | "read-only";
 export type HistoryPolicy = "record" | "ignore";
 /** How a commit relates to history. `replace` is an adopted snapshot. */
 export type CommitHistory = HistoryPolicy | "undo" | "redo" | "replace";
@@ -488,7 +522,7 @@ export interface ClipFieldChanges {
         readonly in?: FieldChange<Tick>;
         readonly out?: FieldChange<Tick>;
     };
-    /** Every other field that changed, by name. */
+    /** Every other field that changed, by name, with a rate change as `rate`. */
     readonly fields: {
         readonly [key: string]: FieldChange<unknown>;
     };
@@ -705,7 +739,16 @@ export interface AudioSpan {
     readonly streamId: string;
     readonly sampleRate: number;
     readonly gain: number;
-    /** Source position, in project ticks, that corresponds to project tick zero. */
+    /**
+     * Source ticks played per timeline tick: the clip's rate, 1 for a clip at
+     * normal speed. A transport either plays the source this much faster, as
+     * varispeed, or plays a time-stretched rendering of `audible`.
+     */
+    readonly rate: number;
+    /**
+     * Source position, in project ticks, that corresponds to project tick zero,
+     * extended at `rate` from the clip's own mapping.
+     */
     readonly sourceOriginTick: Tick;
     /** The whole audible part of the clip. */
     readonly audible: SourceRange;

@@ -1,5 +1,6 @@
 import { jsonEqual } from "./entity-data.ts";
 import { defined } from "./invariant.ts";
+import { contentEnd, rateOf, roundTick } from "./time.ts";
 import type { Clip, ClipFieldChanges, ClipPatch, Tick } from "./types.ts";
 import { requireEdit } from "./validation.ts";
 
@@ -18,6 +19,7 @@ export function sameFields(a: Clip, b: Clip): boolean {
  * A clip's placement as three values that edits change independently: where
  * content time zero sits on the timeline, and the clip's two content edges.
  * A move changes only `origin`, a left trim only `in` and a right trim only `out`.
+ * For a clip with a rate, `origin` is rounded to the nearest tick.
  */
 interface ContentPlacement {
   readonly origin: Tick;
@@ -27,13 +29,23 @@ interface ContentPlacement {
 
 function placementOf(clip: Clip): ContentPlacement {
   return {
-    origin: clip.start - clip.contentIn,
+    origin: clip.start - roundTick(clip.contentIn / rateOf(clip)),
     in: clip.contentIn,
-    out: clip.contentIn + clip.duration,
+    out: contentEnd(clip),
   };
 }
 
-const placementFields: ReadonlySet<string> = new Set(["start", "duration", "contentIn"]);
+const placementFields: ReadonlySet<string> = new Set(["start", "duration", "contentIn", "rate"]);
+
+/** The fields a retimed placement is merged by, as one value. */
+function samePlacement(a: Clip, b: Clip): boolean {
+  return (
+    a.start === b.start &&
+    a.duration === b.duration &&
+    a.contentIn === b.contentIn &&
+    rateOf(a) === rateOf(b)
+  );
+}
 // Replay merges the candidate list by element and the active take as one value.
 const candidateFields: ReadonlySet<string> = new Set(["takeIds", "activeTakeId"]);
 
@@ -64,7 +76,13 @@ export function clipFieldChanges(patch: ClipPatch): ClipFieldChanges {
       ...(from.in === to.in ? {} : { in: Object.freeze({ before: from.in, after: to.in }) }),
       ...(from.out === to.out ? {} : { out: Object.freeze({ before: from.out, after: to.out }) }),
     }),
-    fields: Object.freeze(Object.fromEntries(fields)),
+    fields: Object.freeze(
+      Object.fromEntries(
+        rateOf(before) === rateOf(after)
+          ? fields
+          : [...fields, ["rate", Object.freeze({ before: before.rate, after: after.rate })]],
+      ),
+    ),
   });
 }
 
@@ -318,10 +336,20 @@ function candidatesOf(clip: Clip): { list: readonly string[]; active: string | n
   return { list: clip.takeIds ?? [], active: clip.activeTakeId ?? null };
 }
 
-// An update owns the fields it changed, with placement in content space, and
-// keeps every other field as it is now.
-function merge(found: Clip, before: Clip, after: Clip): Clip {
-  const merged: Mutable<Clip> = { ...found };
+// A placement at rate 1 merges its origin and content edges independently. A
+// rate makes timeline and content positions round against each other, so a
+// placement that has one, before, after or now, merges as one value.
+function mergePlacement(merged: Mutable<Clip>, found: Clip, before: Clip, after: Clip): void {
+  if (rateOf(found) !== 1 || rateOf(before) !== 1 || rateOf(after) !== 1) {
+    if (samePlacement(before, after)) return;
+    if (!samePlacement(found, before)) conflict(found.id, "History field changed: placement");
+    merged.start = after.start;
+    merged.duration = after.duration;
+    merged.contentIn = after.contentIn;
+    if (after.rate === undefined) delete merged.rate;
+    else merged.rate = after.rate;
+    return;
+  }
   const from = placementOf(before);
   const to = placementOf(after);
   const now = placementOf(found);
@@ -336,6 +364,13 @@ function merge(found: Clip, before: Clip, after: Clip): Clip {
   merged.start = origin + contentIn;
   merged.duration = out - contentIn;
   merged.contentIn = contentIn;
+}
+
+// An update owns the fields it changed, with placement in content space, and
+// keeps every other field as it is now.
+function merge(found: Clip, before: Clip, after: Clip): Clip {
+  const merged: Mutable<Clip> = { ...found };
+  mergePlacement(merged, found, before, after);
   const from_ = candidatesOf(before);
   const to_ = candidatesOf(after);
   const now_ = candidatesOf(found);

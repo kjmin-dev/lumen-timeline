@@ -56,6 +56,7 @@ function createStudioSession(): StudioSession {
     editor,
     context: audio.context,
     catalog,
+    stretch: audio.stretch,
     resolveBuffer(span) {
       const buffer = audio.buffers.get(span.assetId);
       if (!buffer) throw new Error(`Missing demo buffer for ${span.assetId}`);
@@ -125,7 +126,7 @@ function StudioFooter({
     <div className="demo-footer">
       <p className="demo-hint">
         Drag clips to move or trim, click the ruler to scrub. <kbd>S</kbd> splits, <kbd>T</kbd>{" "}
-        shows takes, <kbd>Ctrl/Cmd+Z</kbd> undoes.
+        shows takes, <kbd>R</kbd> makes edge drags stretch, <kbd>Ctrl/Cmd+Z</kbd> undoes.
       </p>
       <span className="demo-spacer" />
       <span className="demo-badge" data-demo-backend>
@@ -257,6 +258,7 @@ const SYNC_CHROME = {
   markerEditor: false,
   editToolbar: false,
   snapToggle: false,
+  stretchToggle: false,
   trackControls: false,
 } as const;
 

@@ -28,6 +28,7 @@ export function createVideoTransport({
   fadeOutSeconds,
   catalog,
   resolveBuffer,
+  stretch,
   onError,
 }: VideoTransportOptions): VideoTransport {
   const listeners = new Set<(state: VideoTransportState) => void>();
@@ -73,6 +74,7 @@ export function createVideoTransport({
     editor,
     catalog,
     resolveBuffer,
+    stretch,
     trackOutput,
     fadeOutSeconds,
     onError,

@@ -25,6 +25,26 @@ export function activeTake(clip: Clip, takes: readonly Take[]): Take | undefined
   return undefined;
 }
 
+/** A clip's rate as a percentage of normal speed: "125%", "133.3%". */
+export function ratePercent(rate: number): string {
+  return Math.round(rate * 1000) / 10 + "%";
+}
+
+/**
+ * The caption beside a clip's name: its takes, as `takeCaption` gives them,
+ * then its speed when the clip has a rate. `undefined` when there is neither.
+ */
+export function clipCaption(
+  clip: Clip,
+  active: Take | undefined,
+  words: CaptionWords,
+): string | undefined {
+  const takes = takeCaption(clip, active, words);
+  const rate = clip.rate === undefined || clip.rate === 1 ? undefined : ratePercent(clip.rate);
+  if (rate === undefined) return takes;
+  return takes === undefined ? rate : takes + " · " + rate;
+}
+
 /**
  * The caption of a clip that lists candidates: the label of `active`, its
  * active take, or the word for none, and the candidate count. `undefined` for

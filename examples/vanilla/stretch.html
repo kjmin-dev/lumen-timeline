@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stretch lab</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #101417;
+        color: #e8e4d8;
+        font:
+          14px system-ui,
+          sans-serif;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "@lumen-timeline/core": "/packages/core/dist/index.js",
+          "@lumen-timeline/media": "/packages/media/dist/index.js",
+          "@lumen-timeline/media/signalsmith": "/packages/media/dist/signalsmith.js",
+          "signalsmith-stretch": "/node_modules/signalsmith-stretch/SignalsmithStretch.mjs"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <p>
+      Renders retimed clips through Signalsmith Stretch and plays them through the audio transport.
+      <code>npm run verify:stretch</code> drives this page.
+    </p>
+    <button type="button" id="start">Start audio</button>
+    <script type="module" src="./stretch.mjs"></script>
+  </body>
+</html>
