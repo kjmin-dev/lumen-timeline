@@ -11,9 +11,12 @@ hero:
     - text: Architecture
       link: /architecture/core/
       variant: minimal
+    - text: Examples
+      link: /examples/
+      variant: minimal
 ---
 
-import { Card, CardGrid } from "@astrojs/starlight/components";
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 import Demo from "../../components/Demo.astro";
 
 <Demo name="studio" title="Interactive Lumen Timeline studio demo" height="35rem" />
@@ -40,4 +43,26 @@ import Demo from "../../components/Demo.astro";
     individual editor or transport fields. During steady playback, a take inspector receives zero
     updates and static clip geometry uploads nothing.
   </Card>
+</CardGrid>
+
+## Example screens
+
+Three products built around the same timeline, running the real packages in the page with voices recorded for them.
+
+<CardGrid>
+  <LinkCard
+    title="AI dubbing studio"
+    description="A scene dubbed into four languages: one track per speaker, timing measured against the picture, every line heard alone or in the scene."
+    href="/examples/#ai-dubbing-studio"
+  />
+  <LinkCard
+    title="Transcript-driven podcast editor"
+    description="Edit the audio by editing the words: select text and cut, remove filler words and long pauses in one undoable step."
+    href="/examples/#transcript-driven-podcast-editor"
+  />
+  <LinkCard
+    title="Multitrack music session"
+    description="Bars and beats, a cycled section, a vocal comped from take lanes and a mixer with live meters."
+    href="/examples/#multitrack-music-session"
+  />
 </CardGrid>

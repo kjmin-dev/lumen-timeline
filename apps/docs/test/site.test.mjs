@@ -103,8 +103,13 @@ describe("built documentation site", () => {
       "packages/index.html",
       "benchmarks/clock-and-wasm/index.html",
       "benchmarks/measurements/index.html",
+      "examples/index.html",
+      "ko/examples/index.html",
       "demo/studio/index.html",
       "demo/sync/index.html",
+      "demo/dubbing/index.html",
+      "demo/podcast/index.html",
+      "demo/session/index.html",
       "_headers",
       "llms.txt",
       "llms-full.txt",
@@ -171,7 +176,7 @@ describe("built documentation site", () => {
   });
 
   it("inlines demo frames with srcdoc and preloads island modules", async () => {
-    for (const name of ["studio", "sync"]) {
+    for (const name of ["studio", "sync", "dubbing", "podcast", "session"]) {
       const demoHtml = await readFile(join(dist, "demo", name, "index.html"), "utf8");
       assert.match(demoHtml, /<link rel="modulepreload" href="\/_astro\//);
     }
@@ -183,6 +188,12 @@ describe("built documentation site", () => {
     ]) {
       const html = await readFile(join(dist, page), "utf8");
       assert.match(html, /<iframe data-demo="(?:studio|sync)" srcdoc="/);
+    }
+    for (const page of ["examples/index.html", "ko/examples/index.html"]) {
+      const html = await readFile(join(dist, page), "utf8");
+      for (const name of ["dubbing", "podcast", "session"]) {
+        assert.ok(html.includes(`<iframe data-demo="${name}" srcdoc="`), `${page}: ${name}`);
+      }
     }
   });
 
@@ -243,7 +254,7 @@ describe("built documentation site", () => {
     assert.deepEqual(broken, []);
   });
 
-  it("renders interactive studio, sync, theme sync, and package filter in Chromium with zero errors", async () => {
+  it("renders interactive studio, sync, example screens, theme sync, and package filter in Chromium with zero errors", async () => {
     const server = await startStaticServer(dist);
     const launchArgs =
       process.env["LUMEN_SOFTWARE_GPU"] === "1"
@@ -332,7 +343,45 @@ describe("built documentation site", () => {
           timeout: 5000,
         });
 
-      // 4. Interactive PackageMatrix filter on /packages/
+      // 4. The three example screens on /examples/: an edit in each reaches its panels
+      await page.goto(`${server.url}/examples/`, { waitUntil: "networkidle" });
+      const dubbing = page.frameLocator('iframe[data-demo="dubbing"]');
+      await dubbing.locator('[data-demo-ready="dubbing"]').waitFor({ timeout: 20000 });
+      assert.equal(await dubbing.locator("[data-dub-count]").textContent(), "9 lines");
+      // A line's play button plays that line alone.
+      await dubbing.locator('[data-line="03"] [data-dub-audition]').click({ force: true });
+      await dubbing.locator('[data-line="03"][data-auditioning]').waitFor({ timeout: 5000 });
+      await dubbing.locator('[data-line="03"] [data-dub-audition]').click({ force: true });
+      // Every dub has a project of its own, and the original has nothing to edit.
+      for (const [lang, word] of [
+        ["es", "marea"],
+        ["fr", "marée"],
+      ]) {
+        await dubbing.locator(`[data-dub-lang="${lang}"]`).click();
+        await dubbing.locator(".dub-list", { hasText: word }).waitFor({ timeout: 5000 });
+      }
+      await dubbing.locator('[data-dub-lang="en"]').click();
+      await dubbing.locator(".dub-list", { hasText: "as shot" }).waitFor({ timeout: 5000 });
+      assert.equal(await dubbing.locator("[data-dub-edit]").count(), 0);
+      await dubbing.locator('[data-dub-lang="ko"]').click();
+      assert.equal(await dubbing.locator("[data-dub-count]").textContent(), "9 lines");
+
+      const podcast = page.frameLocator('iframe[data-demo="podcast"]');
+      await podcast.locator('[data-demo-ready="podcast"]').waitFor({ timeout: 20000 });
+      const words = await podcast.locator("[data-word]").count();
+      await podcast.locator("[data-pod-fillers]").click();
+      assert.equal(await podcast.locator("[data-filler]").count(), 0);
+      assert.equal(await podcast.locator("[data-word]").count(), words - 8);
+      await podcast.locator('button[aria-label="Undo"]').click();
+      assert.equal(await podcast.locator("[data-word]").count(), words);
+
+      const session = page.frameLocator('iframe[data-demo="session"]');
+      await session.locator('[data-demo-ready="session"]').waitFor({ timeout: 20000 });
+      assert.equal(await session.locator(".lt-take").count(), 3);
+      await session.locator('[data-ses-cycle="chorus"]').click();
+      await session.locator("[data-example-time]", { hasText: "9.1.1" }).first().waitFor();
+
+      // 5. Interactive PackageMatrix filter on /packages/
       await page.goto(`${server.url}/packages/`, { waitUntil: "networkidle" });
       await page.locator('.pkg-matrix__filter button[data-show="wrapper"]').click();
       assert.match(await page.locator(".pkg-matrix__count").textContent(), /4 of 8 packages/);

@@ -45,7 +45,7 @@ export default defineConfig({
         {
           label: "Start",
           translations: { ko: "시작하기" },
-          items: [{ slug: "getting-started" }],
+          items: [{ slug: "getting-started" }, { slug: "examples" }],
         },
         {
           label: "Architecture",

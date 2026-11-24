@@ -515,19 +515,23 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
         outline(ctx, b, 3);
         ctx.stroke();
         if (!readOnly) {
-          // A grip on each edge the view shows.
-          const grip = Math.min(22, b.height - 12);
-          for (const x of [b.left, b.right]) {
-            if (x < 0 || x > width || grip < 6) continue;
-            const y = b.y + (b.height - grip) / 2;
-            ctx.fillStyle = laneColor;
-            ctx.beginPath();
-            ctx.roundRect(x - 4, y - 2, 8, grip + 4, 4);
-            ctx.fill();
+          // Each edge the view shows is a handle: the ring's side thickens inward over the
+          // clip's end, from the ring's outer edge to 3 pixels inside the clip, with a notch at
+          // its middle. The handle is part of the selection, not a bar laid across it.
+          const notch = Math.min(12, Math.round(b.height * 0.36));
+          for (const side of [-1, 1]) {
+            const x = side < 0 ? b.left : b.right;
+            if (x < -4 || x > width + 4) continue;
+            const x0 = side < 0 ? x - 4 : x - 3;
             ctx.fillStyle = theme.handleFill;
             ctx.beginPath();
-            ctx.roundRect(x - 2, y, 4, grip, 2);
+            ctx.roundRect(x0, b.y - 4, 7, b.height + 8, side < 0 ? [11, 2, 2, 11] : [2, 11, 11, 2]);
             ctx.fill();
+            if (notch < 6) continue;
+            ctx.fillStyle = laneColor;
+            const middle = Math.round(b.y + (b.height - notch) / 2);
+            ctx.fillRect(Math.round(x0 + 2), middle, 1, notch);
+            ctx.fillRect(Math.round(x0 + 4), middle, 1, notch);
           }
         }
       }

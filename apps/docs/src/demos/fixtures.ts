@@ -322,7 +322,15 @@ export function synthesizePcm(assetId: string, seconds: number): Float32Array {
   return data;
 }
 
-export function createDemoCatalog(): StreamCatalog {
+/** The sample rate of an asset. The demo's own synthesized audio is at `DEMO_SAMPLE_RATE`. */
+export type RateOf = (assetId: string) => number;
+const demoRate: RateOf = () => DEMO_SAMPLE_RATE;
+
+/** A catalog with one mono stream per asset, as long as its samples. */
+export function catalogFor(
+  assets: ReadonlyMap<string, Float32Array>,
+  rateOf: RateOf = demoRate,
+): StreamCatalog {
   const streams: Record<
     string,
     Record<
@@ -330,26 +338,29 @@ export function createDemoCatalog(): StreamCatalog {
       { assetVersion: number; sampleRate: number; availableStart: number; availableEnd: number }
     >
   > = {};
-  for (const [id, seconds] of Object.entries(ASSET_SECONDS)) {
+  for (const [id, pcm] of assets) {
     streams[id] = {
       mono: {
         assetVersion: 1,
-        sampleRate: DEMO_SAMPLE_RATE,
+        sampleRate: rateOf(id),
         availableStart: 0,
-        availableEnd: seconds * DEMO_SAMPLE_RATE,
+        availableEnd: pcm.length,
       },
     };
   }
   return { version: 1, streams };
 }
 
-export function createPeakSourceMap(): Map<string, PeakSource> {
+/** Peak sources that read each asset's samples in place. */
+export function peakSourcesFor(
+  assets: ReadonlyMap<string, Float32Array>,
+  rateOf: RateOf = demoRate,
+): Map<string, PeakSource> {
   const map = new Map<string, PeakSource>();
-  for (const [id, seconds] of Object.entries(ASSET_SECONDS)) {
-    const pcm = synthesizePcm(id, seconds);
+  for (const [id, pcm] of assets) {
     map.set(id, {
       version: 1,
-      sampleRate: DEMO_SAMPLE_RATE,
+      sampleRate: rateOf(id),
       length: pcm.length,
       read(start, end) {
         return pcm.subarray(start, end);
@@ -359,23 +370,48 @@ export function createPeakSourceMap(): Map<string, PeakSource> {
   return map;
 }
 
-/**
- * Wraps a browser AudioContext in the structural `AudioContextLike` interface without type
- * assertions, mapping `AudioBufferLike` references back to real `AudioBuffer` instances.
- */
-export function createStudioAudioHost(): {
+function studioAssets(): Map<string, Float32Array> {
+  const assets = new Map<string, Float32Array>();
+  for (const [id, seconds] of Object.entries(ASSET_SECONDS)) {
+    assets.set(id, synthesizePcm(id, seconds));
+  }
+  return assets;
+}
+
+export function createDemoCatalog(): StreamCatalog {
+  return catalogFor(studioAssets());
+}
+
+export function createPeakSourceMap(): Map<string, PeakSource> {
+  return peakSourcesFor(studioAssets());
+}
+
+export function createStudioAudioHost(): AudioHost {
+  return createAudioHost(studioAssets());
+}
+
+export interface AudioHost {
   context: AudioContextLike;
   buffers: ReadonlyMap<string, AudioBufferLike>;
   /** Plays retimed lines at their own pitch, through Signalsmith Stretch. */
   stretch: StretchAudio;
   close: () => void;
-} {
+}
+
+/**
+ * Wraps a browser AudioContext in the structural `AudioContextLike` interface without type
+ * assertions, mapping `AudioBufferLike` references back to real `AudioBuffer` instances. The
+ * assets are mono, each sampled at `rateOf` its ID.
+ */
+export function createAudioHost(
+  assets: ReadonlyMap<string, Float32Array>,
+  rateOf: RateOf = demoRate,
+): AudioHost {
   const native = new AudioContext({ sampleRate: 48000, latencyHint: "playback" });
   const nativeBuffers = new WeakMap<AudioBufferLike, AudioBuffer>();
   const buffers = new Map<string, AudioBufferLike>();
-  for (const [id, seconds] of Object.entries(ASSET_SECONDS)) {
-    const pcm = synthesizePcm(id, seconds);
-    const audioBuffer = native.createBuffer(1, pcm.length, DEMO_SAMPLE_RATE);
+  for (const [id, pcm] of assets) {
+    const audioBuffer = native.createBuffer(1, pcm.length, rateOf(id));
     audioBuffer.getChannelData(0).set(pcm);
     const handle: AudioBufferLike = {
       sampleRate: audioBuffer.sampleRate,
