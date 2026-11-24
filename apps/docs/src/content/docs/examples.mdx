@@ -1,0 +1,45 @@
+---
+title: Example screens
+description: Three application screens built around one timeline — an AI dubbing studio, a transcript-driven podcast editor and a multitrack music session — running the real packages in this page.
+template: splash
+---
+
+import Demo from "../../components/Demo.astro";
+
+The timeline is one part of an editor. These three screens put the same `@lumen-timeline/core`, `@lumen-timeline/media`, `@lumen-timeline/timeline` and `@lumen-timeline/react` packages inside three different products. Each runs here in the page: press play, edit, undo. The voices are recordings made for these screens with a text-to-speech model, each reading acted from a written direction; the music, the sea and the instruments are synthesized in the browser. The source is in [`apps/docs/src/demos/examples`](https://github.com/kjmin-dev/lumen-timeline/tree/main/apps/docs/src/demos/examples).
+
+## AI dubbing studio
+
+A preview monitor and a dialogue list over a timeline with the original dialogue (DX), music and effects (M&E) and a dub track for each speaker. A row of the list is a read-only view of one line; a line is edited in one place, a small editor that opens over its row. [Open it full screen](/demo/dubbing/).
+
+<Demo name="dubbing" title="AI dubbing studio example" height="56rem" />
+
+- **Timing is measured, not stored.** The picture leaves each line a slot: the time until the next line begins. How far a dub runs past its slot is computed from its clip, shown beside the line in seconds and hatched on the clip itself through `renderOverlay`. Drag the clip's edge and both follow.
+- **One line, heard alone.** A line's play button auditions its active take in isolation with `transport.audition`, without the bed or the lines around it, and puts the playhead back where it was.
+- **A voice is a take.** Double-click a line, or press Enter on it: **Regenerate** adds a candidate take and makes it active. When a line runs long, its editor offers a recorded take that fits, by name and length.
+- **Timing is a retime.** **Fit** ends the line with its slot through one `retime` command, played at pitch through the stretch engine. The button says how much faster the take will play before you press it.
+- **Stems and speakers are tracks.** The dub is cut on one track per speaker, so each voice is muted or soloed on its own and a line that runs long overlaps the next speaker instead of stacking. The caption on the monitor follows what is heard.
+- **The active line follows playback.** As the scene plays, the line being spoken is selected on the timeline, the list glides to it and a bar under it fills as it is spoken. Overlapping lines do not jerk the list about: requests settle for a moment before it moves, and it glides on a spring that bends toward a new goal instead of starting over. On a narrow screen the timeline pages along with the playhead the same way.
+- **A language is a project.** Korean, Japanese, Spanish and French each have their own editor, translations and history over one shared audio host. **English** is the original as shot: it plays the DX row, lists the lines as written and has nothing to edit.
+
+## Transcript-driven podcast editor
+
+The transcript is not a second document: it is derived from the clips on the two voice tracks, word by word, so the page and the timeline cannot disagree. [Open it full screen](/demo/podcast/).
+
+<Demo name="podcast" title="Podcast editor example" height="51rem" />
+
+- **Deleting text cuts audio.** Drag across words and press Delete: the words are split out of their clip and everything after them moves left, as one transaction. A mark stays where words were cut.
+- **Batch edits are one undo step.** **Remove** filler words and **Shorten** long pauses each build a single command list, so one undo restores every cut.
+- **Waveforms on a decibel scale.** The view draws whatever peaks its `WaveformProvider` returns, so the screen wraps the provider to map them to decibels: quiet speech still shows its shape, and only the picture changes, never the sound.
+- **Chapters are markers.** A chapter title in the transcript and its flag on the ruler are the same marker: rename it in the text, and a ripple cut moves it with the audio.
+
+## Multitrack music session
+
+A ruler in bars and beats, a section that cycles, a lead vocal comped from take lanes, and a mixer under the tracks. [Open it full screen](/demo/session/).
+
+<Demo name="session" title="Multitrack music session example" height="50rem" />
+
+- **Bars, not seconds.** `formatTime` and `gridSpacing` turn the ruler into bars and beats; snapping is a sixteenth note.
+- **Comping.** Split the verse at the playhead and pick a different take for each piece, from the take lanes or the Takes panel.
+- **Two views of one mix.** The mixer's faders, mute and solo dispatch the same track edits the timeline's headers show; its meters read the samples under the playhead.
+- **Cycle and varispeed** are the transport's: `setLoop` over a section's region marker and `setPlaybackRate`.

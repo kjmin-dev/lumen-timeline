@@ -3,6 +3,7 @@
 // stylesheet stays isolated from Starlight's.
 import { DEMO_NAMES, Demo } from "../../demos/index.tsx";
 import "../../styles/demo.css";
+import "../../styles/examples.css";
 
 export function getStaticPaths() {
   return DEMO_NAMES.map((name) => ({ params: { name } }));

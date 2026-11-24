@@ -11,9 +11,12 @@ hero:
     - text: 아키텍처
       link: /ko/architecture/core/
       variant: minimal
+    - text: 예시 화면
+      link: /ko/examples/
+      variant: minimal
 ---
 
-import { Card, CardGrid } from "@astrojs/starlight/components";
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
 import Demo from "../../../components/Demo.astro";
 
 <Demo name="studio" title="Lumen Timeline 라이브 스튜디오 데모" height="35rem" />
@@ -40,4 +43,26 @@ import Demo from "../../../components/Demo.astro";
     편집기·트랜스포트 필드만 구독합니다. 재생 중 테이크 인스펙터는 0회 갱신되고 정적 클립
     지오메트리도 재업로드되지 않습니다.
   </Card>
+</CardGrid>
+
+## 예시 화면
+
+같은 타임라인을 중심으로 만든 세 가지 제품 화면입니다. 실제 패키지가 페이지 안에서 동작하고, 목소리는 이 화면을 위해 녹음했습니다.
+
+<CardGrid>
+  <LinkCard
+    title="AI 더빙 스튜디오"
+    description="한 장면을 네 언어로 더빙합니다. 화자별 트랙, 영상 기준으로 측정한 타이밍, 대사 단독 재생과 장면 재생을 보여 줍니다."
+    href="/ko/examples/#ai-더빙-스튜디오"
+  />
+  <LinkCard
+    title="대본 기반 팟캐스트 에디터"
+    description="단어를 편집하면 오디오가 편집됩니다. 텍스트를 선택해 잘라 내고, 군더더기 말과 긴 공백을 한 번에 정리합니다."
+    href="/ko/examples/#대본-기반-팟캐스트-에디터"
+  />
+  <LinkCard
+    title="멀티트랙 음악 세션"
+    description="마디·박자 눈금자, 반복 구간, 테이크 레인으로 고르는 보컬, 실시간 미터가 있는 믹서."
+    href="/ko/examples/#멀티트랙-음악-세션"
+  />
 </CardGrid>

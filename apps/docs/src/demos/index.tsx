@@ -19,7 +19,15 @@ import type {
   TimelineTransport,
   TimelineView,
 } from "@lumen-timeline/timeline";
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  type ReactElement,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   createClockTransport,
   createDemoCatalog,
@@ -29,8 +37,9 @@ import {
   createStudioProject,
   createSyncProject,
 } from "./fixtures.ts";
+import { DEMO_FONTS, useSiteScheme } from "./scheme.ts";
 
-export const DEMO_NAMES = ["studio", "sync"] as const;
+export const DEMO_NAMES = ["studio", "sync", "dubbing", "podcast", "session"] as const;
 export type DemoName = (typeof DEMO_NAMES)[number];
 
 type RendererChoice = NonNullable<TimelineOptions["renderer"]>;
@@ -83,30 +92,6 @@ function createStudioSession(): StudioSession {
     },
   };
 }
-
-type Scheme = "light" | "dark";
-
-function readScheme(): Scheme {
-  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
-}
-
-/** The site's color scheme, which the docs page copies onto the demo frame's root. */
-function useSiteScheme(): Scheme {
-  const [scheme, setScheme] = useState<Scheme>("dark");
-  useEffect(() => {
-    setScheme(readScheme());
-    const watch = new MutationObserver(() => setScheme(readScheme()));
-    watch.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => watch.disconnect();
-  }, []);
-  return scheme;
-}
-
-const DEMO_FONTS = {
-  nameFont: '600 11.5px "Inter", system-ui, sans-serif',
-  captionFont: '10.5px "Inter", system-ui, sans-serif',
-  markerFont: '700 10px "Inter", system-ui, sans-serif',
-} as const;
 
 // The selected clip's own toolbar splits it, so the edit form stays out.
 const STUDIO_CHROME = { editToolbar: false } as const;
@@ -499,6 +484,23 @@ function SyncDemo(): ReactElement {
   );
 }
 
+// The example screens load on their own pages, so the docs' inline demos stay small.
+const DubbingStudio = lazy(() => import("./examples/DubbingStudio.tsx"));
+const PodcastEditor = lazy(() => import("./examples/PodcastEditor.tsx"));
+const MusicSession = lazy(() => import("./examples/MusicSession.tsx"));
+
 export function Demo({ name }: { readonly name: DemoName }): ReactElement {
-  return name === "sync" ? <SyncDemo /> : <StudioDemo />;
+  if (name === "studio") return <StudioDemo />;
+  if (name === "sync") return <SyncDemo />;
+  return (
+    <Suspense fallback={null}>
+      {name === "dubbing" ? (
+        <DubbingStudio />
+      ) : name === "podcast" ? (
+        <PodcastEditor />
+      ) : (
+        <MusicSession />
+      )}
+    </Suspense>
+  );
 }
