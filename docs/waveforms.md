@@ -118,7 +118,7 @@ onUnmounted(() => waveforms.dispose());
 
 ## Sources
 
-A source is `{ version, sampleRate, length, read(start, end) }` for one stream of an asset. `read` returns the samples from `start` to `end`, or a promise of them. The tiles copy what it returns into scratch buffers they own and transfer, so `read` may return a view of a buffer that is still playing. Samples it does not return count as no samples. `bufferPeakSource(buffer, { channel, version })` reads one channel of an `AudioBuffer`.
+A source is `{ version, sampleRate, length, read(start, end) }` for one stream of an asset. `read` returns the samples from `start` to `end`, or a promise of them. The tiles copy what it returns into scratch buffers they own and transfer, so `read` may return a view of a buffer that is still playing. Samples it does not return count as no samples. `bufferPeakSource(buffer, { channel, version })` reads one channel of an `AudioBuffer`. A source may also carry an `overview`, min/max pairs the host computed ahead, as `buildPeakOverview(samples, samplesPerPair)` makes them: columns at least `samplesPerPair` wide draw from it and read no samples, which keeps a zoomed-out view of a long stream cheap. [Long media](long-media.md#waveforms-of-long-streams)
 
 - **Versions.** Tiles are kept while the source's `version`, `sampleRate` and `length` are unchanged. Give the source a new version when its samples change; tiles of the old one are dropped and never drawn, including a worker reply that arrives later. `invalidate(assetId)` drops an asset's tiles without a new version and tells listeners.
 - **Failures.** A `read` that throws or rejects is reported in `diagnostics().error`. Its tiles are not read again until the asset is invalidated.

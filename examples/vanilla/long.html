@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Three-hour session · Lumen Timeline</title>
+    <link rel="stylesheet" href="/packages/timeline/style.css" />
+    <link rel="stylesheet" href="./studio.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@lumen-timeline/media": "/packages/media/dist/index.js",
+          "@lumen-timeline/core": "/packages/core/dist/index.js",
+          "@lumen-timeline/timeline": "/packages/timeline/dist/index.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <div class="brand"><i aria-hidden="true"></i>Lumen <b>Timeline</b></div>
+      <a href="./index.html">Video workspace</a>
+    </header>
+    <main>
+      <div class="title">
+        <h1>Three-hour session</h1>
+        <div class="project-actions">
+          <button type="button" data-seek="0">Start</button
+          ><button type="button" data-seek="5400">1:30:00</button
+          ><button type="button" data-seek="10740">2:59:00</button
+          ><button id="whole" type="button">Whole session</button>
+        </div>
+      </div>
+      <section class="workspace" aria-label="Media cache">
+        <div class="audio-panel">
+          <div class="panel-head">
+            Media cache <small>10 s chunks, read with a bearer token</small>
+          </div>
+          <div class="source-row">
+            <strong>Decoded audio</strong><output id="bytes">—</output><small id="budget"></small>
+          </div>
+          <div class="source-row">
+            <strong>Chunks</strong><output id="chunks">—</output><small id="reads"></small>
+          </div>
+          <div class="source-row">
+            <strong>Loaded stem</strong><output id="loaded">—</output><small></small>
+          </div>
+          <div class="clock-row">Playhead <output id="clock">0:00:00.000</output></div>
+        </div>
+        <aside>
+          <div class="panel-head">Playback timing</div>
+          <dl>
+            <dt>Seams</dt>
+            <dd id="seams">0</dd>
+            <dt>Clock corrections</dt>
+            <dd id="corrections">0</dd>
+            <dt>Late starts</dt>
+            <dd id="late">0</dd>
+            <dt>Underruns</dt>
+            <dd id="underruns">0</dd>
+          </dl>
+        </aside>
+      </section>
+      <div class="title timeline-title">
+        <h2>Timeline</h2>
+        <span>2 stems · 4 speakers · 2,400 lines</span>
+      </div>
+      <div id="timeline"></div>
+      <p id="status" role="status"></p>
+    </main>
+    <script type="module" src="./long.mjs"></script>
+  </body>
+</html>

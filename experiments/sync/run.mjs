@@ -34,6 +34,7 @@ const modules = new Set([
   "/experiments/sync/probe.js",
   "/experiments/sync/audio-only-pcm.mjs",
   "/experiments/sync/audition-pcm.mjs",
+  "/experiments/sync/chunked-pcm.mjs",
   "/experiments/sync/transport.mjs",
   "/experiments/sync/buffer-fixture.mjs",
   "/experiments/sync/continuous-edits.mjs",

@@ -1,11 +1,12 @@
 import type { Editor, PlanIssue, StreamCatalog } from "@lumen-timeline/core";
 import { VoiceScheduler } from "./voice-scheduler.ts";
 import type { Anchor, Voice } from "./voice-scheduler.ts";
-import type { AudioContextLike, AudioNodeLike, MediaErrorHandler, ResolveBuffer, StretchAudio, SeekResult, VideoElementLike } from "./types.ts";
+import type { AudioContextLike, AudioNodeLike, MediaCache, MediaErrorHandler, ResolveBuffer, StretchAudio, SeekResult, VideoElementLike } from "./types.ts";
 export interface VideoDriverOptions {
     readonly editor: Editor;
     readonly catalog: StreamCatalog;
-    readonly resolveBuffer: ResolveBuffer;
+    readonly resolveBuffer?: ResolveBuffer | undefined;
+    readonly media?: MediaCache | undefined;
     readonly stretch?: StretchAudio | undefined;
     readonly trackOutput?: ((trackId: string) => AudioNodeLike | undefined) | undefined;
     readonly fadeOutSeconds?: number | undefined;
@@ -25,6 +26,8 @@ export declare class VideoTransport {
     readonly onFrame: (seconds: number) => void;
     readonly useVideoFrameCallback: boolean;
     phaseResets: number;
+    /** The largest gap between booked audio and the video clock at the last frame, in seconds. */
+    phaseError: number;
     phaseExcursion: {
         readonly sign: number;
         readonly since: number;
@@ -34,7 +37,7 @@ export declare class VideoTransport {
     frame: number;
     seekInFlight?: boolean;
     pending?: PendingSeek | null;
-    constructor(video: VideoElementLike, context: AudioContextLike, output: AudioNodeLike, { editor, catalog, resolveBuffer, stretch, trackOutput, fadeOutSeconds, onError, onFrame, }: VideoDriverOptions);
+    constructor(video: VideoElementLike, context: AudioContextLike, output: AudioNodeLike, { editor, catalog, resolveBuffer, media, stretch, trackOutput, fadeOutSeconds, onError, onFrame, }: VideoDriverOptions);
     get generation(): number;
     get anchor(): Anchor | null;
     get voices(): Map<string, Voice>;

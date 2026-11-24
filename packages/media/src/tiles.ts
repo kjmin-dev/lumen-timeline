@@ -8,6 +8,7 @@ import type { PeakBackend } from "./peaks.ts";
 import type {
   BufferPeakSource,
   ChannelBufferLike,
+  PeakOverview,
   PeakRequest,
   PeakSource,
   PeakWorker,
@@ -203,6 +204,12 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
     const width = ((end - start) * sampleRate) / hz / buckets;
     const out = new Float32Array(2 * buckets).fill(NaN);
     if (!(width > 0)) return out;
+    // Columns as wide as the host's own peaks draw from them and read nothing.
+    const computed = stream.source.overview;
+    if (computed && usableOverview(computed) && width >= computed.samplesPerPair) {
+      overviewColumns(computed, from, width, length, out);
+      return out;
+    }
     // The coarsest level no wider than a column: a tile level, or one of the
     // summary's, the overview beyond them all.
     let level = 0;
@@ -547,6 +554,70 @@ export function createWaveformTiles(options: WaveformTilesOptions): WaveformTile
 }
 
 /** A peak source over one channel of a decoded buffer. */
+const usableOverview = (overview: PeakOverview): boolean =>
+  Number.isSafeInteger(overview.samplesPerPair) &&
+  overview.samplesPerPair > 0 &&
+  overview.peaks instanceof Float32Array;
+
+/** Fills each column with the extremes of the overview pairs it covers. */
+function overviewColumns(
+  overview: PeakOverview,
+  from: number,
+  width: number,
+  length: number,
+  out: Float32Array,
+): void {
+  const { samplesPerPair: per, peaks } = overview;
+  const count = Math.floor(peaks.length / 2);
+  const buckets = out.length / 2;
+  for (let column = 0; column < buckets; column++) {
+    const x0 = Math.max(0, from + column * width);
+    const x1 = Math.min(length, from + (column + 1) * width);
+    if (x1 <= x0) continue;
+    const last = Math.min(count, Math.ceil(x1 / per)) - 1;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let pair = Math.floor(x0 / per); pair <= last; pair++) {
+      const a = peaks[2 * pair] ?? NaN;
+      const b = peaks[2 * pair + 1] ?? NaN;
+      if (a < lo) lo = a;
+      if (b > hi) hi = b;
+    }
+    if (lo <= hi) {
+      out[2 * column] = lo;
+      out[2 * column + 1] = hi;
+    }
+  }
+}
+
+/**
+ * Min/max pairs of `samplesPerPair` samples each, for a waveform overview a
+ * host computes once, as when it imports a long recording, and stores beside
+ * it. A pair without finite samples holds NaN.
+ */
+export function buildPeakOverview(
+  samples: ArrayLike<number>,
+  samplesPerPair: number,
+): PeakOverview {
+  if (!Number.isSafeInteger(samplesPerPair) || samplesPerPair <= 0)
+    throw new RangeError("Expected a positive whole number of samples per pair");
+  const count = Math.ceil(samples.length / samplesPerPair);
+  const peaks = new Float32Array(2 * count);
+  for (let pair = 0; pair < count; pair++) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    const end = Math.min(samples.length, (pair + 1) * samplesPerPair);
+    for (let i = pair * samplesPerPair; i < end; i++) {
+      const value = samples[i] ?? NaN;
+      if (value < lo) lo = value;
+      if (value > hi) hi = value;
+    }
+    peaks[2 * pair] = lo <= hi ? lo : NaN;
+    peaks[2 * pair + 1] = lo <= hi ? hi : NaN;
+  }
+  return Object.freeze({ samplesPerPair, peaks });
+}
+
 export function bufferPeakSource(
   buffer: ChannelBufferLike,
   {

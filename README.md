@@ -16,6 +16,7 @@ The core owns editing commands, time and history. A shared browser view handles 
 - [Vanilla timeline example](docs/vanilla-timeline.md) runs a two-track guide with selection, zoom and playback, drawn through WebGL2, WebGPU or Canvas 2D.
 - [Media transports](docs/media-transports.md) describes the video and audio-only clocks, their shared Web Audio scheduler, both runnable workflows and pitch-preserving time stretch with Signalsmith Stretch.
 - [Waveform tiles](docs/waveforms.md) builds the peaks drawn in clips in a worker, with an optional Rust SIMD kernel and a byte budget.
+- [Long media](docs/long-media.md) reads sessions of hours in chunks through a host-written reader, within a memory budget, loading ahead of the playhead and staying locked to the clock at every chunk edge.
 - [Framework wrappers](docs/frameworks.md) mount the same view in React, Svelte, SolidJS and Vue and let their components select editor and transport fields, checked against the vanilla consumer.
 - [Sharing a project between editors](docs/sync.md) covers the optional sync package: sessions, the sequencer, confirmation policies and handover, with no server required.
 - [Delivery plans](docs/plans/README.md) record each completed slice: its user outcome, the PRs that delivered it and their merge gates.

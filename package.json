@@ -52,6 +52,7 @@
     "verify:lines": "node examples/vanilla/verify-lines.mjs",
     "verify:waveforms": "node examples/vanilla/verify-waveforms.mjs",
     "verify:peaks": "node examples/vanilla/verify-peaks.mjs",
+    "verify:long": "node examples/vanilla/verify-long.mjs",
     "verify:scale": "node examples/vanilla/verify-scale.mjs",
     "verify:renderers": "node examples/vanilla/verify-renderers.mjs",
     "verify:mounts": "node examples/vanilla/verify-mounts.mjs",

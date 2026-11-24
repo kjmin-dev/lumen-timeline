@@ -1,0 +1,84 @@
+{
+  "recorded": "2026-11-24T09:23:02.171Z",
+  "machine": {
+    "platform": "Darwin 25.6.0 arm64",
+    "cpu": "Apple M2 Pro",
+    "cores": 10,
+    "memory": 17179869184
+  },
+  "engine": "chromium",
+  "browser": "156.0.8078.4",
+  "budgetBytes": 201326592,
+  "peakBytes": 199680000,
+  "chunkLoads": 147,
+  "evictions": 95,
+  "abortedReads": 0,
+  "tokenRefreshes": 7,
+  "refusedReads": 17,
+  "seeks": [
+    {
+      "seconds": 10740,
+      "ms": 393,
+      "warm": false
+    },
+    {
+      "seconds": 5400,
+      "ms": 329,
+      "warm": false
+    },
+    {
+      "seconds": 300.25,
+      "ms": 162,
+      "warm": false
+    },
+    {
+      "seconds": 10740,
+      "ms": 82,
+      "warm": true
+    },
+    {
+      "seconds": 7777.7,
+      "ms": 663,
+      "warm": false
+    },
+    {
+      "seconds": 1234.5,
+      "ms": 278,
+      "warm": false
+    },
+    {
+      "seconds": 9999.9,
+      "ms": 677,
+      "warm": false
+    },
+    {
+      "seconds": 5400,
+      "ms": 439,
+      "warm": false
+    },
+    {
+      "seconds": 42,
+      "ms": 178,
+      "warm": false
+    },
+    {
+      "seconds": 8888.8,
+      "ms": 289,
+      "warm": false
+    }
+  ],
+  "seekToSoundMs": {
+    "coldMedian": 329,
+    "warmMedian": 82
+  },
+  "timing": {
+    "nodes": 2,
+    "seams": 11,
+    "corrections": 0,
+    "lateStarts": 0,
+    "underruns": 0,
+    "phaseResets": 0,
+    "phaseError": 0
+  },
+  "jsHeapBytes": 5557156
+}
