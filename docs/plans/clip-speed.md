@@ -1,6 +1,6 @@
 # Clip speed and time stretch
 
-**Status.** Delivered in one pull request, PR S.
+**Status.** Delivered in [#62](https://github.com/kjmin-dev/lumen-timeline/pull/62).
 
 **User outcome.** In a dubbing studio, fit a line to its picture by dragging the clip's edge in stretch mode, or by typing a speed. The line keeps its words and its voice: it plays faster or slower at its own pitch, and trims, splits, takes, undo, redo and a shared session all keep working on it. Without a stretch engine the same project plays the clip as varispeed. [Design](../design.md#editing-commands) · [Milestone 3](../../ROADMAP.md#milestones)
 
