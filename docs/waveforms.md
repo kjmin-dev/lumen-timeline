@@ -2,41 +2,76 @@
 
 `createWaveformTiles` in `@lumen-timeline/media` turns the PCM a host already has into the peaks the timeline draws inside clips. Peaks are built in a module worker, with the Rust SIMD kernel for large batches, kept in tiles within a byte budget, and never block the page. The result satisfies the timeline's [`waveforms` option](vanilla-timeline.md#waveforms). [Plan](plans/scale-rendering.md#waveform-tiles)
 
-```js
-import { bufferPeakSource, createWaveformTiles } from "@lumen-timeline/media";
+`tiles.js` makes the tiles for the assets that [`host.js`](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration) decodes. A source is added once its audio is decoded, and `invalidate` tells the view to draw it:
 
-const sources = new Map(); // assetId → PeakSource
-const waveforms = createWaveformTiles({
-  source: (assetId, streamId) => sources.get(assetId) ?? null,
-});
-sources.set("stem", bufferPeakSource(decodedStem)); // channel 0, version 0
+```js title="tiles.js"
+import { bufferPeakSource, createWaveformTiles } from "@lumen-timeline/media";
+import { decode } from "./host.js";
+
+export function createTiles(assetIds) {
+  const sources = new Map(); // assetId → PeakSource
+  const tiles = createWaveformTiles({ source: (assetId) => sources.get(assetId) ?? null });
+  for (const assetId of assetIds)
+    decode(assetId).then((buffer) => {
+      sources.set(assetId, bufferPeakSource(buffer)); // channel 0, version 0
+      tiles.invalidate(assetId);
+    });
+  return tiles;
+}
 ```
 
-Pass the tiles to the view as its `waveforms`:
+The tiles run a worker, so a component makes them when it mounts and disposes them when it goes. Each tab is a whole file:
 
 <!-- framework-tabs -->
 
 **Vanilla**
 
-```js
+```js title="main.js"
 import { mountTimeline } from "@lumen-timeline/timeline";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./host.js";
+import { createTiles } from "./tiles.js";
 
-mountTimeline(element, { editor, transport, waveforms });
+// The page holds <div id="timeline"></div>.
+const waveforms = createTiles(["voice-a", "voice-b"]);
+const view = mountTimeline(document.querySelector("#timeline"), { editor, transport, waveforms });
+
+// When the page stops showing the timeline: view.dispose(), then waveforms.dispose().
 ```
 
 **React**
 
-```jsx
+```jsx title="App.jsx"
+import { useEffect, useState } from "react";
 import { Timeline } from "@lumen-timeline/react";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./host.js";
+import { createTiles } from "./tiles.js";
 
-<Timeline editor={editor} transport={transport} waveforms={waveforms} />;
+export function App() {
+  // Made in an effect, so StrictMode's second mount gets tiles that are not disposed.
+  const [tiles, setTiles] = useState(null);
+  useEffect(() => {
+    const created = createTiles(["voice-a", "voice-b"]);
+    setTiles(created);
+    return () => created.dispose();
+  }, []);
+  return <Timeline editor={editor} transport={transport} waveforms={tiles ?? undefined} />;
+}
 ```
 
 **Svelte**
 
-```svelte
+```svelte title="App.svelte"
 <script>
+  import { onDestroy } from "svelte";
   import { timeline } from "@lumen-timeline/svelte";
+  import "@lumen-timeline/timeline/style.css";
+  import { editor, transport } from "./host.js";
+  import { createTiles } from "./tiles.js";
+
+  const waveforms = createTiles(["voice-a", "voice-b"]);
+  onDestroy(() => waveforms.dispose());
 </script>
 
 <div {@attach timeline(() => ({ editor, transport, waveforms }))}></div>
@@ -44,12 +79,17 @@ import { Timeline } from "@lumen-timeline/react";
 
 **SolidJS**
 
-```jsx
-import { createSignal } from "solid-js";
+```jsx title="App.jsx"
+import { createSignal, onCleanup } from "solid-js";
 import { createTimeline } from "@lumen-timeline/solid";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./host.js";
+import { createTiles } from "./tiles.js";
 
-function Workspace() {
+export function App() {
   const [element, setElement] = createSignal();
+  const waveforms = createTiles(["voice-a", "voice-b"]);
+  onCleanup(() => waveforms.dispose());
   createTimeline(element, () => ({ editor, transport, waveforms }));
   return <div ref={setElement} />;
 }
@@ -57,9 +97,16 @@ function Workspace() {
 
 **Vue**
 
-```vue
+```vue title="App.vue"
 <script setup>
+import { onUnmounted } from "vue";
 import { Timeline } from "@lumen-timeline/vue";
+import "@lumen-timeline/timeline/style.css";
+import { editor, transport } from "./host.js";
+import { createTiles } from "./tiles.js";
+
+const waveforms = createTiles(["voice-a", "voice-b"]);
+onUnmounted(() => waveforms.dispose());
 </script>
 
 <template>
@@ -68,8 +115,6 @@ import { Timeline } from "@lumen-timeline/vue";
 ```
 
 <!-- /framework-tabs -->
-
-The tiles belong to the host, like the editor and the transport: create them once, and call `dispose()` when no view needs them.
 
 ## Sources
 

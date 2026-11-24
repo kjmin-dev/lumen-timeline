@@ -1,6 +1,6 @@
 # Query clips and plan audio
 
-`editor.read()` pins the current immutable document and its track layouts. Pass a snapshot from a selector callback to `editor.read(snapshot)` to query that exact revision, even if another subscriber has already committed an edit. Retained handles stay readable across move, undo and redo.
+`editor.read()` pins the current immutable document and its track layouts. Pass a snapshot from a selector callback to `editor.read(snapshot)` to query that exact revision, even if another subscriber has already committed an edit. Retained handles stay readable across move, undo and redo. The examples call `@lumen-timeline/core` alone, so they run unchanged under every framework wrapper; a component calls them from its event handlers, as the [Getting started](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration) tabs do.
 
 ```js
 const read = editor.read();

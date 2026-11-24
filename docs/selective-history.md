@@ -1,6 +1,6 @@
 # Selective undo and redo
 
-Use one transaction for one user intention. For example, preview a drag in session state and submit its final placement on pointer release. Put durable background results through the document API with `history: 'ignore'`. A user's undo can then restore a clip position while a newly generated take stays available. Cursor motion, playback ticks and job-progress animation belong to the host's transient session state.
+Use one transaction for one user intention. For example, preview a drag in session state and submit its final placement on pointer release. Put durable background results through the document API with `history: 'ignore'`. A user's undo can then restore a clip position while a newly generated take stays available. Cursor motion, playback ticks and job-progress animation belong to the host's transient session state. The examples call `@lumen-timeline/core` alone, so they run unchanged under every framework wrapper; a component calls them from its event handlers, as the [Getting started](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration) tabs do.
 
 ## Public contract
 

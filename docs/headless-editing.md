@@ -1,6 +1,6 @@
 # Headless clip editing
 
-The `@lumen-timeline/core` workspace exposes synchronous move, trim and split commands and transaction history. Run `npm ci` at the repository root to link the workspaces and build the core with tsrs. The same ES module build runs in Node or a browser, and TypeScript hosts get its declarations.
+The `@lumen-timeline/core` workspace exposes synchronous move, trim and split commands and transaction history. Run `npm ci` at the repository root to link the workspaces and build the core with tsrs. The same ES module build runs in Node or a browser, and TypeScript hosts get its declarations. The examples on this page call the core alone, so they run unchanged under every framework wrapper: a component calls `editor.dispatch` from its event handlers as the [Getting started](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration) tabs do. [Watching state](#watching-state) shows each framework reading the editor.
 
 ```js
 import { commands, createEditor, unitsToTicks } from "@lumen-timeline/core";
@@ -221,10 +221,15 @@ editor.setGate(({ history, commands, targets, revision }) =>
 
 ## Watching state
 
-Framework panels and other hosts read the editor through one value that changes only when it should. The [framework wrappers](plans/framework-wrappers.md) build on these.
+Framework panels and other hosts read the editor through one value that changes only when it should. In vanilla JavaScript that value comes from `watchEditor` and `watchSelect`; the [framework wrappers](frameworks.md) build their selectors on them. Each tab is a whole file: an inspector that shows the selected clip and its active take, with the editor from [`host.js`](../apps/docs/src/content/docs/getting-started.mdx#minimal-integration).
 
-```js
+<!-- framework-tabs -->
+
+**Vanilla**
+
+```js title="inspector.js"
 import { shallowEqual, watchEditor, watchSelect } from "@lumen-timeline/core";
+import { editor } from "./host.js";
 
 const inspector = watchSelect(
   watchEditor(editor),
@@ -234,8 +239,111 @@ const inspector = watchSelect(
   },
   shallowEqual,
 );
-const stop = inspector.subscribe(() => render(inspector.get()));
+
+// The page holds <output id="inspector"></output>.
+const output = document.querySelector("#inspector");
+const render = ({ clipId, takeId }) => {
+  output.textContent = clipId ? `${clipId}: ${takeId}` : "No clip selected";
+};
+render(inspector.get());
+export const stop = inspector.subscribe(() => render(inspector.get()));
 ```
+
+**React**
+
+```jsx title="Inspector.jsx"
+import { shallowEqual } from "@lumen-timeline/core";
+import { useEditorSelector } from "@lumen-timeline/react";
+import { editor } from "./host.js";
+
+const selected = ({ snapshot, selection }) => {
+  const clip = snapshot.clips.find((c) => c.id === selection.at(-1));
+  return { clipId: clip?.id ?? null, takeId: clip?.activeTakeId ?? null };
+};
+
+export function Inspector() {
+  const { clipId, takeId } = useEditorSelector(editor, selected, shallowEqual);
+  return <output>{clipId ? `${clipId}: ${takeId}` : "No clip selected"}</output>;
+}
+```
+
+**Svelte**
+
+```svelte title="Inspector.svelte"
+<script>
+  import { shallowEqual } from "@lumen-timeline/core";
+  import { editorSelector } from "@lumen-timeline/svelte";
+  import { editor } from "./host.js";
+
+  const inspector = editorSelector(
+    editor,
+    ({ snapshot, selection }) => {
+      const clip = snapshot.clips.find((c) => c.id === selection.at(-1));
+      return { clipId: clip?.id ?? null, takeId: clip?.activeTakeId ?? null };
+    },
+    shallowEqual,
+  );
+</script>
+
+<output>
+  {inspector.current.clipId
+    ? `${inspector.current.clipId}: ${inspector.current.takeId}`
+    : "No clip selected"}
+</output>
+```
+
+**SolidJS**
+
+```jsx title="Inspector.jsx"
+import { shallowEqual } from "@lumen-timeline/core";
+import { createEditorSelector } from "@lumen-timeline/solid";
+import { editor } from "./host.js";
+
+export function Inspector() {
+  const inspector = createEditorSelector(
+    editor,
+    ({ snapshot, selection }) => {
+      const clip = snapshot.clips.find((c) => c.id === selection.at(-1));
+      return { clipId: clip?.id ?? null, takeId: clip?.activeTakeId ?? null };
+    },
+    shallowEqual,
+  );
+  return (
+    <output>
+      {inspector().clipId ? `${inspector().clipId}: ${inspector().takeId}` : "No clip selected"}
+    </output>
+  );
+}
+```
+
+**Vue**
+
+```vue title="Inspector.vue"
+<script setup>
+import { shallowEqual } from "@lumen-timeline/core";
+import { useEditorSelector } from "@lumen-timeline/vue";
+import { editor } from "./host.js";
+
+const inspector = useEditorSelector(
+  editor,
+  ({ snapshot, selection }) => {
+    const clip = snapshot.clips.find((c) => c.id === selection.at(-1));
+    return { clipId: clip?.id ?? null, takeId: clip?.activeTakeId ?? null };
+  },
+  shallowEqual,
+);
+</script>
+
+<template>
+  <output>
+    {{ inspector.clipId ? `${inspector.clipId}: ${inspector.takeId}` : "No clip selected" }}
+  </output>
+</template>
+```
+
+<!-- /framework-tabs -->
+
+Each wrapper subscribes while the component is mounted and stops when it goes. In vanilla JavaScript, call `stop()` yourself.
 
 - **`watchEditor(editor)`** is `{ snapshot, selection, history }`. Its identity changes only when one of the three does. A commit that also prunes the selection and records history notifies once, with all three current. It subscribes to the editor only while it has listeners, and `get()` without listeners returns the current state. Stop listening before disposing the editor.
 - **`watchSnapshots(source)`** does the same for any source with `snapshot()` and `subscribe(listener)`, such as a transport. A source that returns the same object until it notifies, as the media transports do, keeps the value's identity stable.

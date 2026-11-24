@@ -77,6 +77,7 @@ const DOC_ROUTES = new Map<string, string>([
   ["docs/sync.md", "/guides/sync/"],
   ["docs/frameworks.md", "/frameworks/overview/"],
   ["docs/clock-and-wasm.md", "/benchmarks/clock-and-wasm/"],
+  ["apps/docs/src/content/docs/getting-started.mdx", "/getting-started/"],
 ]);
 
 /** Resolves a path relative to a source directory (e.g. `docs/`) into a repo-relative POSIX path. */
@@ -896,12 +897,17 @@ export async function generateAll(): Promise<void> {
   });
 
   // Guides
-  await copyDoc("docs/headless-editing.md", "guides/editing.md", {
-    title: "Headless clip editing",
-    description:
-      "Transactional move, trim, split, markers, candidate takes, generated IDs, replace, dispatch gate and state watching in @lumen-timeline/core.",
-    order: 1,
-  });
+  await copyDoc(
+    "docs/headless-editing.md",
+    "guides/editing.mdx",
+    {
+      title: "Headless clip editing",
+      description:
+        "Transactional move, trim, split, markers, candidate takes, generated IDs, replace, dispatch gate and state watching in @lumen-timeline/core.",
+      order: 1,
+    },
+    { mdx: true },
+  );
   await copyDoc("docs/selective-history.md", "guides/selective-history.md", {
     title: "Selective undo & redo",
     description:

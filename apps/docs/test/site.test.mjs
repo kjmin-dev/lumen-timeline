@@ -149,6 +149,7 @@ describe("built documentation site", () => {
     for (const page of [
       "getting-started",
       "ko/getting-started",
+      "guides/editing",
       "guides/timeline-view",
       "guides/waveforms",
       "guides/transports",

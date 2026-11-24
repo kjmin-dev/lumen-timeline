@@ -193,6 +193,8 @@ const clip = useEditorSelector(
 
 CI runs the suite with `LUMEN_SOFTWARE_GPU=1`, which draws WebGL2 on SwiftShader.
 
+`npm run verify:docs-examples` checks the framework tabs in these guides. Each tab is a whole file, and the script builds each page's tabs for every framework with Vite in development mode, beside `host.js` from Getting started. It then opens them in Chromium: each root mounts its timelines, every button on the page does what the page says, an inspector follows the selection, and unmounting leaves no timeline. A build or page warning fails it.
+
 ## Benchmark
 
 `npm run bench:wrappers` compares the production builds with vanilla in Google Chrome at 1,280 × 800 CSS pixels and DPR 2, through WebGL2. Each run opens every consumer once, in an order that rotates from run to run. Each consumer gets the same 20-second trace with playback: eight seconds of panning and zooming the view, then pointer drags that select a clip, preview its move and commit it. It records main-thread work per frame until the frame's tasks end, missed refreshes, and the time from each pointer move to the end of the frame that shows it. `--write` records the medians over the runs and every run in `docs/measurements/wrappers.json`. A wrapper is within variation when its median is no further above vanilla's than vanilla's own runs spread, or than Chrome's 0.1 ms clock can tell apart.
