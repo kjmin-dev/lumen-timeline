@@ -8,7 +8,7 @@ import { commands, contentAt, contentEnd, createEditor, unitsToTicks } from "@lu
 const seconds = (value) => unitsToTicks(value, 1);
 const editor = createEditor({
   project: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     duration: seconds(30),
     tracks: [{ id: "voice", overlap: "exclusive", accepts: ["audio"] }],
     clips: [
@@ -41,17 +41,17 @@ In the example, the right clip initially starts at 14 s and reads the source at 
 
 ## Project and command contract
 
-- Supply schema version 1, a tracks array and a clips array. Track and clip IDs are nonempty strings unique within their collection. Every clip has a track ID, kind, start tick, positive duration and integer content offset. The editor clones the input and preserves additional JSON fields.
+- Supply a schema version, a tracks array and a clips array. The editor writes schema 2, `SCHEMA_VERSION`, and opens a schema-1 project by migrating a copy; a later schema opens [read-only](plugins-and-persistence.md#schema-versions). Track and clip IDs are nonempty strings unique within their collection. Every clip has a track ID, kind, start tick, positive duration and integer content offset. The editor clones the input and preserves additional JSON fields.
 - All positions use 282,240,000 ticks per second. An explicit `timebase` must match that value. Project `duration` sets a fixed exclusive end in ticks. If omitted, edits may extend to the seven-day project limit. Optional `minClipDuration` defaults to one tick. A track accepts all kinds by default. Use `accepts`, `locked` and `overlap: 'exclusive'` to constrain edits. Mixing tracks allow overlapping intervals. Two exclusive-track clips may share an edge.
 - A clip with finite source handles can supply `contentBounds: { start, end }` in content ticks. Both ends of its retained content must stay within these handles. A slot without handles can extend into silence. A clip that plays a single stream without candidate takes can carry a direct `source: { assetId, streamId, sourceAtContentZero? }` field instead of registering a take; when a clip lists `takeIds`, `activeTakeId` takes precedence. Take IDs, optional `color`, and JSON metadata survive edits. Move and trim preserve opaque clip extension data. Splitting a clip with extension-owned fields uses the registered [plugin](#plugins) `onSplit` policy for each namespace, or returns `split-policy-required` when none is registered.
 - Move accepts distinct clip IDs, a signed delta and an optional destination `trackId`. It checks all selected clips in their final positions together. A left trim shifts the start by the delta, subtracts it from duration and moves the content offset by the delta at the clip's [rate](#clip-speed). A right trim adds the delta to duration. A split names its cut either as a timeline tick strictly inside the clip, `at`, or as a point strictly between the clip's content edges, `atContent`. A move does not change the content point. Supply an optional unique `rightId` when the host owns IDs. Otherwise read the [generated ID](#generated-ids-and-replay) from `createdIds`.
-- `addClip({ clip, after? })`, `removeClip({ clipId })` and `updateClip({ clipId, name?, color?, kind?, contentBounds?, source?, continuityId?, extensions? })` create, delete and update clips on unlocked tracks. In `updateClip`, `undefined` keeps a field and `null` clears an optional field. Adding a clip validates its placement, overlap policy, accepted kinds and bounds with the same rules as move and trim, and omits `id` to generate one.
+- `addClip({ clip, after? })`, `removeClip({ clipId })` and `updateClip({ clipId, name?, color?, kind?, contentBounds?, source?, continuityId?, extensions?, gain? })` create, delete and update clips on unlocked tracks. In `updateClip`, `undefined` keeps a field and `null` clears an optional field. Adding a clip validates its placement, overlap policy, accepted kinds and bounds with the same rules as move and trim, and omits `id` to generate one.
 
 ## Results and history
 
 Use a command array for an atomic batch. Pass `{ history: 'ignore' }` to apply single or batched writes outside the undo stacks. Defaults, conflict recovery, durable metadata and retention limits are defined in [selective history](selective-history.md).
 
-- Loading checks every typed field and rejects a malformed project with an `EditError`. It rejects an invalid track name, mute, solo or gain with `invalid-track`, an invalid clip name, take or continuity ID or extensions map with `invalid-clip`, and a clip rate out of range with `invalid-rate`. A malformed take or candidate list is rejected with `invalid-take`. Content time lies within seven days of zero, like a take's source position, so a source mapping always fits a safe integer. Other JSON fields are kept unchanged.
+- Loading checks every typed field and rejects a malformed project with an `EditError`. It rejects an invalid track name, mute, solo or gain with `invalid-track`, an invalid clip name, take or continuity ID or extensions map with `invalid-clip`, a clip rate out of range with `invalid-rate`, and a clip gain out of range with `invalid-gain`. A malformed take or candidate list is rejected with `invalid-take`. Content time lies within seven days of zero, like a take's source position, so a source mapping always fits a safe integer. Other JSON fields are kept unchanged.
 - `getSnapshot()` returns the immutable project with its revision. Retained snapshots remain valid after edits. Save the project as JSON and pass it to `createEditor` to reopen at the saved revision. History is local to an editor session.
 - Pass `{ expectedRevision }` as a second argument to `dispatch`, or as an argument to `history.undo` or `history.redo`, to reject stale writes. A change increments the revision once and returns `ok`, `revision`, `changedIds`, `createdIds`, forward and inverse clip patches, and `affected.before` and `affected.after` intervals. These intervals include the vacated track on a cross-track move. A zero-delta edit with no placement change returns `unchanged: true` at the current revision.
 - `clipPatches` and `inverseClipPatches` describe each clip change as `{ id, before, after, follows? }`, where `undefined` means an absent clip. A patch that adds a clip names in `follows` the clip it is placed after in the project's clip array; a split places each new clip after the one it was cut from. `clipFieldChanges(patch)` lists what an update changed, with placement in [content space](selective-history.md#replay-against-the-current-document). A rejected command returns `{ ok: false, revision, code, target, reason }` and preserves both history branches. One undo reverses the complete selection move. Redo restores the exact split ID. A successful recorded edit after undo discards the previous redo branch. An ignored transaction preserves it.
@@ -100,9 +100,24 @@ editor.dispatch(commands.removeTrack({ trackId: "sfx", removeClips: true }));
   - `reorderTracks({ trackIds })` applies a permutation of the project's track IDs.
 - **Commit results.** Track edits report `trackPatches` and `inverseTrackPatches`, plus `trackOrder` when order changes. Live mix changes (`mute`, `solo`, `gain`) trigger active media transports to reconcile voices without dropping unrelated reservations.
 
+## Clip gain
+
+A clip's optional `gain` is a linear level applied to its audio on top of its track's `gain`, from 0 to `MAX_CLIP_GAIN` (16, about +24 dB). A planned span's `gain` is the product of the two, so a transport plays a clip at 0.5 on a track at 0.5 at a quarter of its level. A clip at gain 0 plays nothing, as a track at gain 0 does. A snapshot omits a gain of 1.
+
+```js
+// Six decibels down: 10 ** (-6 / 20).
+editor.dispatch(commands.updateClip({ clipId: rightId, gain: 0.501 }));
+// Back to the level as recorded.
+editor.dispatch(commands.updateClip({ clipId: rightId, gain: null }));
+```
+
+- **Edits.** `addClip` and `updateClip` take `gain`. `null`, or 1, removes the field. A split gives both halves the clip's gain, and move, trim and retime keep it.
+- **Validation.** `invalid-gain` rejects a gain below 0, above `MAX_CLIP_GAIN` or not a number, on load and on edit.
+- **History.** Undo and redo restore it like any other field, and `clipFieldChanges` reports it under `fields.gain`. A view draws a clip's waveform at its gain, so the picture shows what is heard.
+
 ## Plugins
 
-Pass `plugins` to `createEditor({ project, plugins })` to register domain extension schemas and clip split policies per extension namespace. Build plugins with `definePlugin`:
+Pass `plugins` to `createEditor({ project, plugins })` to register domain extension schemas, migrations and clip split policies per extension namespace. Build plugins with `definePlugin`:
 
 ```js
 import { createEditor, definePlugin } from "@lumen-timeline/core";
@@ -125,6 +140,7 @@ const editor = createEditor({ project, plugins: [subtitles] });
 
 - **Validation.** `validate({ target, id, value })` runs when loading a project and on every edit that creates or updates `extensions` on a clip, track, marker or take. Returning a nonempty error string rejects the operation with `invalid-extension`.
 - **Splitting.** When splitting a clip with `extensions`, every namespace present must have a registered plugin providing `onSplit`. Unregistered namespaces still reject with `split-policy-required` so missing plugins cannot silently corrupt domain data.
+- **Versions and missing plugins.** A plugin's `version` is recorded in the project, `migrate` upgrades payloads an earlier version wrote, and an editor without a plugin keeps its payloads as written. [Plugins and persistence](plugins-and-persistence.md) covers writing a plugin, saving, migrations and what each editor does with a payload it cannot read.
 
 ## Takes
 
@@ -217,7 +233,7 @@ const result = editor.replace(savedSnapshot);
 // result.history is "replace", and its patches describe the difference.
 ```
 
-- **Same project.** The snapshot must have the same project `id` (if set), sequence bounds and timebase; track additions, removals, updates and reorders are diffed and adopted cleanly. Another project fails with `foreign-snapshot`, and an invalid one with the loading codes. Nothing changes on failure.
+- **Same project.** The snapshot must have the same project `id` (if set), sequence bounds and timebase; track additions, removals, updates and reorders are diffed and adopted cleanly. Another project fails with `foreign-snapshot`, and an invalid one with the loading codes. A snapshot in an earlier schema or from an earlier plugin version is migrated first, as `createEditor` migrates. One the editor could only open read-only, or whose payloads a plugin version it does not read wrote, fails with `unsupported-schema`, and a read-only editor refuses every replacement with `read-only`. Nothing changes on failure.
 - **One notification.** Subscribers keep their subscriptions and see one commit, `history: "replace"`. Its track, clip, marker, take and data patches describe the difference, so views repaint only what changed. Its `commands` list one `replay` of that difference. An identical document returns `unchanged`.
 - **Selection and history.** The selection drops clips the snapshot lacks. History stays. Its entries replay against the new document and conflict where their fields changed.
 - **Revisions and IDs.** The revision moves forward: to the snapshot's revision when that is later, to the next one otherwise. The ID counter moves past every ID of the editor's actor in the snapshot and never moves back, so the IDs of a transaction that was dropped are not issued again.
@@ -239,6 +255,7 @@ editor.setGate(({ history, commands, targets, revision }) =>
 - **Commit.** `"commit"` lets the transaction through.
 - **Read-only.** `{ readOnly: reason }` rejects it with the code `read-only` and the reason as its `target`, so a view can say why, as for a viewer, a review lock or a save in progress.
 - **Hold.** `"hold"` returns `{ ok: false, held: true, code: "held", commands, targets }` and changes nothing: no revision, history entry or notification. A held split's commands already name its new clip, so dispatching them later makes the same clip. A view can mark the targets pending.
+- **A read-only project.** An editor that opened a project in a later schema refuses every transaction with `read-only` and the target `newer-schema` before a gate sees it. `editor.readOnly` names that reason, and is `null` for an editable project.
 - **Rules.** The gate must answer synchronously with one of these decisions. It cannot dispatch, undo, redo or replace from inside itself. An error it throws reaches the caller and nothing changes.
 
 ## Watching state
