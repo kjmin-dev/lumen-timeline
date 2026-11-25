@@ -117,6 +117,12 @@ export class VideoTransport {
     listen("playing", () => {
       this.running = true;
     });
+    // A seek within buffered media can end without a "playing" event (WebKit), so a seek the
+    // element made itself, from its controls or the page, resumes from the element's own state.
+    // The transport's own seeks do the same once they drain.
+    listen("seeked", () => {
+      if (!this.seekInFlight) this.running = this.playable();
+    });
     this.observe();
   }
 
@@ -243,12 +249,19 @@ export class VideoTransport {
       }
     } finally {
       this.seekInFlight = false;
-      this.running =
-        !this.listeners.signal.aborted &&
-        !this.video.paused &&
-        !this.video.ended &&
-        this.video.readyState >= 3;
+      this.running = this.playable();
     }
+  }
+
+  /** Whether the element is playing with data ahead of it. */
+  private playable(): boolean {
+    return (
+      !this.listeners.signal.aborted &&
+      !this.video.paused &&
+      !this.video.ended &&
+      !this.video.seeking &&
+      this.video.readyState >= 3
+    );
   }
 
   nativeSeek(target: number): Promise<void> {

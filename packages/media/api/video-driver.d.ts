@@ -52,6 +52,8 @@ export declare class VideoTransport {
     invalidate(): void;
     seek(target: number): Promise<SeekResult>;
     drainSeeks(): Promise<void>;
+    /** Whether the element is playing with data ahead of it. */
+    private playable;
     nativeSeek(target: number): Promise<void>;
     dispose(): void;
 }

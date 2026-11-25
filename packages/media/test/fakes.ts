@@ -76,7 +76,7 @@ export class FakeVideo extends EventTarget implements VideoElementLike {
   currentTime = 1;
   playbackRate = 1;
   readonly duration = 12;
-  readonly paused = true;
+  paused = true;
   readonly ended = false;
   seeking = false;
   readonly readyState = 4;

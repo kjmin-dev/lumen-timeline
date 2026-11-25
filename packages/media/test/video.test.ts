@@ -171,3 +171,46 @@ test("native seeks publish their target and start a segment; frames advance with
   });
   assert.equal(stop(), true);
 });
+
+test("a native seek while playing resumes presenting frames without a playing event", (t) => {
+  const editor = createEditor({
+    project: { schemaVersion: 2, duration: 12 * hz, tracks: [], clips: [] },
+  });
+  const { video, player } = videoFixture(editor);
+  t.after(() => {
+    player.dispose();
+    editor.dispose();
+  });
+  video.paused = false;
+  video.dispatchEvent(new Event("play"));
+  video.dispatchEvent(new Event("playing"));
+  video.present(1.1);
+  video.present(1.2);
+  assert.equal(player.snapshot().presentedTick, 1.2 * hz);
+  assert.equal(player.snapshot().playing, true);
+
+  // A seek within buffered media: WebKit fires seeking and seeked, but no playing event.
+  video.nativeSeek(6);
+  video.seeked();
+  assert.equal(player.snapshot().presentedTick, 6 * hz);
+  // The first callback after the seek re-arms; the frames after it are presented.
+  video.present(6);
+  video.present(6.1);
+  video.present(6.2);
+  assert.equal(player.snapshot().presentedTick, 6.2 * hz);
+  assert.equal(player.snapshot().playing, true);
+
+  // A seek that runs out of data waits for the playing event as before.
+  video.nativeSeek(9);
+  video.dispatchEvent(new Event("waiting"));
+  video.seeked();
+  Object.defineProperty(video, "readyState", { value: 2, configurable: true });
+  video.dispatchEvent(new Event("seeked"));
+  video.present(9);
+  video.present(9.1);
+  assert.equal(player.snapshot().presentedTick, 9 * hz);
+  Object.defineProperty(video, "readyState", { value: 4, configurable: true });
+  video.dispatchEvent(new Event("playing"));
+  video.present(9.2);
+  assert.equal(player.snapshot().presentedTick, 9.2 * hz);
+});
