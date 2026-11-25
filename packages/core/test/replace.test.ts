@@ -148,7 +148,7 @@ test("a foreign or invalid snapshot is refused and changes nothing", () => {
   second.trackId = "voice";
   assert.equal(codeOf(ana.replace(overlap)), "overlap");
   // @ts-expect-error -- An unchecked host may pass anything.
-  assert.equal(codeOf(ana.replace({ schemaVersion: 2 })), "unsupported-schema");
+  assert.equal(codeOf(ana.replace({ schemaVersion: 3 })), "unsupported-schema");
   assert.equal(ana.getSnapshot(), before);
   assert.equal(notified, 0);
 });

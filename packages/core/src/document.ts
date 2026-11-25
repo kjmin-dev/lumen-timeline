@@ -1,4 +1,5 @@
 import { normalizeEntityData } from "./entity-data.ts";
+import { MAX_CLIP_GAIN, SCHEMA_VERSION } from "./schema.ts";
 import { compareMarkers, parseMarker } from "./markers.ts";
 import type { PluginRegistry } from "./plugins.ts";
 import { checkLoadedReferences, compareTakes, parseCandidates, parseTake } from "./takes.ts";
@@ -8,6 +9,7 @@ import type {
   Clip,
   ClipSource,
   ContentBounds,
+  ExtensionVersions,
   JsonValue,
   Marker,
   ProjectSnapshot,
@@ -16,6 +18,17 @@ import type {
   Track,
 } from "./types.ts";
 import { freezeJson, isArray, isRecord, requireEdit, safeInteger, validId } from "./validation.ts";
+
+/** Checks a clip gain, absent or from 0 to `MAX_CLIP_GAIN`. */
+export function checkGain(id: unknown, gain: unknown): asserts gain is number | undefined {
+  requireEdit(
+    gain === undefined ||
+      (typeof gain === "number" && Number.isFinite(gain) && gain >= 0 && gain <= MAX_CLIP_GAIN),
+    "invalid-gain",
+    id,
+    "Clip gain must be a number from 0 to " + MAX_CLIP_GAIN,
+  );
+}
 
 /** Validation rules shared by project loading and every staged clip. */
 export interface Rules {
@@ -186,14 +199,18 @@ export function parseClip(
     id,
     "Expected a string color",
   );
+  const gain = clip["gain"];
+  checkGain(id, gain);
   plugins?.validate("clip", id, extensions);
-  // A clip carries both candidate fields or neither, and a rate only when it
-  // is not 1. Kept fields keep their position.
+  // A clip carries both candidate fields or neither, and a rate or a gain only
+  // when it is not 1. Kept fields keep their position.
   const { takeIds: _noTakes, activeTakeId: _noActive, ...withoutCandidates } = clip;
   const kept = candidates === undefined ? withoutCandidates : clip;
   const { rate: _noRate, ...withoutRate } = kept;
+  const rated = rate === 1 ? withoutRate : kept;
+  const { gain: _noGain, ...withoutGain } = rated;
   return Object.freeze({
-    ...(rate === 1 ? withoutRate : kept),
+    ...(gain === 1 ? withoutGain : rated),
     id,
     trackId,
     kind,
@@ -201,6 +218,7 @@ export function parseClip(
     duration,
     contentIn,
     ...(rate === 1 ? {} : { rate }),
+    ...(gain === undefined || gain === 1 ? {} : { gain }),
     ...(contentBounds === undefined ? {} : { contentBounds }),
     ...(source === undefined ? {} : { source }),
     ...candidates,
@@ -211,7 +229,15 @@ export function parseClip(
   });
 }
 
-export function openProject(input: unknown, plugins?: PluginRegistry): OpenedProject {
+/**
+ * Opens a project at `SCHEMA_VERSION`, as a migration leaves it. With `newer`,
+ * a later schema opens too, under the rules of this one.
+ */
+export function openProject(
+  input: unknown,
+  plugins?: PluginRegistry,
+  newer = false,
+): OpenedProject {
   const known = typeof input === "object" && input !== null ? issued.get(input) : undefined;
   if (known) {
     if (plugins?.hasPlugins) {
@@ -226,12 +252,16 @@ export function openProject(input: unknown, plugins?: PluginRegistry): OpenedPro
     return adopt(known);
   }
   const project = freezeJson(input, new Set());
+  const schemaVersion = isRecord(project) ? project["schemaVersion"] : undefined;
   requireEdit(
-    isRecord(project) && project["schemaVersion"] === 1,
+    isRecord(project) &&
+      safeInteger(schemaVersion) &&
+      (schemaVersion === SCHEMA_VERSION || (newer && schemaVersion > SCHEMA_VERSION)),
     "unsupported-schema",
-    null,
-    "Editing requires project schema version 1",
+    schemaVersion,
+    "Editing requires project schema version " + SCHEMA_VERSION,
   );
+  const extensionVersions = parseExtensionVersions(project["extensionVersions"]);
   const timebase = project["timebase"];
   requireEdit(
     timebase === undefined || timebase === TICKS_PER_SECOND,
@@ -325,7 +355,7 @@ export function openProject(input: unknown, plugins?: PluginRegistry): OpenedPro
   const takeList = [...takes.values()].sort(compareTakes);
   // Normalized entity data follows the revision, as when the editor normalized it.
   // Empty markers and takes lists are omitted; otherwise they keep their field position.
-  const { entityData: rawData, ...withLists } = project;
+  const { entityData: rawData, extensionVersions: _versions, ...withLists } = project;
   const { markers: _emptyMarkers, ...withoutMarkers } = withLists;
   const withTakes = markerList.length ? withLists : withoutMarkers;
   const { takes: _emptyTakes, ...withoutTakes } = withTakes;
@@ -335,7 +365,7 @@ export function openProject(input: unknown, plugins?: PluginRegistry): OpenedPro
     : undefined;
   const snapshot: ProjectSnapshot = Object.freeze({
     ...rest,
-    schemaVersion: 1,
+    schemaVersion,
     ...(timebase === undefined ? {} : { timebase }),
     tracks: Object.freeze(trackList),
     clips: Object.freeze(clipList),
@@ -345,8 +375,33 @@ export function openProject(input: unknown, plugins?: PluginRegistry): OpenedPro
     ...(takeList.length ? { takes: Object.freeze(takeList) } : {}),
     revision,
     ...(entityData === undefined ? {} : { entityData }),
+    ...(extensionVersions === undefined ? {} : { extensionVersions }),
   });
   return { snapshot, rules, byTrack, positions: undefined };
+}
+
+/**
+ * Validates a project's plugin versions and puts them in canonical form:
+ * sorted by namespace, without version 1, and absent when empty.
+ */
+export function parseExtensionVersions(
+  value: JsonValue | undefined,
+): ExtensionVersions | undefined {
+  if (value === undefined) return undefined;
+  requireEdit(isRecord(value), "invalid-project", null, "Expected an extensionVersions map");
+  const entries: [string, number][] = [];
+  for (const [namespace, version] of Object.entries(value)) {
+    requireEdit(
+      validId(namespace) && safeInteger(version) && version > 0,
+      "invalid-project",
+      namespace,
+      "An extension version must be a positive safe integer",
+    );
+    if (version !== 1) entries.push([namespace, version]);
+  }
+  if (!entries.length) return undefined;
+  entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return Object.freeze(Object.fromEntries(entries));
 }
 
 /** Checks placement fields against the rules shared by loading and every edit. */
@@ -430,6 +485,8 @@ export function checkPlacement(
 export function validateClip(clip: Clip, rules: Rules): void {
   // A staged clip omits a rate of 1, as a loaded one does.
   requireEdit(clip.rate !== 1, "invalid-rate", clip.id, "A rate of 1 is omitted");
+  requireEdit(clip.gain !== 1, "invalid-gain", clip.id, "A gain of 1 is omitted");
+  checkGain(clip.id, clip.gain);
   checkPlacement(clip, rules);
 }
 

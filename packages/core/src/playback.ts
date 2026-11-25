@@ -105,7 +105,7 @@ function planClip(
     assetVersion: stream.assetVersion,
     streamId: source.streamId,
     sampleRate,
-    gain: track.gain ?? 1,
+    gain: (track.gain ?? 1) * (clip.gain ?? 1),
     rate: rateOf(clip),
     sourceOriginTick: at(0),
     audible,
@@ -155,6 +155,8 @@ export function planAudio(
     }
     visit(track.id, (clip) => {
       if (isolate !== undefined && clip.id !== isolate) return;
+      // A silenced clip plays nothing, as a silenced track does.
+      if (clip.gain === 0) return;
       if (badGain) {
         issues.push(Object.freeze({ code: "invalid-gain", trackId: track.id }));
         return;

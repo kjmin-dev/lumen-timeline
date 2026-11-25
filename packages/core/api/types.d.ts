@@ -10,7 +10,7 @@ export type JsonObject = {
 export type JsonValue = JsonPrimitive | readonly JsonValue[] | JsonObject;
 export type OverlapPolicy = "mix" | "exclusive";
 /**
- * A track in a schema-v1 project. The editor preserves additional JSON fields
+ * A track in a project. The editor preserves additional JSON fields
  * without interpreting them.
  */
 export interface Track {
@@ -43,7 +43,7 @@ export interface ClipSource {
     readonly sourceAtContentZero?: Tick;
 }
 /**
- * A clip placement in a schema-v1 project. Loading validates the placement
+ * A clip placement in a project. Loading validates the placement
  * fields. The editor preserves other JSON fields without interpreting them.
  */
 export interface Clip {
@@ -66,6 +66,12 @@ export interface Clip {
      * a snapshot omits a rate of 1. Change it with a `retime` command.
      */
     readonly rate?: number;
+    /**
+     * Linear gain applied to the clip's audio, from 0 to `MAX_CLIP_GAIN`, on top
+     * of its track's gain. Omitted means 1, and a snapshot omits a gain of 1.
+     * Both halves of a split keep it.
+     */
+    readonly gain?: number;
     readonly contentBounds?: ContentBounds;
     /**
      * Direct media source when the clip plays a single stream without candidate takes.
@@ -134,9 +140,16 @@ export type EntityRecords = {
 export type EntityData = {
     readonly [scope: string]: EntityRecords;
 };
-/** A schema-v1 project document as JSON. */
+/** Plugin payload versions by namespace. A namespace not listed is at version 1. */
+export type ExtensionVersions = {
+    readonly [namespace: string]: number;
+};
+/**
+ * A project document as JSON. An editor writes `SCHEMA_VERSION` and opens
+ * every earlier schema by migrating a copy. A later schema opens read-only.
+ */
 export interface Project {
-    readonly schemaVersion: 1;
+    readonly schemaVersion: number;
     readonly timebase?: typeof TICKS_PER_SECOND;
     readonly revision?: number;
     readonly duration?: Tick;
@@ -148,6 +161,11 @@ export interface Project {
     /** Sorted by ID in a snapshot. Omitted when there are none. */
     readonly takes?: readonly Take[];
     readonly entityData?: EntityData;
+    /**
+     * The plugin version that wrote each namespace's payloads, for namespaces
+     * above version 1, sorted by namespace. Omitted when there are none.
+     */
+    readonly extensionVersions?: ExtensionVersions;
     readonly [field: string]: unknown;
 }
 /** An immutable project revision owned by an editor. */
@@ -222,6 +240,8 @@ export interface ClipInput {
     readonly contentIn?: Tick | undefined;
     /** Content ticks per timeline tick. Omitted or 1 plays at normal speed. */
     readonly rate?: number | undefined;
+    /** Linear clip gain from 0 to `MAX_CLIP_GAIN`. Omitted or 1 leaves the level as recorded. */
+    readonly gain?: number | undefined;
     readonly name?: string | undefined;
     readonly color?: string | undefined;
     readonly contentBounds?: ContentBounds | undefined;
@@ -257,6 +277,8 @@ export interface UpdateClipCommand {
     readonly source?: ClipSource | null | undefined;
     readonly continuityId?: string | null | undefined;
     readonly extensions?: JsonObject | null | undefined;
+    /** Linear clip gain from 0 to `MAX_CLIP_GAIN`. `null` or 1 restores the recorded level. */
+    readonly gain?: number | null | undefined;
 }
 /** The fields of a new track. Omitting `id` generates one. */
 export interface TrackInput {
@@ -470,7 +492,7 @@ export type ExpectCommand = ExpectClipCommand | ExpectDataCommand;
 export type EditCommand = ClipCommand | TrackCommand | DataCommand | MarkerCommand | TakeCommand | ExpectCommand | ReplayCommand;
 export type PreviewCommand = MoveCommand | TrimCommand | RetimeCommand;
 /** Every code an `EditError` or a rejected edit can carry. */
-export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "track-not-empty" | "invalid-edge" | "invalid-range" | "invalid-rate" | "split-policy-required" | "invalid-extension" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker" | "missing-take" | "invalid-take" | "active-take" | "listed-take" | "invalid-expectation" | "expectation-failed" | "invalid-replay" | "read-only";
+export type EditErrorCode = "unknown-command" | "invalid-selection" | "invalid-delta" | "missing-clip" | "locked-track" | "missing-track" | "track-not-empty" | "invalid-edge" | "invalid-range" | "invalid-rate" | "invalid-gain" | "split-policy-required" | "invalid-extension" | "invalid-id" | "disposed" | "stale-revision" | "revision-overflow" | "unsupported-preview" | "invalid-history-policy" | "empty-history" | "history-conflict" | "invalid-project" | "unsupported-schema" | "invalid-timebase" | "invalid-track" | "invalid-clip" | "incompatible-kind" | "source-bounds" | "overlap" | "invalid-data-key" | "invalid-history" | "foreign-snapshot" | "missing-marker" | "invalid-marker" | "missing-take" | "invalid-take" | "active-take" | "listed-take" | "invalid-expectation" | "expectation-failed" | "invalid-replay" | "read-only";
 export type HistoryPolicy = "record" | "ignore";
 /** How a commit relates to history. `replace` is an adopted snapshot. */
 export type CommitHistory = HistoryPolicy | "undo" | "redo" | "replace";
@@ -880,6 +902,13 @@ export interface Editor {
      * before it commits, or removes it with `null`.
      */
     setGate(gate: DispatchGate | null): void;
+    /**
+     * Why every edit is refused, or `null` when the project is editable.
+     * `"newer-schema"` for a project written in a later schema than
+     * `SCHEMA_VERSION`. A refused dispatch, undo, redo, preview or replacement
+     * fails with the code `read-only` and this reason as its target.
+     */
+    readonly readOnly: string | null;
     readonly history: EditorHistory;
     subscribe<T>(select: (snapshot: ProjectSnapshot) => T, listen: (value: T, result: EditCommit, snapshot: ProjectSnapshot) => void): Unsubscribe;
     dispose(): void;
@@ -906,16 +935,69 @@ export interface SplitExtensionResult {
     readonly left: JsonValue | undefined;
     readonly right: JsonValue | undefined;
 }
+/** Context passed to `TimelinePlugin.migrate` for a payload an earlier version wrote. */
+export interface MigrateExtensionContext {
+    readonly target: "clip" | "track" | "marker" | "take";
+    readonly id: string;
+    readonly value: JsonValue;
+    /** The plugin version that wrote `value`, below the plugin's own version. */
+    readonly from: number;
+}
 /**
  * Registers domain semantics for one `extensions[namespace]` payload: optional
- * validation on load and edits, and optional split behavior for clips.
+ * validation on load and edits, migration from earlier versions, and split
+ * behavior for clips.
  */
 export interface TimelinePlugin {
     readonly namespace: string;
+    /**
+     * The version of the payloads this plugin reads and writes, a positive
+     * integer. A project records it in `extensionVersions` once the plugin has
+     * opened it. A project whose payloads a later version wrote opens with the
+     * namespace unread, as if the plugin were absent.
+     */
     readonly version: number;
     /** Return a nonempty string reason to reject the payload with `invalid-extension`. */
     readonly validate?: ((context: ValidateExtensionContext) => string | undefined) | undefined;
     readonly onSplit?: ((context: SplitExtensionContext) => SplitExtensionResult) | undefined;
+    /**
+     * Upgrades one payload an earlier version wrote to this version, before it is
+     * validated. Return `undefined` to drop the namespace from that record.
+     * Without it, earlier payloads are read as they are.
+     */
+    readonly migrate?: ((context: MigrateExtensionContext) => JsonValue | undefined) | undefined;
+}
+/** One plugin namespace a migration upgraded. */
+export interface ExtensionUpgrade {
+    readonly namespace: string;
+    readonly from: number;
+    readonly to: number;
+}
+/** What `migrateProject` read and what it made of it. */
+export interface ProjectMigration {
+    /**
+     * The validated project at `SCHEMA_VERSION`, or as written when it is
+     * read-only. A new frozen object: the input is never changed.
+     */
+    readonly project: ProjectSnapshot;
+    /** The schema version the input was written in. */
+    readonly from: number;
+    /** Plugin namespaces whose payloads were upgraded, in namespace order. */
+    readonly extensions: readonly ExtensionUpgrade[];
+    /**
+     * Namespaces a later version of their plugin wrote than the one registered.
+     * Their payloads are kept as they are, not validated, and a clip that
+     * carries one cannot be split.
+     */
+    readonly unread: readonly string[];
+    /** `"newer-schema"` when the project opens read-only, otherwise `null`. */
+    readonly readOnly: string | null;
+    /** True when the schema or a payload changed, so saving it would rewrite the file. */
+    readonly upgraded: boolean;
+}
+export interface MigrateOptions {
+    /** The plugins the project will be opened with, whose payloads are upgraded. */
+    readonly plugins?: readonly TimelinePlugin[] | undefined;
 }
 export interface EditorOptions {
     readonly project: Project;

@@ -9,5 +9,9 @@ export interface PluginRegistry {
         readonly right: JsonObject | undefined;
     };
 }
-/** Registers domain plugins for an editor. Rejects duplicate namespaces. */
-export declare function createPluginRegistry(plugins: readonly TimelinePlugin[] | undefined): PluginRegistry;
+/**
+ * Registers domain plugins for an editor. Rejects duplicate namespaces.
+ * `unread` names namespaces a later plugin version wrote, which the editor
+ * keeps without reading.
+ */
+export declare function createPluginRegistry(plugins: readonly TimelinePlugin[] | undefined, unread?: readonly string[]): PluginRegistry;

@@ -1,6 +1,8 @@
 export { createEditor, commands } from "./editor.ts";
 export type { Commands } from "./editor.ts";
 export { definePlugin } from "./plugins.ts";
+export { MAX_CLIP_GAIN, SCHEMA_VERSION } from "./schema.ts";
+export { migrateProject } from "./project-migration.ts";
 export { EditError } from "./validation.ts";
 export {
   TICKS_PER_SECOND,

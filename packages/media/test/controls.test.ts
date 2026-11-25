@@ -239,3 +239,63 @@ test("video transport supports playbackRate, loop and falls back cleanly without
   assert.equal(fallbackPlayer.snapshot().presentedTick, 0);
   fallbackPlayer.dispose();
 });
+
+test("a clip's gain multiplies its track's on the voice, and changing it books only that clip again", async (t: TestContext) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const project = baseProject();
+  const editor = createEditor({
+    project: { ...project, clips: project.clips.map((clip) => ({ ...clip, gain: 0.5 })) },
+  });
+  const context = new FakeContext(rate);
+  const levels: number[] = [];
+  context.createGain = (): GainNodeLike => {
+    const node: GainNodeLike = {
+      gain: {
+        get value() {
+          return levels[index] ?? 1;
+        },
+        set value(level: number) {
+          levels[index] = level;
+        },
+      },
+      connect: () => undefined,
+      disconnect() {},
+    };
+    const index = levels.push(1) - 1;
+    return node;
+  };
+  const transport = createAudioTransport({
+    editor,
+    context,
+    output: sink,
+    catalog,
+    resolveBuffer: () => ({ sampleRate: rate, length: rate * 10 }),
+  });
+  t.after(() => {
+    transport.dispose();
+    editor.dispose();
+  });
+
+  await transport.play();
+  const origin = context.nodes[0].when;
+  context.currentTime = context.outputTime = origin + 0.1;
+  t.mock.timers.tick(25);
+  // Voice at 1 × 0.5, music at 0.5 × 0.5.
+  assert.deepEqual(
+    [...levels].sort((a, b) => a - b),
+    [0.25, 0.5],
+  );
+  const voiceBefore = transport.diagnostics("line");
+  const musicBefore = transport.diagnostics("bed");
+
+  assert.ok(editor.dispatch(commands.updateClip({ clipId: "bed", gain: 1.5 })).ok);
+  assert.deepEqual(transport.diagnostics("line"), voiceBefore);
+  assert.notEqual(transport.diagnostics("bed").reservation, musicBefore.reservation);
+  assert.equal(levels.length, 3);
+  assert.equal(levels.at(-1), 0.75);
+
+  // A clip at gain 0 plays nothing; its track's other clips are not touched.
+  assert.ok(editor.dispatch(commands.updateClip({ clipId: "line", gain: 0 })).ok);
+  assert.equal(transport.diagnostics("line").reservation, undefined);
+  assert.ok(transport.diagnostics("bed").reservation);
+});

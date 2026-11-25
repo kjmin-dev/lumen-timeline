@@ -42,11 +42,18 @@ export function definePlugin(plugin: TimelinePlugin): TimelinePlugin {
     plugin.namespace,
     "Plugin onSplit must be a function",
   );
+  requireEdit(
+    plugin.migrate === undefined || typeof plugin.migrate === "function",
+    "invalid-extension",
+    plugin.namespace,
+    "Plugin migrate must be a function",
+  );
   return Object.freeze({
     namespace: plugin.namespace,
     version: plugin.version,
     ...(plugin.validate === undefined ? {} : { validate: plugin.validate }),
     ...(plugin.onSplit === undefined ? {} : { onSplit: plugin.onSplit }),
+    ...(plugin.migrate === undefined ? {} : { migrate: plugin.migrate }),
   });
 }
 
@@ -79,11 +86,17 @@ const emptyRegistry: PluginRegistry = Object.freeze<PluginRegistry>({
   },
 });
 
-/** Registers domain plugins for an editor. Rejects duplicate namespaces. */
+/**
+ * Registers domain plugins for an editor. Rejects duplicate namespaces.
+ * `unread` names namespaces a later plugin version wrote, which the editor
+ * keeps without reading.
+ */
 export function createPluginRegistry(
   plugins: readonly TimelinePlugin[] | undefined,
+  unread: readonly string[] = [],
 ): PluginRegistry {
-  if (!plugins || plugins.length === 0) return emptyRegistry;
+  if ((!plugins || plugins.length === 0) && !unread.length) return emptyRegistry;
+  plugins ??= [];
   requireEdit(isArray(plugins), "invalid-extension", null, "Expected an array of plugins");
   const byNamespace = new Map<string, TimelinePlugin>();
   for (const raw of plugins) {
@@ -135,7 +148,9 @@ export function createPluginRegistry(
           plugin?.onSplit,
           "split-policy-required",
           clip.id,
-          "A split policy is required for this clip extension: " + namespace,
+          unread.includes(namespace)
+            ? "A later version of the " + namespace + " plugin wrote this clip's payload"
+            : "A split policy is required for this clip extension: " + namespace,
         );
         const result: unknown = plugin.onSplit(Object.freeze({ clip, left, right, at, value }));
         requireEdit(
