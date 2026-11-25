@@ -33,6 +33,8 @@ export declare class VideoTransport {
         readonly since: number;
     } | null;
     running: boolean;
+    /** The media time of the last frame sampled since the element last stopped or seeked. */
+    lastFrame: number | undefined;
     readonly listeners: AbortController;
     frame: number;
     seekInFlight?: boolean;

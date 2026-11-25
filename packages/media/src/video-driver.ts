@@ -55,6 +55,8 @@ export class VideoTransport {
   phaseError: number;
   phaseExcursion: { readonly sign: number; readonly since: number } | null;
   running: boolean;
+  /** The media time of the last frame sampled since the element last stopped or seeked. */
+  lastFrame: number | undefined = undefined;
   readonly listeners: AbortController;
   // Replaced by observe() before the constructor returns.
   frame = 0;
@@ -111,6 +113,7 @@ export class VideoTransport {
     for (const type of ["waiting", "seeking", "pause", "ended"]) {
       listen(type, () => {
         this.running = false;
+        this.lastFrame = undefined;
         this.invalidate();
       });
     }
@@ -153,6 +156,13 @@ export class VideoTransport {
 
   private sampleFrame(generation: number, now: number, mediaTime: number, expected?: number): void {
     if (generation !== this.generation || this.video.seeking || this.seekInFlight) return;
+    // Frames that move on are playing, whatever the element's readyState says. WebKit on
+    // GStreamer reports HAVE_CURRENT_DATA, and sends no "playing" event, while it plays on
+    // after a seek.
+    const previous = this.lastFrame;
+    this.lastFrame = mediaTime;
+    if (!this.running && !this.video.paused && !this.video.ended && previous !== undefined)
+      this.running = mediaTime > previous;
     if (this.video.paused || this.running) this.onFrame(mediaTime);
     if (this.video.paused || !this.running) return;
     let audio: number;
