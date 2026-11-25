@@ -79,6 +79,38 @@ jobs:
       # A short run keeps the comparison working; its figures come from real hardware.
       - run: npm run bench:wrappers -- --runs 1 --seconds 4 --renderer canvas2d --channel chromium --no-build
 
+  # The browser traces that take an engine, in the engines CI's other jobs do not run.
+  engines:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps ${{ matrix.engine }}
+      - run: node examples/vanilla/verify.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-audio.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-milestone.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-takes.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-studio.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-lines.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-waveforms.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-peaks.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-long.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-scale.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-renderers.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-tracks.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-chrome.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-stretch.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-external.mjs ${{ matrix.engine }}
+      - run: node examples/sync/verify.mjs ${{ matrix.engine }}
+
   docs:
     runs-on: ubuntu-latest
     steps:

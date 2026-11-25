@@ -4,7 +4,9 @@
 // during playback and during a drag leaves the view drawing on the next
 // backend, at the same viewport and selection, with every edit kept, and the
 // view returns to its backend when the device comes back. Usage:
-// node examples/vanilla/verify-renderers.mjs [chromium|webkit]   (build first)
+// node examples/vanilla/verify-renderers.mjs [chromium|firefox|webkit] [backends]   (build first)
+// An engine without WebGPU, as Playwright's Firefox, checks instead that a view asking for it
+// draws on WebGL2 and says why.
 import assert from "node:assert/strict";
 import { chromium, firefox, webkit } from "playwright";
 import { serve } from "./server.mjs";
@@ -41,7 +43,7 @@ const errors = [];
 const hz = 282240000;
 const pps = 40;
 
-async function mount(renderer) {
+async function mount(renderer, expected = renderer) {
   const page = await browser.newPage({
     viewport: { width: 1200, height: 800 },
     deviceScaleFactor: 2,
@@ -158,7 +160,7 @@ async function mount(renderer) {
     });
     window.fixture = { editor, view, transport };
   }, renderer);
-  await page.waitForFunction((r) => window.fixture.view.getDiagnostics().backend === r, renderer, {
+  await page.waitForFunction((r) => window.fixture.view.getDiagnostics().backend === r, expected, {
     timeout: 15000,
   });
   return page;
@@ -246,6 +248,26 @@ async function fillAt(page, seconds, row) {
 
 const results = {};
 try {
+  if (backends.includes("webgpu")) {
+    const probe = await browser.newPage();
+    await probe.goto(server.url + "/examples/vanilla/lab.html");
+    const webgpu = await probe.evaluate(async () =>
+      !("gpu" in navigator) ? "none" : (await navigator.gpu.requestAdapter()) ? "ok" : "no adapter",
+    );
+    await probe.close();
+    if (webgpu !== "ok") {
+      backends.splice(backends.indexOf("webgpu"), 1);
+      const why = webgpu === "none" ? "WebGPU is unavailable" : "No WebGPU adapter or device";
+      const page = await mount("webgpu", "webgl2");
+      await page.waitForFunction(
+        (reason) => window.fixture.view.getDiagnostics().fallback === reason,
+        why,
+      );
+      assert.equal((await diagnostics(page)).backend, "webgl2");
+      await page.close();
+      console.log(`${engine} webgpu: ${why}, so the view draws on WebGL2 and says so`);
+    }
+  }
   for (const backend of backends) {
     const page = await mount(backend);
     const result = {};
