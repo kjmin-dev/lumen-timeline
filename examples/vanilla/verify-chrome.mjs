@@ -30,7 +30,7 @@ try {
     });
     const editor = createEditor({
       project: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         duration: 20 * hz,
         tracks: [
           { id: "voice", name: "Voice" },

@@ -207,7 +207,7 @@ test("split preserves identity, takes, exact ordering and inverse patches", () =
 test("validates loaded projects and preserves opaque extension data", () => {
   for (const modify of [
     (p) => {
-      p.schemaVersion++;
+      p.schemaVersion = 0;
     },
     (p) => {
       p.clips[0].trackId = "absent";

@@ -1,5 +1,6 @@
 // The project behind the podcast editor example: seven spoken paragraphs by two speakers, each a
-// recording whose word timings are known, so the transcript can be edited as text. A paragraph
+// recording whose word timings are known, so the transcript can be edited as text. The speakers
+// are on tracks of their own, so where one talks over the other both are heard. A paragraph
 // recorded in `voices.ts` is loaded with its word timings; one that is not is synthesized.
 import type { Project } from "@lumen-timeline/core";
 import { DEMO_SAMPLE_RATE } from "../fixtures.ts";
@@ -31,7 +32,7 @@ export interface Paragraph {
   readonly words: readonly Word[];
   /** Length of the recording in seconds. */
   readonly length: number;
-  /** Silence left after it in the first cut, in seconds. */
+  /** Silence left after it in the first cut, in seconds; negative where the next one overlaps it. */
   readonly gap: number;
 }
 
@@ -161,7 +162,7 @@ export async function loadEpisode(): Promise<Episode> {
     recorded,
     paragraphs,
     project: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       duration: sec(Math.ceil(end + 5)),
       tracks: [
         { id: "host", name: SPEAKERS["host"]?.name ?? "Host", overlap: "exclusive" },

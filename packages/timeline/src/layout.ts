@@ -230,6 +230,8 @@ export interface RowLayout {
   readonly words: CaptionWords;
   readonly takesOf: (clipId: string) => readonly Take[];
   peaks?: ((request: WaveformRequest) => ArrayLike<number> | null) | undefined;
+  /** Maps a peak, after the clip's gain, to the height drawn. */
+  readonly scale?: ((peak: number) => number) | undefined;
   readonly label: LabelSource;
   /** Collects the assets whose waveforms the row asked for. */
   readonly assets?: Set<string> | undefined;
@@ -518,6 +520,14 @@ function bars(
   const mid = top + height / 2;
   const half = height / 2;
   const origin = Math.round(b.left);
+  // The waveform shows what the clip plays: its peaks at the clip's gain.
+  const gain = clip.gain ?? 1;
+  const scale = layout.scale;
+  const level = (value: number | undefined): number | null => {
+    if (typeof value !== "number") return null;
+    const gained = value * gain;
+    return peak(scale ? scale(gained) : gained);
+  };
   let start = 0;
   let lo = 0;
   let hi = 0;
@@ -541,8 +551,8 @@ function bars(
       flush();
       start = x - phase;
     }
-    const low = peak(peaks[2 * i]);
-    const high = peak(peaks[2 * i + 1]);
+    const low = level(peaks[2 * i]);
+    const high = level(peaks[2 * i + 1]);
     if (low === null || high === null) continue;
     lo = any ? Math.min(lo, low) : low;
     hi = any ? Math.max(hi, high) : high;

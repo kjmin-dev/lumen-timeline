@@ -60,6 +60,7 @@
     "verify:tracks": "node examples/vanilla/verify-tracks.mjs",
     "verify:chrome": "node examples/vanilla/verify-chrome.mjs",
     "verify:stretch": "node examples/vanilla/verify-stretch.mjs",
+    "verify:external": "node examples/vanilla/verify-external.mjs",
     "verify:docs-examples": "node examples/docs/verify.mjs",
     "verify:shared": "node examples/sync/verify.mjs",
     "build:consumers": "node examples/frameworks/build.mjs",

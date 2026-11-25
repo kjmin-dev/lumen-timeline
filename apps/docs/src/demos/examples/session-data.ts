@@ -145,7 +145,7 @@ export function createSessionProject(): Project {
   });
   const four = sec(4 * BAR);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     duration: sec((BARS + 1) * BAR),
     tracks: [
       { id: "lead", name: "Lead vox", overlap: "exclusive", gain: 1 },

@@ -19,6 +19,8 @@ The core owns editing commands, time and history. A shared browser view handles 
 - [Long media](docs/long-media.md) reads sessions of hours in chunks through a host-written reader, within a memory budget, loading ahead of the playhead and staying locked to the clock at every chunk edge.
 - [Framework wrappers](docs/frameworks.md) mount the same view in React, Svelte, SolidJS and Vue and let their components select editor and transport fields, checked against the vanilla consumer.
 - [Sharing a project between editors](docs/sync.md) covers the optional sync package: sessions, the sequencer, confirmation policies and handover, with no server required.
+- [Plugins and persistence](docs/plugins-and-persistence.md) covers domain plugins, saving a project, schema migrations and what an editor does with data it cannot read.
+- [Attach to an existing player](docs/external-players.md) follows a player you did not build: through its media element, or through an adapter over an embed's API.
 - [Delivery plans](docs/plans/README.md) record each completed slice: its user outcome, the PRs that delivered it and their merge gates.
 - [Documentation site](https://lumen-timeline.studiocyf.app) publishes the guides, package reference, benchmarks and live demos from `apps/docs`.
 

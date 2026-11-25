@@ -90,7 +90,7 @@ for (let t = 0; t < trackCount; t++) {
   }
 }
 const editor = createEditor({
-  project: { schemaVersion: 1, duration: 7200 * hz, tracks, clips, takes },
+  project: { schemaVersion: 2, duration: 7200 * hz, tracks, clips, takes },
 });
 const binding = (length) => ({
   mono: { assetVersion: 1, sampleRate: rate, availableStart: 0, availableEnd: length },

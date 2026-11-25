@@ -1,10 +1,14 @@
 // Example screen 2: a transcript-driven podcast editor. The transcript is derived from the clips
 // on the two voice tracks, so deleting words in the text is a ripple cut on the timeline, and
-// undo puts both back. Chapters are the project's markers.
+// undo puts both back. The speakers talk over each other in one place, and a cut there takes
+// the time from both. Chapters are the project's markers; a clip's level is its gain.
 import {
   commands,
+  MAX_CLIP_GAIN,
   TICKS_PER_SECOND as hz,
+  type Clip,
   type EditCommand,
+  type Editor as TimelineEditor,
   type Marker,
   type ProjectSnapshot,
   type Tick,
@@ -92,6 +96,8 @@ interface Block {
   readonly speaker: string;
   readonly start: Tick;
   readonly words: WordView[];
+  /** The clips that play these words: one recording, in as many pieces as cuts have left it. */
+  readonly clipIds: string[];
 }
 
 /** The words still on the timeline, in the order they play, grouped by recording. */
@@ -128,13 +134,16 @@ function transcriptOf(
     const first = words[0];
     if (!first) continue;
     const last = blocks.at(-1);
-    if (last && last.key.startsWith(`${paragraph.id}@`)) last.words.push(...words);
-    else {
+    if (last && last.key.startsWith(`${paragraph.id}@`)) {
+      last.words.push(...words);
+      last.clipIds.push(clip.id);
+    } else {
       blocks.push({
         key: `${paragraph.id}@${first.id}`,
         speaker: paragraph.speaker,
         start: first.start,
         words,
+        clipIds: [clip.id],
       });
     }
   }
@@ -184,8 +193,8 @@ function createPlan(snapshot: ProjectSnapshot) {
     }
   }
 
-  /** Removes `[a, b)` from one track and closes the hole it leaves. */
-  function cut(track: string, a: Tick, b: Tick): void {
+  /** Removes `[a, b)` from one track, leaving a hole. */
+  function remove(track: string, a: Tick, b: Tick): void {
     for (const piece of pieces.filter((item) => item.track === track)) {
       const end = piece.start + piece.duration;
       if (end <= a || piece.start >= b) continue;
@@ -220,33 +229,58 @@ function createPlan(snapshot: ProjectSnapshot) {
         pieces.push({ id: right, track, start: b, duration: end - b });
       }
     }
+  }
+
+  /**
+   * Takes `[a, b)` out of the conversation: from every voice track, so a speaker who talked over
+   * the cut words loses the same time, then closes the hole.
+   */
+  function cut(a: Tick, b: Tick): void {
+    for (const track of VOICE_TRACKS) remove(track, a, b);
     close(b, b - a);
   }
 
   return { cut, close, commands: list };
 }
 
-interface Range {
-  readonly track: string;
+interface Span {
   readonly start: Tick;
   readonly end: Tick;
 }
 
-/** Each run of adjacent filler words, as a range of its speaker's track. */
-function fillerRuns(blocks: readonly Block[]): Range[] {
-  const runs: Range[] = [];
-  for (const block of blocks) {
-    let open: { track: string; start: Tick; end: Tick } | null = null;
-    for (const word of block.words) {
-      if (word.filler && open && open.end === word.start) open.end = word.end;
-      else {
-        if (open) runs.push(open);
-        open = word.filler ? { track: word.track, start: word.start, end: word.end } : null;
-      }
-    }
-    if (open) runs.push(open);
+/** Sorted spans with every overlapping or touching pair joined. */
+function merge(spans: readonly Span[]): Span[] {
+  const out: { start: Tick; end: Tick }[] = [];
+  for (const span of [...spans].sort((a, b) => a.start - b.start)) {
+    const last = out.at(-1);
+    if (last && span.start <= last.end) last.end = Math.max(last.end, span.end);
+    else out.push({ ...span });
   }
-  return runs;
+  return out;
+}
+
+/**
+ * The time a cut of `chosen` takes out. Words are whole: where another speaker talks over a
+ * chosen word, the cut widens to the whole of their word too, and so on, so no one is left
+ * with half a word.
+ */
+function cutSpans(chosen: readonly WordView[], words: readonly WordView[]): Span[] {
+  let spans = merge(chosen);
+  for (;;) {
+    const wider = merge([...spans, ...wordsIn(spans, words)]);
+    const same =
+      wider.length === spans.length &&
+      wider.every((span, i) => span.start === spans[i]?.start && span.end === spans[i]?.end);
+    if (same) return wider;
+    spans = wider;
+  }
+}
+
+/** The words a cut of `spans` removes. */
+function wordsIn(spans: readonly Span[], words: readonly WordView[]): WordView[] {
+  return words.filter((word) =>
+    spans.some((span) => word.start < span.end && word.end > span.start),
+  );
 }
 
 /** Silences between spoken clips longer than `LONG_GAP`: where one starts and its length. */
@@ -307,7 +341,7 @@ function Editor({
 
   const blocks = useMemo(() => transcriptOf(snapshot, paragraphs), [snapshot, paragraphs]);
   const words = useMemo(() => blocks.flatMap((block) => block.words), [blocks]);
-  const fillers = useMemo(() => fillerRuns(blocks), [blocks]);
+  const fillers = useMemo(() => words.filter((word) => word.filler), [words]);
   const gaps = useMemo(() => longGaps(snapshot), [snapshot]);
   const runtime = runtimeOf(snapshot);
   const markers = snapshot.markers ?? [];
@@ -317,23 +351,34 @@ function Editor({
     const live = new Set(words.map((word) => word.id));
     return picked.filter((id) => live.has(id));
   }, [picked, words]);
-  const chosen = useMemo(
-    () => words.filter((word) => selection.includes(word.id)),
+  // A cut takes whole words from everyone talking at the time, so the selection shows all of them.
+  const spans = useMemo(
+    () =>
+      cutSpans(
+        words.filter((word) => selection.includes(word.id)),
+        words,
+      ),
     [words, selection],
   );
+  const chosen = useMemo(() => wordsIn(spans, words), [spans, words]);
+  const covered = useMemo(() => new Set(chosen.map((word) => word.id)), [chosen]);
 
-  // The word under the playhead is marked in the DOM, without rendering the transcript.
-  const spoken = useRef<Element | null>(null);
+  // The words under the playhead, one per speaker talking, are marked in the DOM without
+  // rendering the transcript.
+  const spoken = useRef<readonly Element[]>([]);
   usePlayhead(transport, (tick) => {
-    const now = words.find((word) => word.start <= tick && tick < word.end);
-    const element = now ? page.current?.querySelector(`[data-word="${now.id}"]`) : null;
-    if (element === spoken.current) return;
-    spoken.current?.removeAttribute("data-now");
-    element?.setAttribute("data-now", "");
-    spoken.current = element ?? null;
+    const now = words.filter((word) => word.start <= tick && tick < word.end);
+    const elements = now.flatMap(
+      (word) => page.current?.querySelector(`[data-word="${word.id}"]`) ?? [],
+    );
+    const before = spoken.current;
+    if (elements.length === before.length && elements.every((el, i) => el === before[i])) return;
+    for (const element of before) element.removeAttribute("data-now");
+    for (const element of elements) element.setAttribute("data-now", "");
+    spoken.current = elements;
   });
   useEffect(() => {
-    spoken.current = page.current?.querySelector("[data-now]") ?? null;
+    spoken.current = [...(page.current?.querySelectorAll("[data-now]") ?? [])];
   }, [blocks]);
 
   // The selection's actions float over its first word.
@@ -364,7 +409,7 @@ function Editor({
   const removeFillers = () => {
     const plan = createPlan(snapshot);
     // Last first, so the ticks of the earlier runs still hold when their turn comes.
-    for (const run of fillers.toReversed()) plan.cut(run.track, run.start, run.end);
+    for (const span of cutSpans(fillers, words).toReversed()) plan.cut(span.start, span.end);
     apply(plan.commands, `Removed ${fillers.length} filler words. One undo brings them back.`);
   };
   const shortenGaps = () => {
@@ -375,20 +420,14 @@ function Editor({
   const cutSelection = () => {
     if (chosen.length === 0) return;
     const plan = createPlan(snapshot);
-    // One cut per speaker's run of selected words, last first.
-    const runs: { track: string; start: Tick; end: Tick }[] = [];
-    for (const word of chosen) {
-      const last = runs.at(-1);
-      if (last && last.track === word.track && last.end === word.start) last.end = word.end;
-      else runs.push({ track: word.track, start: word.start, end: word.end });
-    }
-    for (const run of runs.toReversed()) plan.cut(run.track, run.start, run.end);
+    // One cut per run of selected time, last first.
+    for (const span of spans.toReversed()) plan.cut(span.start, span.end);
     apply(plan.commands, `Cut ${chosen.length} word${chosen.length === 1 ? "" : "s"}.`);
     setPicked([]);
   };
   const playSelection = () => {
-    const first = chosen[0];
-    const last = chosen.at(-1);
+    const first = spans[0];
+    const last = spans.at(-1);
     if (!first || !last) return;
     void transport.seek(first.start).then(() => transport.play({ until: last.end }));
   };
@@ -431,6 +470,7 @@ function Editor({
     download("field-notes-ep12.txt", lines.join("\n"));
   };
 
+  // Peaks on a decibel scale, after each clip's gain: a clip turned down draws smaller.
   const waveforms = useMemo(() => decibelWaveforms(host.waveforms), [host]);
 
   // The transcript already carries the words, so a clip shows its waveform alone.
@@ -448,7 +488,7 @@ function Editor({
     const block = blocks.find((item) => item.start >= marker.start) ?? blocks.at(-1);
     if (block) headings.set(block.key, [...(headings.get(block.key) ?? []), marker]);
   }
-  const seconds = chosen.reduce((sum, word) => sum + (word.end - word.start), 0) / hz;
+  const seconds = spans.reduce((sum, span) => sum + (span.end - span.start), 0) / hz;
 
   return (
     <div className="ex-app pod" data-demo-ready="podcast">
@@ -549,7 +589,14 @@ function Editor({
               ))}
               <article>
                 <header>
-                  <strong>{speaker?.name}</strong>
+                  <button
+                    type="button"
+                    className="pod-speaker"
+                    title="Select this paragraph on the timeline to set its level"
+                    onClick={() => editor.session.select(block.clipIds)}
+                  >
+                    {speaker?.name}
+                  </button>
                   <button
                     type="button"
                     className="pod-time"
@@ -586,7 +633,7 @@ function Editor({
                         <span
                           data-word={word.id}
                           data-filler={word.filler || undefined}
-                          data-picked={selection.includes(word.id) || undefined}
+                          data-picked={covered.has(word.id) || undefined}
                           onPointerDown={(event) => {
                             if (event.button === 0) press(word, event.shiftKey);
                           }}
@@ -628,6 +675,7 @@ function Editor({
           ))}
         </span>
         <span className="ex-spacer" />
+        <LevelControl editor={editor} blocks={blocks} />
         <ZoomButtons zoom={zoom} base={BASE_ZOOM} onZoom={zoomBy} />
       </div>
 
@@ -646,6 +694,95 @@ function Editor({
         ref={attach}
       />
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ level
+
+const LEVEL_MIN = -24;
+const LEVEL_MAX = 12;
+const decibels = (gain: number): number => (gain > 0 ? 20 * Math.log10(gain) : -Infinity);
+const gainOf = (db: number): number => Math.min(MAX_CLIP_GAIN, 10 ** (db / 20));
+const dbText = (db: number): string =>
+  db === -Infinity
+    ? "−∞ dB"
+    : `${db > 0.05 ? "+" : db < -0.05 ? "−" : ""}${Math.abs(db).toFixed(1)} dB`;
+
+/**
+ * The selected clips' level, as clip gain in decibels. The waveforms already show how loud each
+ * clip plays; this is where it changes. A drag is heard as it moves and is one undo step.
+ */
+function LevelControl({
+  editor,
+  blocks,
+}: {
+  editor: TimelineEditor;
+  blocks: readonly Block[];
+}): ReactElement {
+  const selection = useEditorSelector(editor, (state) => state.selection);
+  const snapshot = useEditorSelector(editor, (state) => state.snapshot);
+  const clips = useMemo(
+    () => snapshot.clips.filter((clip) => selection.includes(clip.id)),
+    [snapshot, selection],
+  );
+  const slider = useRef<HTMLInputElement>(null);
+  // The gains a gesture started from, while it lasts.
+  const before = useRef<ReadonlyMap<string, number> | null>(null);
+  const first = clips[0];
+  const db = first ? decibels(first.gain ?? 1) : 0;
+  const mixed = clips.some((clip) => (clip.gain ?? 1) !== (first?.gain ?? 1));
+
+  const name = (clip: Clip): string => {
+    const block = blocks.find((item) => item.clipIds.includes(clip.id));
+    const speaker = block ? SPEAKERS[block.speaker]?.name : undefined;
+    return speaker ? `${speaker} ${clock(block?.start ?? clip.start, 0)}` : (clip.name ?? clip.id);
+  };
+  const label = first ? (clips.length === 1 ? name(first) : `${clips.length} clips`) : "No clip";
+
+  const set = (gains: (id: string) => number, history: "record" | "ignore") =>
+    editor.dispatch(
+      clips.map((clip) => commands.updateClip({ clipId: clip.id, gain: gains(clip.id) })),
+      { history },
+    );
+  // Heard while it moves, outside history; the change at the end is the one undo step.
+  const preview = (value: number) => {
+    before.current ??= new Map(clips.map((clip) => [clip.id, clip.gain ?? 1]));
+    set(() => gainOf(value), "ignore");
+  };
+  useEffect(() => {
+    const input = slider.current;
+    if (!input) return;
+    const commit = () => {
+      const start = before.current;
+      before.current = null;
+      if (!start) return;
+      const value = gainOf(Number(input.value));
+      set((id) => start.get(id) ?? 1, "ignore");
+      set(() => value, "record");
+    };
+    input.addEventListener("change", commit);
+    return () => input.removeEventListener("change", commit);
+  });
+
+  return (
+    <span className="pod-level" role="group" aria-label="Clip level" data-pod-level>
+      <span className="pod-level-name" title={label}>
+        {label}
+      </span>
+      <input
+        ref={slider}
+        type="range"
+        min={LEVEL_MIN}
+        max={LEVEL_MAX}
+        step={0.5}
+        disabled={!first}
+        aria-label="Level"
+        aria-valuetext={first ? (mixed ? "mixed" : dbText(db)) : "no clip selected"}
+        value={Math.max(LEVEL_MIN, Math.min(LEVEL_MAX, Number.isFinite(db) ? db : LEVEL_MIN))}
+        onChange={(event) => preview(Number(event.currentTarget.value))}
+      />
+      <output data-pod-db>{first ? (mixed ? "mixed" : dbText(db)) : "—"}</output>
+    </span>
   );
 }
 

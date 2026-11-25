@@ -17,7 +17,7 @@ const sec = (value: number): number => Math.round(value * hz);
 /** 24-second dubbing project for the interactive Studio demo. */
 export function createStudioProject(): Project {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     duration: sec(24),
     tracks: [
       { id: "stem", name: "Reference", locked: true, gain: 0.35 },
@@ -195,7 +195,7 @@ export function createStudioProject(): Project {
 /** 20-second project shared between two editors in the Sync demo. */
 export function createSyncProject(): Project {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     duration: sec(20),
     tracks: [
       { id: "voice", name: "Voice", overlap: "exclusive" },

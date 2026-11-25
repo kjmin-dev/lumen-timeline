@@ -195,7 +195,10 @@ export interface ScriptParagraph {
   readonly speaker: string;
   /** The words, with braces around the filler words a transcription pass detected. */
   readonly text: string;
-  /** Silence left after it in the first cut, in seconds. */
+  /**
+   * Silence left after it in the first cut, in seconds. Negative when the next speaker comes in
+   * before it ends, talking over it.
+   */
   readonly gap: number;
 }
 
@@ -228,7 +231,8 @@ export const POD_SCRIPT: readonly ScriptParagraph[] = [
     id: "p5",
     speaker: "noor",
     text: "And you can tell a healthy reef just by listening?",
-    gap: 0.45,
+    // The guest's "Pretty much" lands on the host's last word.
+    gap: -0.55,
   },
   {
     id: "p6",

@@ -24,7 +24,7 @@ const line = (clipId, trackId, start, duration, name) => ({
   contentBounds: { start: 0, end: 30 * hz },
 });
 export const project = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   duration: 24 * hz,
   tracks: [
     { id: "narrator", name: "Narrator", overlap: "exclusive" },

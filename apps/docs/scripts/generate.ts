@@ -4,7 +4,8 @@
 //   docs/design.md, docs/core-architecture.md, ROADMAP.md  ->  src/content/docs/architecture/
 //   docs/{headless-editing,selective-history,playback-read-api,
 //         media-transports,incremental-playback,vanilla-timeline,
-//         waveforms,sync}.md                               ->  src/content/docs/guides/
+//         waveforms,long-media,sync,plugins-and-persistence,
+//         external-players}.md                             ->  src/content/docs/guides/
 //   docs/frameworks.md                                     ->  src/content/docs/frameworks/
 //   packages/*/package.json, packages/*/api/index.d.ts     ->  src/content/docs/packages/, src/generated/
 //   docs/clock-and-wasm.md, docs/measurements/*.json       ->  src/content/docs/benchmarks/
@@ -76,9 +77,12 @@ const DOC_ROUTES = new Map<string, string>([
   ["docs/waveforms.md", "/guides/waveforms/"],
   ["docs/long-media.md", "/guides/long-media/"],
   ["docs/sync.md", "/guides/sync/"],
+  ["docs/plugins-and-persistence.md", "/guides/plugins-and-persistence/"],
+  ["docs/external-players.md", "/guides/external-players/"],
   ["docs/frameworks.md", "/frameworks/overview/"],
   ["docs/clock-and-wasm.md", "/benchmarks/clock-and-wasm/"],
   ["apps/docs/src/content/docs/getting-started.mdx", "/getting-started/"],
+  ["apps/docs/src/content/docs/examples.mdx", "/examples/"],
 ]);
 
 /** Resolves a path relative to a source directory (e.g. `docs/`) into a repo-relative POSIX path. */
@@ -997,6 +1001,18 @@ export async function generateAll(): Promise<void> {
       ].join("\n\n"),
     },
   );
+  await copyDoc("docs/plugins-and-persistence.md", "guides/plugins-and-persistence.md", {
+    title: "Plugins & persistence",
+    description:
+      "Domain plugins with validation, migration and split policies, saving projects, schema versions, read-only later schemas and editors without a plugin.",
+    order: 10,
+  });
+  await copyDoc("docs/external-players.md", "guides/external-players.md", {
+    title: "Attach to an existing player",
+    description:
+      "Follow a player you did not build: hand its media element to the video transport, or adapt an embed's position reports to the transport contract.",
+    order: 11,
+  });
 
   // Frameworks, packages & benchmarks
   await generateFrameworks();

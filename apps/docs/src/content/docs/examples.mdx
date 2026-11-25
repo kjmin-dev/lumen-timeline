@@ -30,7 +30,9 @@ The transcript is not a second document: it is derived from the clips on the two
 
 - **Deleting text cuts audio.** Drag across words and press Delete: the words are split out of their clip and everything after them moves left, as one transaction. A mark stays where words were cut.
 - **Batch edits are one undo step.** **Remove** filler words and **Shorten** long pauses each build a single command list, so one undo restores every cut.
-- **Waveforms on a decibel scale.** The view draws whatever peaks its `WaveformProvider` returns, so the screen wraps the provider to map them to decibels: quiet speech still shows its shape, and only the picture changes, never the sound.
+- **Voices overlap.** Each speaker has a track of their own, so where the guest answers over the host's last word both are heard. A cut there takes the time from both, widened to whole words: select the host's _listening?_ and the guest's _Pretty much._ over it go too.
+- **A clip's level is its gain.** Click a speaker's name to select the paragraph on the timeline, or click any clip; the level in the toolbar sets its clip gain in decibels, heard while you drag and undone in one step. The theme plays under the opening on a music track at its own gain.
+- **Waveforms on a decibel scale.** The provider's `scale` is `decibelScale()`, so quiet speech still shows its shape. The view applies each clip's gain before the scale, so a paragraph turned down draws smaller by its true level; only the picture changes, never the sound.
 - **Chapters are markers.** A chapter title in the transcript and its flag on the ruler are the same marker: rename it in the text, and a ripple cut moves it with the audio.
 
 ## Multitrack music session

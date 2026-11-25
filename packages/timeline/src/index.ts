@@ -52,6 +52,7 @@ import type {
   WaveformProvider,
 } from "./types.ts";
 export type * from "./types.ts";
+export { decibelScale } from "./scale.ts";
 export type { Viewport } from "./geometry.ts";
 import {
   formatTime as defaultFormatTime,
@@ -118,7 +119,9 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
   let chrome = resolveChrome(options.chrome);
   let theme = resolveTheme(options.theme);
   let layoutConfig = resolveLayout(options.layout);
-  let readOnly = options.readOnly ?? false;
+  // A project the editor cannot edit is read-only in the view unless the host says otherwise.
+  const editorReadOnly = typeof editor.readOnly === "string";
+  let readOnly = options.readOnly ?? editorReadOnly;
   let shortcuts = options.shortcuts ?? true;
   let customFormatTime: ((tick: Tick) => string) | undefined = options.formatTime;
   let customGridSpacing: ((pps: number) => Tick) | undefined = options.gridSpacing;
@@ -719,6 +722,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
           words,
           takesOf: (id) => read.takesOf(id),
           peaks: provider && ((request) => provider.peaks(request)),
+          scale: provider?.scale && ((value) => provider.scale?.(value) ?? value),
           label: (name, caption, color, nameColor) => atlas.slot(name, caption, color, nameColor),
           assets,
           laneHeight: layoutConfig.laneHeight,
@@ -1474,7 +1478,7 @@ export function mountTimeline(container: HTMLElement, options: TimelineOptions):
     const nextUiLabels = has("labels") ? resolveUiLabels(next.labels) : uiLabels;
     const nextChrome = has("chrome") ? resolveChrome(next.chrome) : chrome;
     const nextTheme = has("theme") ? resolveTheme(next.theme) : theme;
-    const nextReadOnly = has("readOnly") ? (next.readOnly ?? false) : readOnly;
+    const nextReadOnly = has("readOnly") ? (next.readOnly ?? editorReadOnly) : readOnly;
     const nextShortcuts = has("shortcuts") ? (next.shortcuts ?? true) : shortcuts;
     const nextFormatTime = has("formatTime") ? next.formatTime : customFormatTime;
     const nextGridSpacing = has("gridSpacing") ? next.gridSpacing : customGridSpacing;

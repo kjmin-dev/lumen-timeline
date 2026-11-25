@@ -121,7 +121,7 @@ export async function measurePlayback(rate, stretched) {
   const source = sine(context, 8);
   const editor = createEditor({
     project: {
-      schemaVersion: 1,
+      schemaVersion: 2,
       tracks: [{ id: "voice" }],
       takes: [{ id: "take", assetId: "tone", streamId: "mono", sourceAtContentZero: 0 }],
       clips: [

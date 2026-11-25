@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>External players</title>
+    <link rel="stylesheet" href="/packages/timeline/style.css" />
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #101417;
+        color: #e8e4d8;
+        font:
+          14px system-ui,
+          sans-serif;
+      }
+      section {
+        margin-bottom: 28px;
+      }
+      h2 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      p {
+        margin: 0 0 10px;
+        color: #9aa4ab;
+      }
+      video {
+        display: block;
+        width: 320px;
+        background: #000;
+      }
+      .player {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin: 8px 0 12px;
+      }
+      .player input {
+        width: 240px;
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "@lumen-timeline/core": "/packages/core/dist/index.js",
+          "@lumen-timeline/media": "/packages/media/dist/index.js",
+          "@lumen-timeline/timeline": "/packages/timeline/dist/index.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <section id="element">
+      <h2>A player that owns its media element</h2>
+      <p>
+        Its own controls play, pause and scrub the video. The timeline follows them, plays the
+        narration clip against the video, and seeks the video from its ruler.
+      </p>
+      <video src="./media/tidal-study.webm" muted playsinline preload="auto"></video>
+      <div class="player">
+        <button type="button" data-player-play>Play</button>
+        <input
+          type="range"
+          min="0"
+          step="0.01"
+          value="0"
+          aria-label="Player position"
+          data-player-scrub
+        />
+        <span data-player-time>0:00.0</span>
+      </div>
+      <div class="timeline"></div>
+    </section>
+    <section id="embed">
+      <h2>An embedded player with no element to reach</h2>
+      <p>
+        It reports its position four times a second. The adapter reports one every frame, and the
+        ruler seeks it.
+      </p>
+      <div class="player">
+        <button type="button" data-player-play>Play</button>
+        <span data-player-time>0:00.0</span>
+      </div>
+      <div class="timeline"></div>
+    </section>
+    <script type="module" src="./external.mjs"></script>
+  </body>
+</html>

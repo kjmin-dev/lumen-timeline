@@ -1,4 +1,5 @@
 import {
+  checkGain,
   checkPlacement,
   issue,
   openProject,
@@ -15,6 +16,7 @@ import { defined } from "./invariant.ts";
 import { MarkerDraft, applyMarkers, invertMarkers, rebaseMarkers } from "./markers.ts";
 import { createHistory } from "./history.ts";
 import type { HistoryEntry } from "./history.ts";
+import { migrate, openMigrated } from "./migrate.ts";
 import { createPluginRegistry } from "./plugins.ts";
 import type { PluginRegistry } from "./plugins.ts";
 import { parseReplay, replayOf } from "./replay.ts";
@@ -359,8 +361,10 @@ function isTrackCommand(command: EditCommand | null): command is TrackCommand {
 
 export function createEditor({ project, history: limits, actor, plugins }: EditorOptions): Editor {
   requireEdit(actor === undefined || validId(actor), "invalid-id", actor, "Expected an actor name");
-  const registry: PluginRegistry = createPluginRegistry(plugins);
-  const opened = openProject(project, registry);
+  const migrated = migrate(project, plugins);
+  const registry: PluginRegistry = createPluginRegistry(migrated.plugins, migrated.unread);
+  const opened = openMigrated(migrated, registry);
+  const { readOnly } = migrated;
   let { snapshot, rules, byTrack } = opened;
   const ids = idAllocator(actor, snapshot);
   let byId = opened.positions ?? positions(snapshot.clips);
@@ -542,6 +546,8 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
       const rawDuration: unknown = Reflect.get(input, "duration");
       const rawBounds: unknown = Reflect.get(input, "contentBounds");
       const rawRate: unknown = Reflect.get(input, "rate");
+      const rawGain: unknown = Reflect.get(input, "gain");
+      checkGain(id, rawGain);
       const rawName: unknown = Reflect.get(input, "name");
       const rawColor: unknown = Reflect.get(input, "color");
       const rawSource: unknown = Reflect.get(input, "source");
@@ -607,6 +613,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
         duration: placement.duration,
         contentIn: placement.contentIn,
         ...(placement.rate === 1 ? {} : { rate: placement.rate }),
+        ...(rawGain === undefined || rawGain === 1 ? {} : { gain: rawGain }),
         ...(placement.contentBounds === undefined
           ? {}
           : { contentBounds: placement.contentBounds }),
@@ -701,6 +708,11 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
         );
         if (command.continuityId === null) delete next.continuityId;
         else next.continuityId = command.continuityId;
+      }
+      if (command.gain !== undefined) {
+        if (command.gain !== null) checkGain(clip.id, command.gain);
+        if (command.gain === null || command.gain === 1) delete next.gain;
+        else next.gain = command.gain;
       }
       if (command.extensions !== undefined) {
         if (command.extensions === null) delete next.extensions;
@@ -942,6 +954,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
 
   function checkRevision(options: RevisionOptions | undefined): void {
     requireEdit(!disposed, "disposed", null, "Editor has been disposed");
+    requireEdit(readOnly === null, "read-only", readOnly, "The project is read-only: " + readOnly);
     requireEdit(
       options?.expectedRevision === undefined || options.expectedRevision === snapshot.revision,
       "stale-revision",
@@ -1412,7 +1425,23 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
     if (gating) throw new Error("A gate cannot edit the project");
     try {
       requireEdit(!disposed, "disposed", null, "Editor has been disposed");
-      const opened = openProject(input, registry);
+      requireEdit(
+        readOnly === null,
+        "read-only",
+        readOnly,
+        "The project is read-only: " + readOnly,
+      );
+      // Migrated as this editor opened its own project, and read by the same plugins.
+      const next = migrate(input, plugins);
+      requireEdit(
+        next.readOnly === null &&
+          next.unread.length === migrated.unread.length &&
+          next.unread.every((namespace) => migrated.unread.includes(namespace)),
+        "unsupported-schema",
+        next.readOnly === null ? next.unread : next.from,
+        "The snapshot needs plugins or a schema this editor does not read",
+      );
+      const opened = openProject(next.project, registry);
       const target = opened.snapshot;
       const currentId = snapshot["id"];
       const targetId = target["id"];
@@ -1516,6 +1545,7 @@ export function createEditor({ project, history: limits, actor, plugins }: Edito
     getSnapshot: () => snapshot,
     preview,
     replace,
+    readOnly,
     setGate(next) {
       requireEdit(!disposed, "disposed", null, "Editor has been disposed");
       requireEdit(

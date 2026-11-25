@@ -169,18 +169,17 @@ For example, a dubbing team can make both halves of a split line require review.
 ```js
 const review = definePlugin({
   namespace: "studio.review",
-  version: 1,
-  clipFields: {
-    status: {
-      type: "enum",
-      values: ["pending", "approved"],
-      default: "pending",
-      onSplit: () => ({ left: "pending", right: "pending" }),
-    },
-  },
+  version: 2,
+  validate: ({ value }) =>
+    value?.status === "pending" || value?.status === "approved" ? undefined : "Unknown status",
+  // Version 1 stored the status alone.
+  migrate: ({ value }) => ({ status: value }),
+  onSplit: () => ({ left: { status: "pending" }, right: { status: "pending" } }),
 });
-const editor = createEditor({ project, media, plugins: [review] });
+const editor = createEditor({ project, plugins: [review] });
 ```
+
+[Plugins and persistence](plugins-and-persistence.md) is the reference for writing one, and for what an editor does with a payload whose plugin is absent or newer.
 
 - The dubbing host opens a document per work and target language. Documents can share the reference video and original line IDs. Translations, candidate takes and active choices belong to the target-language document. Restore the playhead using the common video time.
 - A script row and timeline block select the same clip ID. A split gives the right side a new line ID. Split text using word timings where available. For unaligned text, keep the original on the left, create an empty right draft and flag the line for review. Undo restores the script and audio placement together.

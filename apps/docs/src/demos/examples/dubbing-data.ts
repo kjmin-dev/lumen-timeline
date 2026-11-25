@@ -305,7 +305,7 @@ export function createDubProject(view: View): Project {
     source: { assetId: "me", streamId: "mono", sourceAtContentZero: 0 },
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     duration: sec(SCENE_SECONDS),
     // Levels that leave the mix headroom where two voices and the bed overlap.
     tracks:

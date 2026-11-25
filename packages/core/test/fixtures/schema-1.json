@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture-episode",
+  "title": "A project saved in schema 1, with version 1 of the app.status plugin",
+  "duration": 100000,
+  "revision": 12,
+  "tracks": [
+    {
+      "id": "voice",
+      "name": "Voice",
+      "overlap": "exclusive",
+      "accepts": ["audio"],
+      "extensions": { "app.status": "draft" }
+    },
+    { "id": "music", "name": "Music", "gain": 0.5, "mute": false }
+  ],
+  "clips": [
+    {
+      "id": "line-1",
+      "trackId": "voice",
+      "kind": "audio",
+      "start": 1000,
+      "duration": 4000,
+      "contentIn": 0,
+      "takeIds": ["take-a", "take-b"],
+      "activeTakeId": "take-b",
+      "extensions": { "app.status": "final", "host.other": { "keep": [1, 2] } }
+    },
+    {
+      "id": "line-2",
+      "trackId": "voice",
+      "kind": "audio",
+      "start": 6000,
+      "duration": 3000,
+      "contentIn": 500,
+      "rate": 1.5,
+      "contentBounds": { "start": 0, "end": 10000 },
+      "source": { "assetId": "line-2", "streamId": "mono" },
+      "extensions": { "app.status": "draft" }
+    },
+    {
+      "id": "bed",
+      "trackId": "music",
+      "kind": "audio",
+      "start": 0,
+      "duration": 20000,
+      "contentIn": 0,
+      "name": "Bed",
+      "source": { "assetId": "bed", "streamId": "stereo", "sourceAtContentZero": 0 },
+      "hostField": "kept as written"
+    }
+  ],
+  "markers": [
+    { "id": "m-2", "start": 6000, "label": "Second" },
+    { "id": "m-1", "start": 0, "label": "Open", "extensions": { "app.status": "draft" } }
+  ],
+  "takes": [
+    {
+      "id": "take-b",
+      "assetId": "line-1-b",
+      "streamId": "mono",
+      "sourceAtContentZero": 0,
+      "label": "Second",
+      "extensions": { "app.status": "final" }
+    },
+    { "id": "take-a", "assetId": "line-1-a", "streamId": "mono", "sourceAtContentZero": 0 }
+  ],
+  "entityData": { "notes": { "line-1": { "text": "Keep the breath" } } }
+}

@@ -77,7 +77,7 @@ export function project() {
   }
   takes.push({ id: "room-take", assetId: "room", streamId: "mono", sourceAtContentZero: 0 });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     duration: 40 * hz,
     tracks,
     clips,
