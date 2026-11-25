@@ -79,13 +79,18 @@ jobs:
       # A short run keeps the comparison working; its figures come from real hardware.
       - run: npm run bench:wrappers -- --runs 1 --seconds 4 --renderer canvas2d --channel chromium --no-build
 
-  # The browser traces that take an engine, in the engines CI's other jobs do not run.
+  # The browser traces that take an engine, in the engines CI's other jobs do not run. WebKit runs
+  # on macOS, whose media stack is Safari's; WebKit on Linux plays through GStreamer instead.
   engines:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        engine: [firefox, webkit]
+        include:
+          - engine: firefox
+            os: ubuntu-latest
+          - engine: webkit
+            os: macos-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -94,6 +99,15 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps ${{ matrix.engine }}
+      # Firefox starts an AudioContext only with an output device; the Linux runner has none, so
+      # give it a silent one.
+      - name: Silent audio output
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=silent
+          pactl set-default-sink silent
       - run: node examples/vanilla/verify.mjs ${{ matrix.engine }}
       - run: node examples/vanilla/verify-audio.mjs ${{ matrix.engine }}
       - run: node examples/vanilla/verify-milestone.mjs ${{ matrix.engine }}
