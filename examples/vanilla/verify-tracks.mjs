@@ -185,6 +185,9 @@ try {
   await page.keyboard.press("F2");
   assert.equal(await input.count(), 1);
   await page.keyboard.press("Escape");
+  // Opening and closing the field in a row in view leaves the list where it was.
+  for (let i = 0; i < 5; i++) await frame();
+  assert.equal(await run(() => document.querySelector(".lt-scroll").scrollTop), 0);
   console.log(engine + ": inline rename commits, cancels, ignores blank names and waits for IME");
 
   // Arrow keys move focus between headers and scroll rows into view.
