@@ -1,6 +1,6 @@
 # Validate the first release
 
-**Status.** Delivered in one pull request, which started from 2990666, after #65. [Milestone 6](../../ROADMAP.md#milestones) · [Domain extensions and persistence](../design.md#domain-extensions-and-persistence)
+**Status.** Delivered in [#66](https://github.com/kjmin-dev/lumen-timeline/pull/66), which started from 2990666, after #65. [Milestone 6](../../ROADMAP.md#milestones) · [Domain extensions and persistence](../design.md#domain-extensions-and-persistence)
 
 **User outcome.** A team can ship on the first release. Its podcast editor, built on the public packages like the dubbing studio, mixes two speakers who talk over each other with music, chapters and a level per clip. Its saved projects open in later releases, and a later release's projects open read-only in this one instead of failing or being misread. A project passes unharmed through an editor that lacks one of its plugins. A host attaches the timeline to the player it already has.
 
@@ -71,4 +71,4 @@ A field whose absence an older reader would misread changes the schema. Two such
 
 | PR  | Scope                                                                                                                                                                           | Gate                                                                                                                                         |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| M6  | Schema 2, migrations, read-only later schemas, clip gain through core, media and timeline, the podcast editor, the external-player guide and page, plugin and persistence guide | `npm run check`, `npm run check:docs` with the podcast test, `verify:external` in three engines, and every existing browser trace unchanged. |
+| #66 | Schema 2, migrations, read-only later schemas, clip gain through core, media and timeline, the podcast editor, the external-player guide and page, plugin and persistence guide | `npm run check`, `npm run check:docs` with the podcast test, `verify:external` in three engines, and every existing browser trace unchanged. |

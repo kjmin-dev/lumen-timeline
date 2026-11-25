@@ -18,6 +18,6 @@ Each plan states a user outcome, the commit it starts from, the pull requests th
 | [Four framework wrappers](framework-wrappers.md)           | React, Svelte, SolidJS and Vue mount the shared view and select fields for their own panels                                          | #51–#55            |
 | [Long media](long-media.md)                                | Chunked reads within a memory budget, loading ahead, segments locked to the clock, overviews                                         | #63                |
 | [Clip speed and time stretch](clip-speed.md)               | Retime a clip by rate or length, played as varispeed or stretched at its own pitch                                                   | #62                |
-| [Validate the first release](first-release.md)             | Schema 2 with migrations and read-only later schemas, clip gain, the podcast editor's overlapping voices and level, external players | M6                 |
+| [Validate the first release](first-release.md)             | Schema 2 with migrations and read-only later schemas, clip gain, the podcast editor's overlapping voices and level, external players | #66                |
 
 Milestones and their exit criteria are in the [roadmap](../../ROADMAP.md#milestones).
