@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { TICKS_PER_SECOND as hz } from "@lumen-timeline/core";
 import type { Clip, Take } from "@lumen-timeline/core";
+import { decibelScale } from "@lumen-timeline/timeline";
 import {
   captionWords,
   isImage,
@@ -340,4 +341,57 @@ test("a list grows past its first capacity and clears for reuse", () => {
   assert.equal(list.colors[999], 999);
   list.clear();
   assert.equal(list.count, 0);
+});
+
+test("a clip's gain scales its waveform before the provider's scale draws it", () => {
+  const heights = (extra: Partial<Clip>, scale?: (peak: number) => number): number[] => {
+    const list = new QuadList();
+    layoutRow(
+      row,
+      [clip("b", 5, 2, { takeIds: ["k"], activeTakeId: "k", ...extra })],
+      layout({
+        peaks: ({ buckets }) => new Float32Array(2 * buckets).map((_, i) => (i % 2 ? 0.25 : -0.25)),
+        ...(scale ? { scale } : {}),
+      }),
+      list,
+      [],
+    );
+    // The bars, without the strip, grid, body and label.
+    return [
+      ...new Set(
+        quads(list)
+          .slice(4, -1)
+          .map((q) => q.h),
+      ),
+    ];
+  };
+  const [unity] = heights({});
+  assert.ok(unity && unity > 4);
+  assert.deepEqual(heights({ gain: 2 }), [unity * 2]);
+  assert.deepEqual(heights({ gain: 0.5 }), [unity / 2]);
+  // Past full scale the bars clip, as the sound would.
+  assert.deepEqual(heights({ gain: 16 }), [unity * 4]);
+  // A silenced clip keeps its minimum bars so it still reads as audio.
+  assert.deepEqual(heights({ gain: 0 }), [1.5]);
+  // The scale sees the gained peak. Quads hold 32-bit floats.
+  const db = decibelScale(-42);
+  const [quarter] = heights({}, db);
+  const [eighth] = heights({ gain: 0.5 }, db);
+  assert.ok(quarter && eighth);
+  assert.ok(Math.abs(quarter / unity - 4 * db(0.25)) < 1e-5);
+  assert.ok(Math.abs(eighth / unity - 4 * db(0.125)) < 1e-5);
+});
+
+test("decibelScale maps levels to heights and keeps their sign", () => {
+  const db = decibelScale(-40);
+  assert.equal(db(1), 1);
+  assert.equal(db(-1), -1);
+  assert.equal(db(0), 0);
+  assert.equal(db(0.01), 0);
+  assert.ok(Math.abs(db(0.1) - 0.5) < 1e-12);
+  assert.ok(Math.abs(db(-0.1) + 0.5) < 1e-12);
+  assert.equal(db(4), 1);
+  assert.equal(db(Number.NaN), 0);
+  for (const floor of [0, 3, Number.NaN, Number.NEGATIVE_INFINITY])
+    assert.throws(() => decibelScale(floor), RangeError);
 });

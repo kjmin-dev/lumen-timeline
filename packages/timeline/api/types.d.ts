@@ -326,6 +326,12 @@ export interface WaveformProvider {
      */
     peaks(request: WaveformRequest): ArrayLike<number> | null;
     /**
+     * Maps a peak, already multiplied by the clip's gain, to the height drawn,
+     * both in -1 to 1, keeping its sign. `decibelScale(floor)` draws quiet
+     * material larger. Omitted, peaks are drawn as they are.
+     */
+    scale?(peak: number): number;
+    /**
      * Called with an asset ID when its peaks become available or change. The view
      * repaints the tracks whose clips play that asset. Call it outside `peaks`.
      */
@@ -350,7 +356,11 @@ export interface TimelineOptions {
     readonly theme?: TimelineTheme | undefined;
     /** Row geometry overrides (`laneHeight`, `rowInset`). */
     readonly layout?: TimelineLayoutOptions | undefined;
-    /** Disables drag/keyboard/form editing while keeping selection, seek, zoom and pan. */
+    /**
+     * Disables drag/keyboard/form editing while keeping selection, seek, zoom
+     * and pan. Defaults to `true` for an editor whose `readOnly` names a reason,
+     * such as a project in a later schema, and to `false` otherwise.
+     */
     readonly readOnly?: boolean | undefined;
     /** Enables built-in keyboard editing and marker shortcuts. Defaults to `true`. */
     readonly shortcuts?: boolean | undefined;

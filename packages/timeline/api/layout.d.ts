@@ -96,6 +96,8 @@ export interface RowLayout {
     readonly words: CaptionWords;
     readonly takesOf: (clipId: string) => readonly Take[];
     peaks?: ((request: WaveformRequest) => ArrayLike<number> | null) | undefined;
+    /** Maps a peak, after the clip's gain, to the height drawn. */
+    readonly scale?: ((peak: number) => number) | undefined;
     readonly label: LabelSource;
     /** Collects the assets whose waveforms the row asked for. */
     readonly assets?: Set<string> | undefined;
