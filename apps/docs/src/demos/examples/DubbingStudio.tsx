@@ -1187,7 +1187,7 @@ export default function DubbingStudio(): ReactElement {
     };
   }, []);
 
-  // Each dub is a project of its own, with its own approvals and history; so is the original.
+  // Each dub is a project of its own, with its own takes and history; so is the original.
   const session = useMemo(() => {
     if (!host) return null;
     const open = sessions.current.get(lang);
