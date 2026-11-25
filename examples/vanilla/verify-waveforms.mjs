@@ -1,7 +1,8 @@
 // Waveforms in the timeline: the example's reference stem drawn where its
 // phrases are, at two zoom levels; and, in a mount of its own, a provider whose
 // peaks arrive later, the tracks a notification repaints, and the source range
-// requested after a move, a trim and a take offset change. Usage:
+// requested after a move, a trim and a take offset change; and the stem without a peak worker,
+// blocked from the start or lost midway. Usage:
 // node examples/vanilla/verify-waveforms.mjs [chromium|firefox|webkit]   (build first)
 import assert from "node:assert/strict";
 import { chromium, firefox, webkit } from "playwright";
@@ -212,6 +213,88 @@ async function provider() {
   await page.close();
 }
 
+// Without a worker, from the start or lost in the middle of a session, the stem's peaks come from
+// the main thread: the same phrases draw, the view keeps its viewport and selection, and the
+// tiles say why.
+async function workers(mode) {
+  const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addInitScript((blocked) => {
+    const Real = window.Worker;
+    window.peakWorkers = [];
+    window.Worker = class extends Real {
+      constructor(url, options) {
+        if (blocked && String(url).includes("peak")) throw new Error("blocked by the page");
+        super(url, options);
+        if (String(url).includes("peak")) window.peakWorkers.push(this);
+      }
+    };
+  }, mode === "blocked");
+  await page.goto(server.url);
+  await page.waitForSelector(".lt-edit", { state: "attached" });
+  await page.evaluate(inkSource);
+  await page.evaluate(async () => {
+    window.lumenApp = await import("./app.mjs");
+  });
+  const drawn = () =>
+    page.evaluate(async () => {
+      await window.lumenApp.studio.waveforms.idle();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+  const stem = (seconds) =>
+    page.evaluate((s) => {
+      const { view } = window.lumenApp.studio;
+      view.setViewport({});
+      const { startTick, pixelsPerSecond } = view.getViewport();
+      const x = ((s * 282240000 - startTick) / 282240000) * pixelsPerSecond;
+      return window.ink(document.querySelector(".lt-clips"), x, 3 * 67 + 30, 20, [153, 159, 166]);
+    }, seconds);
+  const place = () =>
+    page.evaluate(() => {
+      const { view, editor } = window.lumenApp.studio;
+      return JSON.stringify({
+        viewport: view.getViewport(),
+        selection: editor.session.getSelection(),
+      });
+    });
+  await drawn();
+  if (mode === "lost") {
+    // The worker drew the first tiles. Select a clip, zoom in, then lose the worker.
+    assert.equal(await page.evaluate(() => window.peakWorkers.length), 1);
+    await page.evaluate(() => {
+      const { view, editor } = window.lumenApp.studio;
+      editor.session.select(["line"]);
+      view.setViewport({ startTick: 9 * 282240000, pixelsPerSecond: 200 });
+    });
+    await drawn();
+    const before = await place();
+    await page.evaluate(() =>
+      window.peakWorkers[0].dispatchEvent(new ErrorEvent("error", { message: "lost" })),
+    );
+    await drawn();
+    assert.equal(await place(), before, "losing the worker moved the view or the selection");
+    // Tiles the worker never built: a zoom it did not draw.
+    await page.evaluate(() =>
+      window.lumenApp.studio.view.setViewport({ startTick: 9 * 282240000, pixelsPerSecond: 130 }),
+    );
+    await drawn();
+  }
+  const look =
+    mode === "lost"
+      ? { silent: [await stem(11)], voiced: [await stem(12.55)] }
+      : { silent: [await stem(10), await stem(17.5)], voiced: [await stem(13), await stem(20)] };
+  assert.ok(
+    look.silent.every((ink) => ink <= 2) && look.voiced.every((ink) => ink >= 6),
+    JSON.stringify(look),
+  );
+  const { fallback } = await page.evaluate(() => window.lumenApp.studio.waveforms.diagnostics());
+  assert.match(
+    fallback ?? "",
+    mode === "lost" ? /^The peak worker failed: lost/ : /^No peak worker: .*blocked by the page/,
+  );
+  await page.close();
+}
+
 try {
   await studio();
   console.log(
@@ -219,6 +302,12 @@ try {
   );
   await provider();
   console.log(engine + ": late peaks, targeted repaints and source ranges after edits passed");
+  await workers("blocked");
+  await workers("lost");
+  console.log(
+    engine +
+      ": without a peak worker, from the start or lost midway, the stem draws and the view stays",
+  );
   assert.deepEqual(errors, []);
 } finally {
   await browser.close();
