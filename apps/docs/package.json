@@ -8,7 +8,7 @@
     "build": "node scripts/generate.ts && astro build",
     "preview": "astro preview",
     "typecheck": "tsrs --noEmit",
-    "test": "node --test test/generate.test.ts test/site.test.mjs"
+    "test": "node --test test/generate.test.ts test/site.test.mjs test/podcast.test.mjs"
   },
   "dependencies": {
     "@astrojs/react": "^7.1.8",

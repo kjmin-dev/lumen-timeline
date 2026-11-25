@@ -18,11 +18,12 @@ import {
   type WaveformTiles,
 } from "@lumen-timeline/media";
 import { useEditorSelector, useTransportSelector } from "@lumen-timeline/react";
-import type {
-  TimelineEvents,
-  TimelineView,
-  Viewport,
-  WaveformProvider,
+import {
+  decibelScale,
+  type TimelineEvents,
+  type TimelineView,
+  type Viewport,
+  type WaveformProvider,
 } from "@lumen-timeline/timeline";
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -133,14 +134,25 @@ export function createExampleSession(
       return buffer;
     },
   });
-  return {
+  const session: ExampleSession = {
     editor,
     transport,
     dispose() {
       transport.dispose();
       editor.dispose();
+      if (window.lumenExample === session) delete window.lumenExample;
     },
   };
+  // For the browser tests and anyone curious in the console: the screen's own editor and
+  // transport, which are public package objects.
+  window.lumenExample = session;
+  return session;
+}
+
+declare global {
+  interface Window {
+    lumenExample?: ExampleSession;
+  }
 }
 
 // ----------------------------------------------------------------- hooks
@@ -207,24 +219,11 @@ export function useClipsAtPlayhead(
  * picture changes, never the sound.
  */
 export function decibelWaveforms(provider: WaveformProvider, floor = -42): WaveformProvider {
-  const scaled = new WeakMap<ArrayLike<number>, Float32Array>();
-  const level = (value: number): number => {
-    const size = Math.abs(value);
-    if (size <= 0) return 0;
-    const shown = Math.max(0, 1 - (20 * Math.log10(size)) / floor);
-    return Math.sign(value) * Math.min(1, shown);
-  };
+  // The view multiplies peaks by the clip's gain before the scale, so a quieter clip draws
+  // smaller by its true level.
   return {
-    peaks(request) {
-      const peaks = provider.peaks(request);
-      if (!peaks) return null;
-      const known = scaled.get(peaks);
-      if (known) return known;
-      const out = new Float32Array(peaks.length);
-      for (let i = 0; i < peaks.length; i++) out[i] = level(peaks[i] ?? 0);
-      scaled.set(peaks, out);
-      return out;
-    },
+    peaks: (request) => provider.peaks(request),
+    scale: decibelScale(floor),
     ...(provider.subscribe && { subscribe: provider.subscribe.bind(provider) }),
   };
 }

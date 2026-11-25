@@ -1045,10 +1045,20 @@
   text-align: right;
 }
 
-.pod-page article strong {
-  color: var(--spk);
+/* The speaker's name selects the paragraph on the timeline, for its level. */
+.pod-speaker {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--spk) !important;
   font-size: 12.5px;
   font-weight: 650;
+  cursor: pointer;
+}
+
+.pod-speaker:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .pod-time,
@@ -1173,6 +1183,47 @@
   color: var(--demo-accent-text) !important;
 }
 
+/* The selected clips' level: a name, a slider and its reading, at a fixed width. */
+.pod-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--demo-border);
+  border-radius: 7px;
+  background: var(--ex-raise);
+  font-size: 12px;
+}
+
+.pod-level-name {
+  width: 92px;
+  overflow: hidden;
+  color: var(--demo-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-level input {
+  width: 110px;
+  margin: 0;
+  accent-color: var(--demo-accent);
+}
+
+.pod-level input:disabled {
+  opacity: 0.4;
+}
+
+.pod-level output {
+  min-width: 56px;
+  color: var(--demo-text);
+  font:
+    11px ui-monospace,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .pod-timeline .lt {
   --gutter: 108px;
   padding: 0 10px 10px;
@@ -1204,6 +1255,10 @@
   }
 
   .pod-notice {
+    display: none;
+  }
+
+  .pod-level-name {
     display: none;
   }
 }
