@@ -132,7 +132,7 @@ try {
         const tracks = Array.from({ length: 20 }, (_, i) => ({ id: "track-" + i }));
         const editor = createEditor({
           project: {
-            schemaVersion: 1,
+            schemaVersion: 2,
             duration: 24 * hz,
             tracks,
             clips: tracks.map((t) => ({

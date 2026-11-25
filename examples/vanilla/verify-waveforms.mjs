@@ -131,7 +131,7 @@ async function provider() {
     });
     const editor = createEditor({
       project: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         duration: 10 * hz,
         tracks: [{ id: "a" }, { id: "b" }],
         clips: [clip("one", "a", "k1"), clip("two", "b", "k2")],

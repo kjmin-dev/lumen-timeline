@@ -36,7 +36,7 @@ try {
 
     const editor = createEditor({
       project: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         duration: 30 * hz,
         tracks: [
           { id: "host", name: "Host", color: "#55ccbb" },

@@ -95,7 +95,7 @@ async function mount(renderer) {
     });
     const editor = createEditor({
       project: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         duration: 60 * hz,
         tracks: names.map((name, t) => ({ id: "t" + t, name, overlap: "exclusive" })),
         clips,

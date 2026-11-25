@@ -62,7 +62,7 @@ try {
         });
       }
     const editor = createEditor({
-      project: { schemaVersion: 1, duration: 7200 * hz, tracks, clips, takes },
+      project: { schemaVersion: 2, duration: 7200 * hz, tracks, clips, takes },
     });
     const listeners = new Set();
     const waveforms = {

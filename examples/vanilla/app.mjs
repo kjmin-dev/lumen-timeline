@@ -15,7 +15,7 @@ const video = document.querySelector("video");
 // `?renderer=webgpu`, `webgl2` or `canvas2d` picks the timeline's drawing backend.
 const renderer = new URLSearchParams(location.search).get("renderer") ?? undefined;
 const videoProject = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   duration: 24 * hz,
   // One track per speaker, the music, and the original dialogue as a quiet,
   // locked reference stem under the whole picture.
@@ -133,7 +133,7 @@ const videoProject = {
   },
 };
 const audioProject = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   tracks: videoProject.tracks.slice(0, 2),
   clips: [
     { ...videoProject.clips[0], name: "Field narration", start: 2 * hz },

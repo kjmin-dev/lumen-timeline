@@ -25,7 +25,7 @@ try {
     const names = ["Dialogue", "Music", "Effects", "Ambience", "Foley", "Score", "Guide", "Notes"];
     const editor = createEditor({
       project: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         duration: 20 * hz,
         tracks: names.map((name, i) => ({ id: "t" + i, name })),
         clips: names.map((name, i) => ({

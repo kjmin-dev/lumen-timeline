@@ -44,7 +44,7 @@ export const sec = (n) => unitsToTicks(n, 1);
 // The document: one track, one line with two recorded takes, and a marker in the line.
 export const editor = createEditor({
   project: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     duration: sec(30),
     tracks: [{ id: "voice", name: "Voice", overlap: "exclusive" }],
     clips: [

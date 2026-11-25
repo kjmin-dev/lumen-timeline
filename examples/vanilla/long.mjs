@@ -99,7 +99,7 @@ for (let i = 0; i < 2400; i++) {
 }
 const editor = createEditor({
   project: {
-    schemaVersion: 1,
+    schemaVersion: 2,
     duration: hours * 3600 * hz,
     tracks: [
       { id: "stem", name: "Original dialogue", locked: true, gain: 0.35 },

@@ -96,7 +96,7 @@ try {
       }
     const editor = createEditor({
       project: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         duration: 60 * hz,
         tracks: [0, 1, 2].map((t) => ({ id: "t" + t, name: "Track " + t })),
         clips,

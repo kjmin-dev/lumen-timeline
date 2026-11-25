@@ -296,7 +296,7 @@ export async function verifyEdits(browser, url) {
       const tick = 282240000;
       const editor = createEditor({
         project: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           duration: 32 * tick,
           tracks: [{ id: "from" }, { id: "to", overlap: "exclusive" }],
           clips: ["a", "b"].map((id, i) => ({
