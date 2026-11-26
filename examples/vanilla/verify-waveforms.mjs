@@ -153,9 +153,11 @@ async function provider() {
     const view = mountTimeline(host, { editor, transport, pixelsPerSecond: 50, waveforms });
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     // Sample past each clip's name and caption, which render wider on some systems.
-    // Paints first, so the canvas holds its drawing in this task.
-    const look = (seconds) => {
+    // Paints first, so the canvas holds its drawing in this task. A GPU backend draws a task's
+    // later paints in a microtask once the task returns, so let it draw the last one before reading.
+    const look = async (seconds) => {
       view.setViewport({});
+      await Promise.resolve();
       return {
         a: window.ink(host.querySelector(".lt-clips"), seconds * 50, 30, 20, [76, 215, 200]),
         b: window.ink(host.querySelector(".lt-clips"), seconds * 50, 67 + 30, 20, [249, 168, 112]),
@@ -168,13 +170,13 @@ async function provider() {
     const paints = () => view.getDiagnostics().staticPaints;
     const out = {};
     out.pending = {
-      look: look(4.5),
+      look: await look(4.5),
       assets: [...new Set(requests.map((r) => r.assetId))].sort((p, q) => p.localeCompare(q)),
     };
     let before = paints();
     ready.add("x");
     listener("x");
-    out.ready = { paints: paints() - before, look: look(4.5), request: lastX() };
+    out.ready = { paints: paints() - before, look: await look(4.5), request: lastX() };
     before = paints();
     listener("z");
     out.unused = paints() - before;

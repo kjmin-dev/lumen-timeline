@@ -4,7 +4,8 @@
 // during playback and during a drag leaves the view drawing on the next
 // backend, at the same viewport and selection, with every edit kept, and the
 // view returns to its backend when the device comes back. Usage:
-// node examples/vanilla/verify-renderers.mjs [chromium|webkit]   (build first)
+// node examples/vanilla/verify-renderers.mjs [chromium|firefox|webkit] [backends]   (build first)
+// A backend the engine lacks, as WebGPU in Playwright's Firefox, is checked to fall back and say why.
 import assert from "node:assert/strict";
 import { chromium, firefox, webkit } from "playwright";
 import { serve } from "./server.mjs";
@@ -41,7 +42,7 @@ const errors = [];
 const hz = 282240000;
 const pps = 40;
 
-async function mount(renderer) {
+async function mount(renderer, expected = renderer) {
   const page = await browser.newPage({
     viewport: { width: 1200, height: 800 },
     deviceScaleFactor: 2,
@@ -158,7 +159,7 @@ async function mount(renderer) {
     });
     window.fixture = { editor, view, transport };
   }, renderer);
-  await page.waitForFunction((r) => window.fixture.view.getDiagnostics().backend === r, renderer, {
+  await page.waitForFunction((r) => window.fixture.view.getDiagnostics().backend === r, expected, {
     timeout: 15000,
   });
   return page;
@@ -246,6 +247,33 @@ async function fillAt(page, seconds, row) {
 
 const results = {};
 try {
+  // A backend the engine cannot provide, as WebGPU in Playwright's Firefox or WebGL2 without a GPU
+  // on Linux, is checked instead to fall back to the next one and say why.
+  const probe = await browser.newPage();
+  await probe.goto(server.url + "/examples/vanilla/lab.html");
+  const support = await probe.evaluate(async () => ({
+    webgl2: document.createElement("canvas").getContext("webgl2") ? "ok" : "WebGL2 is unavailable",
+    webgpu: !("gpu" in navigator)
+      ? "WebGPU is unavailable"
+      : (await navigator.gpu.requestAdapter())
+        ? "ok"
+        : "No WebGPU adapter or device",
+  }));
+  await probe.close();
+  for (const backend of ["webgpu", "webgl2"]) {
+    const why = support[backend];
+    if (why === "ok" || !backends.includes(backend)) continue;
+    backends.splice(backends.indexOf(backend), 1);
+    const next = backend === "webgpu" && support.webgl2 === "ok" ? "webgl2" : "canvas2d";
+    const page = await mount(backend, next);
+    await page.waitForFunction(
+      (reason) => window.fixture.view.getDiagnostics().fallback === reason,
+      why,
+    );
+    assert.equal((await diagnostics(page)).backend, next);
+    await page.close();
+    console.log(`${engine} ${backend}: ${why}, so the view draws on ${next} and says so`);
+  }
   for (const backend of backends) {
     const page = await mount(backend);
     const result = {};

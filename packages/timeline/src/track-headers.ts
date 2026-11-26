@@ -514,11 +514,13 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
       },
       { signal },
     );
+    // Select the name before the field is shown: selecting a shown field makes WebKit reveal the
+    // selection later, which scrolls the header list even when the row is in view.
+    input.setSelectionRange(0, input.value.length);
     target.replaceWith(input);
     header.element.classList.add("lt-label-renaming");
     setTabStop(track.id);
     input.focus({ preventScroll: true });
-    input.select();
     return true;
   }
 
@@ -531,8 +533,10 @@ export function createTrackHeaders(options: TrackHeaderOptions): TrackHeaders {
     header.element.classList.remove("lt-label-renaming");
     // Drawn again at the next place, with whatever name the track has then.
     header.key = "";
-    if (input.isConnected) input.replaceWith(replaced);
+    // Focus moves before the field goes: removing a focused field lets WebKit move focus and
+    // reveal it on its own, which scrolls the header list.
     if (refocus && header.element.isConnected) header.element.focus({ preventScroll: true });
+    if (input.isConnected) input.replaceWith(replaced);
     if (!commit) return;
     const track = editor.getSnapshot().tracks.find((t) => t.id === trackId);
     const name = track && renamedTo(draft, track);

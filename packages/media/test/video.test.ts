@@ -171,3 +171,54 @@ test("native seeks publish their target and start a segment; frames advance with
   });
   assert.equal(stop(), true);
 });
+
+test("a native seek or stall while playing resumes presenting frames once they move on", (t) => {
+  const editor = createEditor({
+    project: { schemaVersion: 2, duration: 12 * hz, tracks: [], clips: [] },
+  });
+  const { video, player } = videoFixture(editor);
+  t.after(() => {
+    player.dispose();
+    editor.dispose();
+  });
+  video.paused = false;
+  video.dispatchEvent(new Event("play"));
+  video.dispatchEvent(new Event("playing"));
+  video.present(1.1);
+  video.present(1.2);
+  assert.equal(player.snapshot().presentedTick, 1.2 * hz);
+  assert.equal(player.snapshot().playing, true);
+
+  // A seek within buffered media: WebKit fires seeking and seeked, but no playing event.
+  video.nativeSeek(6);
+  video.seeked();
+  assert.equal(player.snapshot().presentedTick, 6 * hz);
+  // The first callback after the seek re-arms; the frames after it are presented.
+  video.present(6);
+  video.present(6.1);
+  video.present(6.2);
+  assert.equal(player.snapshot().presentedTick, 6.2 * hz);
+  assert.equal(player.snapshot().playing, true);
+
+  // WebKit on GStreamer reports HAVE_CURRENT_DATA after a seek while it plays on, and sends no
+  // playing event: frames that move on resume presentation.
+  Object.defineProperty(video, "readyState", { value: 2, configurable: true });
+  video.nativeSeek(9);
+  video.seeked();
+  video.present(9); // re-arms after the seek
+  video.present(9.1); // the first frame of the new run, which nothing yet shows moves on
+  assert.equal(player.snapshot().presentedTick, 9 * hz);
+  video.present(9.2);
+  assert.equal(player.snapshot().presentedTick, 9.2 * hz);
+  video.present(9.3);
+  assert.equal(player.snapshot().presentedTick, 9.3 * hz);
+
+  // A stall repeats its frame: presentation holds until frames move on again.
+  video.dispatchEvent(new Event("waiting"));
+  video.present(9.3); // re-arms after the stall
+  video.present(9.3);
+  video.present(9.3);
+  assert.equal(player.snapshot().presentedTick, 9.3 * hz);
+  video.present(9.4);
+  assert.equal(player.snapshot().presentedTick, 9.4 * hz);
+});

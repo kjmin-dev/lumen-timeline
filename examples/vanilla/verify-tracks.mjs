@@ -185,6 +185,9 @@ try {
   await page.keyboard.press("F2");
   assert.equal(await input.count(), 1);
   await page.keyboard.press("Escape");
+  // Opening and closing the field in a row in view leaves the list where it was.
+  for (let i = 0; i < 5; i++) await frame();
+  assert.equal(await run(() => document.querySelector(".lt-scroll").scrollTop), 0);
   console.log(engine + ": inline rename commits, cancels, ignores blank names and waits for IME");
 
   // Arrow keys move focus between headers and scroll rows into view.
@@ -389,6 +392,17 @@ try {
   await header("t1").focus();
   await page.keyboard.press("Alt+ArrowDown");
   await page.keyboard.press("Enter");
+  // A read-only view leaves Alt+ArrowDown to the browser, which may scroll the list with an
+  // animation that Firefox runs for a while. Let it finish and start from the top again.
+  await run(async () => {
+    const scroll = document.querySelector(".lt-scroll");
+    for (let still = 0, last = -1; still < 5;) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      still = scroll.scrollTop === last ? still + 1 : 0;
+      last = scroll.scrollTop;
+    }
+  });
+  await setScroll(0);
   const ro = await box("t1");
   await page.mouse.move(ro.x + 50, ro.y + 10);
   await page.mouse.down();

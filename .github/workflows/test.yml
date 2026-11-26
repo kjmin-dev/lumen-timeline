@@ -79,6 +79,52 @@ jobs:
       # A short run keeps the comparison working; its figures come from real hardware.
       - run: npm run bench:wrappers -- --runs 1 --seconds 4 --renderer canvas2d --channel chromium --no-build
 
+  # The browser traces that take an engine, in the engines CI's other jobs do not run. WebKit runs
+  # on macOS, whose media stack is Safari's; WebKit on Linux plays through GStreamer instead.
+  engines:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - engine: firefox
+            os: ubuntu-latest
+          - engine: webkit
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps ${{ matrix.engine }}
+      # Firefox starts an AudioContext only with an output device; the Linux runner has none, so
+      # give it a silent one.
+      - name: Silent audio output
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=silent
+          pactl set-default-sink silent
+      - run: node examples/vanilla/verify.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-audio.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-milestone.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-takes.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-studio.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-lines.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-waveforms.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-peaks.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-long.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-scale.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-renderers.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-tracks.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-chrome.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-stretch.mjs ${{ matrix.engine }}
+      - run: node examples/vanilla/verify-external.mjs ${{ matrix.engine }}
+      - run: node examples/sync/verify.mjs ${{ matrix.engine }}
+
   docs:
     runs-on: ubuntu-latest
     steps:

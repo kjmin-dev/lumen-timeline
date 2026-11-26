@@ -33,6 +33,8 @@ export declare class VideoTransport {
         readonly since: number;
     } | null;
     running: boolean;
+    /** The media time of the last frame sampled since the element last stopped or seeked. */
+    lastFrame: number | undefined;
     readonly listeners: AbortController;
     frame: number;
     seekInFlight?: boolean;
@@ -52,6 +54,8 @@ export declare class VideoTransport {
     invalidate(): void;
     seek(target: number): Promise<SeekResult>;
     drainSeeks(): Promise<void>;
+    /** Whether the element is playing with data ahead of it. */
+    private playable;
     nativeSeek(target: number): Promise<void>;
     dispose(): void;
 }

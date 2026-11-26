@@ -55,6 +55,8 @@ export class VideoTransport {
   phaseError: number;
   phaseExcursion: { readonly sign: number; readonly since: number } | null;
   running: boolean;
+  /** The media time of the last frame sampled since the element last stopped or seeked. */
+  lastFrame: number | undefined = undefined;
   readonly listeners: AbortController;
   // Replaced by observe() before the constructor returns.
   frame = 0;
@@ -111,11 +113,18 @@ export class VideoTransport {
     for (const type of ["waiting", "seeking", "pause", "ended"]) {
       listen(type, () => {
         this.running = false;
+        this.lastFrame = undefined;
         this.invalidate();
       });
     }
     listen("playing", () => {
       this.running = true;
+    });
+    // A seek within buffered media can end without a "playing" event (WebKit), so a seek the
+    // element made itself, from its controls or the page, resumes from the element's own state.
+    // The transport's own seeks do the same once they drain.
+    listen("seeked", () => {
+      if (!this.seekInFlight) this.running = this.playable();
     });
     this.observe();
   }
@@ -147,6 +156,13 @@ export class VideoTransport {
 
   private sampleFrame(generation: number, now: number, mediaTime: number, expected?: number): void {
     if (generation !== this.generation || this.video.seeking || this.seekInFlight) return;
+    // Frames that move on are playing, whatever the element's readyState says. WebKit on
+    // GStreamer reports HAVE_CURRENT_DATA, and sends no "playing" event, while it plays on
+    // after a seek.
+    const previous = this.lastFrame;
+    this.lastFrame = mediaTime;
+    if (!this.running && !this.video.paused && !this.video.ended && previous !== undefined)
+      this.running = mediaTime > previous;
     if (this.video.paused || this.running) this.onFrame(mediaTime);
     if (this.video.paused || !this.running) return;
     let audio: number;
@@ -243,12 +259,19 @@ export class VideoTransport {
       }
     } finally {
       this.seekInFlight = false;
-      this.running =
-        !this.listeners.signal.aborted &&
-        !this.video.paused &&
-        !this.video.ended &&
-        this.video.readyState >= 3;
+      this.running = this.playable();
     }
+  }
+
+  /** Whether the element is playing with data ahead of it. */
+  private playable(): boolean {
+    return (
+      !this.listeners.signal.aborted &&
+      !this.video.paused &&
+      !this.video.ended &&
+      !this.video.seeking &&
+      this.video.readyState >= 3
+    );
   }
 
   nativeSeek(target: number): Promise<void> {
