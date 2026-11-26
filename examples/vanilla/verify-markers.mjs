@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { watchBed } from "./bed-watch.mjs";
 
 const hz = 282240000;
 
@@ -93,18 +94,16 @@ export async function verifyMarkers(page) {
 
   // A marker edit during playback leaves the music reservation alone.
   await page.getByRole("button", { name: "Play", exact: true }).click();
-  await page.waitForFunction(() => {
-    window.lumenBed = window.lumenApp.studio.transport.diagnostics("bed").reservation;
-    return window.lumenBed !== undefined;
-  });
+  await page.waitForFunction(
+    () => window.lumenApp.studio.transport.diagnostics("bed").reservation !== undefined,
+  );
+  const bedWatch = await watchBed(page);
   await page.getByRole("group", { name: "Timeline clips" }).focus();
   await page.keyboard.press("m");
-  const kept = await page.evaluate(async () => {
-    const { studio } = await import("./app.mjs");
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    return studio.transport.diagnostics("bed").reservation === window.lumenBed;
-  });
-  assert.ok(kept);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+  const music = await bedWatch();
+  assert.deepEqual(music.touched, [], "a marker edit touched the music's reservation");
+  assert.ok(music.kept && music.booked);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   const saved = (await state()).markers;
   assert.equal(saved.length, 4);
