@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { watchBed } from "./bed-watch.mjs";
 
 const hz = 282240000;
 export async function verifyEdits(browser, url) {
@@ -56,10 +57,13 @@ export async function verifyEdits(browser, url) {
     });
     await button("Play").click();
     const studioHandle = await page.evaluateHandle(async () => (await import("./app.mjs")).studio);
-    const bed = await page.waitForFunction((studio) => {
-      const voice = studio.transport.diagnostics("bed");
-      if (voice.reservation && studio.transport.diagnostics("line").reservation) return voice;
-    }, studioHandle);
+    await page.waitForFunction(
+      (studio) =>
+        studio.transport.diagnostics("bed").reservation &&
+        studio.transport.diagnostics("line").reservation,
+      studioHandle,
+    );
+    const bedWatch = await watchBed(page);
     // Alt bypasses snapping; these gestures have exact integer-second intent.
     await page.keyboard.down("Alt");
     await drag(13, 15, 0, 0, false);
@@ -100,18 +104,9 @@ export async function verifyEdits(browser, url) {
     await button("Redo").click();
     await button("Redo").click();
     assert.deepEqual((await state()).clips, s.clips);
-    assert.ok(
-      await bed.evaluate(async (b) => {
-        const state = (await import("./app.mjs")).studio.transport.diagnostics("bed");
-        return (
-          state.reservation === b.reservation &&
-          state.endSample === b.endSample &&
-          state.generation === b.generation
-        );
-      }),
-      "music reservation changed during dialogue editing",
-    );
-    await bed.dispose();
+    const music = await bedWatch();
+    assert.deepEqual(music.touched, [], "dialogue editing touched the music's reservation");
+    assert.ok(music.kept && music.booked, "the music lost its reservation during dialogue editing");
     await studioHandle.dispose();
     await button("Pause").click();
 

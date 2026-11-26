@@ -91,10 +91,19 @@ export async function verifyVideoCrossings(page) {
   await transport(page, "seek", 11 * hz);
   const log = await record(page);
   await page.getByRole("button", { name: "Play", exact: true }).click();
-  await reach(page, 11.3);
-  await page.evaluate(() => {
-    document.querySelector("video").currentTime = 18.6;
+  // Seek the element in the frame that first presents 11.1 s or later, so a loaded machine
+  // cannot play past the marker at 12 s between the check and the seek.
+  const from = await page.evaluate(async () => {
+    const { studio } = await import("./app.mjs");
+    for (;;) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const state = studio.transport.snapshot();
+      if (state.requestedTick !== null || state.presentedTick < 11.1 * 282240000) continue;
+      document.querySelector("video").currentTime = 18.6;
+      return state.presentedTick;
+    }
   });
+  assert.ok(from < 12 * hz, `the native seek left from ${from / hz} s, before the marker at 12 s`);
   await reach(page, 19.3);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   const entries = await log.evaluate((r) => {

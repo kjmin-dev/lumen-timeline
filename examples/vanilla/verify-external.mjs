@@ -85,21 +85,37 @@ try {
     );
   });
 
-  // The player's own pause stops the transport on a frame of the element: the one its time falls
-  // in at 10 fps, or in WebKit, which reports the next frame's time, its neighbour.
+  // The player's own pause leaves the transport on the frame the element last presented, which is
+  // what the picture shows. WebKit's currentTime can lag that frame by up to two frames on a
+  // loaded machine, so the element's time only bounds it.
+  await ext(() => {
+    const { video } = window.lumenExternal.element;
+    const shown = (_, frame) => {
+      window.lastShown = frame.mediaTime;
+      video.requestVideoFrameCallback(shown);
+    };
+    video.requestVideoFrameCallback(shown);
+  });
   await page.waitForFunction(
     () => window.lumenExternal.element.transport.snapshot().presentedTick > 4.6 * 282240000,
   );
   await element.locator("[data-player-play]").click();
   await page.waitForFunction(() => !window.lumenExternal.element.transport.snapshot().playing);
-  const [presented, time] = await ext(() => {
+  const [presented, shown, time] = await ext(async () => {
     const { transport, video } = window.lumenExternal.element;
-    return [transport.snapshot().presentedTick, video.currentTime];
+    // Any frame the pause itself presents arrives within a frame or two.
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
+    return [transport.snapshot().presentedTick, window.lastShown, video.currentTime];
   });
   const frame = (presented / hz) * 10;
   assert.ok(Math.abs(frame - Math.round(frame)) < 1e-6, `${presented} is a frame's start`);
+  assert.equal(
+    presented,
+    Math.round(shown * hz),
+    `paused at ${presented / hz} s, shown ${shown} s`,
+  );
   assert.ok(
-    Math.abs(presented / hz - time) <= 0.1,
+    Math.abs(presented / hz - time) <= 0.25,
     `paused at ${presented / hz} s, the element at ${time} s`,
   );
   console.log(
