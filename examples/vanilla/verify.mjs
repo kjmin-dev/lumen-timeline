@@ -185,7 +185,47 @@ async function verifyUnavailable() {
     await page.goto(server.url);
     await page.getByLabel("Clip navigator").selectOption("line");
     assert.equal(await page.locator("#clip-name").textContent(), "Tidal contours");
-    console.log(engine + ": selection remains available without media");
+    const project = () =>
+      page.evaluate(async () => {
+        const { studio } = await import("./app.mjs");
+        const { revision, clips, takes } = studio.editor.getSnapshot();
+        return {
+          revision,
+          clips,
+          takes,
+          viewport: studio.view.getViewport(),
+          selection: studio.editor.session.getSelection(),
+          drawn: studio.view.getDiagnostics().visibleClips,
+        };
+      });
+    const before = await project();
+    assert.ok(before.drawn > 0, "the clips are drawn without their media");
+    // Playing media that cannot load fails without moving the view or touching the project.
+    await page.evaluate(async () => {
+      const { studio } = await import("./app.mjs");
+      await Promise.race([
+        studio.transport.play().catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
+      studio.transport.pause();
+    });
+    assert.deepEqual(await project(), before);
+    // An edit still applies, and the clip keeps its takes and their assets.
+    await page.getByLabel("Edit operation").selectOption("move");
+    await page.getByLabel("Edit delta in seconds").fill("2");
+    await page.getByLabel("Edit delta in seconds").press("Enter");
+    const after = await project();
+    const line = (p) => p.clips.find((c) => c.id === "line");
+    assert.equal(after.revision, before.revision + 1);
+    assert.equal(line(after).start, line(before).start + 2 * hz);
+    assert.deepEqual(
+      { ...line(after), start: line(before).start },
+      line(before),
+      "the move changed only where the clip is",
+    );
+    assert.deepEqual(after.takes, before.takes);
+    assert.deepEqual([after.viewport, after.selection], [before.viewport, before.selection]);
+    console.log(engine + ": without media the clips draw, edit and keep their assets");
   } finally {
     await page.close();
   }
